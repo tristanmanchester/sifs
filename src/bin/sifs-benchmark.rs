@@ -153,6 +153,11 @@ fn main() -> Result<()> {
     for (repo_name, tasks) in by_repo {
         let spec = specs.get(&repo_name).context("missing repo spec")?;
         let root = spec.benchmark_dir(&args.bench_root);
+        eprintln!(
+            "Indexing benchmark repo {repo_name} at {} ({} tasks)",
+            root.display(),
+            tasks.len()
+        );
         let start = Instant::now();
         let index = SifsIndex::from_path(&root)?;
         let index_ms = elapsed_ms(start);
@@ -163,7 +168,13 @@ fn main() -> Result<()> {
         let mut by_category_scores: HashMap<String, Vec<f64>> = HashMap::new();
         let mut task_results = Vec::new();
 
-        for task in &tasks {
+        for (task_idx, task) in tasks.iter().enumerate() {
+            eprintln!(
+                "Running benchmark task {}/{} for {repo_name}: {}",
+                task_idx + 1,
+                tasks.len(),
+                task.query
+            );
             let mut last_results = Vec::new();
             let mut search_options = SearchOptions::new(args.top_k).with_mode(SearchMode::Hybrid);
             search_options.alpha = args.alpha;
@@ -239,7 +250,15 @@ fn main() -> Result<()> {
     };
     let json = serde_json::to_string_pretty(&payload)? + "\n";
     if let Some(output) = args.output {
-        fs::write(output, json)?;
+        fs::write(&output, json)?;
+        eprintln!(
+            "Wrote benchmark results to {} ({} repos, {} tasks, avg_ndcg10={:.3}, avg_p50_ms={:.1}).",
+            output.display(),
+            payload.summary.repos,
+            payload.summary.tasks,
+            payload.summary.avg_ndcg10,
+            payload.summary.avg_p50_ms
+        );
     } else {
         print!("{json}");
     }
@@ -325,16 +344,19 @@ fn sync_repos(specs: &BTreeMap<String, RepoSpec>, bench_root: &Path) -> Result<(
     for spec in specs.values() {
         let checkout = spec.checkout_dir(bench_root);
         if !checkout.exists() {
+            eprintln!("Cloning {} into {}", spec.url, checkout.display());
             run(Command::new("git")
                 .arg("clone")
                 .arg(&spec.url)
                 .arg(&checkout))?;
         }
+        eprintln!("Fetching {} in {}", spec.name, checkout.display());
         run(Command::new("git")
             .arg("fetch")
             .arg("--all")
             .arg("--tags")
             .current_dir(&checkout))?;
+        eprintln!("Checking out {} at {}", spec.name, spec.revision);
         run(Command::new("git")
             .arg("checkout")
             .arg(&spec.revision)

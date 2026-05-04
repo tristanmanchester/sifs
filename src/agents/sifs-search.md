@@ -22,6 +22,15 @@ sifs find-related src/auth.py 42 ./my-project
 
 If `sifs` is not on `$PATH`, install or build this Rust binary and use its absolute path.
 
+## Capabilities
+
+- Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.
+- Discover related code from a known file and line.
+- Inspect index status, indexed files, and chunk coverage when using the MCP server.
+- Refresh the MCP index after files change in a long-running agent session.
+- Install this generated agent file through `sifs init` or the MCP `init_agent` tool.
+- Run benchmarks and embedding diagnostics through the CLI when shell access is available.
+
 ## Workflow
 
 1. Start with `sifs search` to find relevant chunks.

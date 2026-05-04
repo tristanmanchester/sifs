@@ -52,8 +52,13 @@ startup.
 Supported methods are:
 
 - `initialize`: Returns server metadata, tool capability information, and usage
-  instructions.
-- `tools/list`: Returns the `search` and `find_related` tool schemas.
+  instructions. The instructions include the configured default source/ref and
+  the repo override policy when a default source is present.
+- `resources/list`: Returns context resources for server state and index
+  discovery.
+- `resources/read`: Reads context resources such as `sifs://server/context`.
+- `tools/list`: Returns schemas for search, related-code discovery, index
+  inspection, refresh, cache clearing, indexed-file listing, and chunk reading.
 - `tools/call`: Runs a supported tool and returns text content.
 
 Unsupported methods return an error string inside the JSON-RPC result payload.
@@ -81,9 +86,19 @@ Fields:
   default source is configured, `repo` must be omitted or match that source.
 - `mode` is optional and can be `hybrid`, `semantic`, or `bm25`.
 - `top_k` is optional and defaults to `5`.
+- `alpha` is optional for hybrid search. Omit it to let SIFS choose the blend
+  from the query shape.
+- `filter_languages` is optional and accepts exact language labels such as
+  `rust`.
+- `filter_paths` is optional and accepts repository-relative file paths.
 
 Use `hybrid` for most tasks. Use `bm25` for exact symbols and `semantic` for
 meaning-only exploration.
+
+Search responses include text content for agent context injection and
+`structuredContent` with source metadata, index stats, and result objects. Each
+structured result includes `file_path`, `start_line`, `end_line`, `language`,
+`score`, `source`, and `content`.
 
 ## Find-related tool
 
@@ -113,6 +128,68 @@ When SIFS can't resolve the file and line, the tool returns a text error that
 asks you to check whether the file is indexed and the line is inside a known
 chunk.
 
+## Index inspection tools
+
+Use `index_status` to inspect the selected repository before or after searching.
+It returns the source, optional Git ref, memory-cache state, indexed file count,
+chunk count, language distribution, and available MCP tools.
+
+```json
+{
+  "repo": "/path/to/project"
+}
+```
+
+Use `list_indexed_files` to see which repository-relative file paths are in the
+index.
+
+```json
+{
+  "repo": "/path/to/project",
+  "limit": 200
+}
+```
+
+Use `get_chunk` to read the indexed chunk containing a known file and one-based
+line.
+
+```json
+{
+  "file_path": "src/auth/session.rs",
+  "line": 42,
+  "repo": "/path/to/project"
+}
+```
+
+Use `refresh_index` after a user or agent edits files while a long-running MCP
+server is active. The server keeps in-memory indexes for the process lifetime,
+so refresh is the explicit way to make search reflect recent file changes
+without restarting the server.
+
+Use `clear_index` to remove a source from the in-memory cache. The next search
+or status call rebuilds or reloads the index.
+
+Use `init_agent` to create the generated SIFS Claude agent file from an MCP
+client. It defaults to `.claude/agents/sifs-search.md` and accepts `force` to
+overwrite an existing file.
+
+```json
+{
+  "destination": ".claude/agents/sifs-search.md",
+  "force": false
+}
+```
+
+## Resources
+
+The server exposes lightweight MCP resources for discovery:
+
+- `sifs://server/context`: server version, default source/ref, cache keys, tools,
+  and resource URIs.
+- `sifs://index/status`: pointer to the `index_status` tool for current stats.
+- `sifs://index/files`: pointer to the `list_indexed_files` tool for indexed
+  file inventory.
+
 ## Index caching
 
 The MCP server caches indexes for the lifetime of the process. Local sources
@@ -121,6 +198,10 @@ are keyed by canonical path. Git sources are keyed by URL and optional ref.
 The first call for a source pays the indexing cost. Later calls reuse the
 in-memory `SifsIndex`, including the loaded model, BM25 index, dense vectors,
 and chunk mappings.
+
+If files change while the MCP server keeps running, call `refresh_index` before
+trusting search results for the changed source. Git URL mode indexes a temporary
+clone, so it does not include uncommitted changes from a separate local checkout.
 
 ## Error handling
 

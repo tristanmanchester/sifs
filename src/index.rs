@@ -176,6 +176,19 @@ impl SifsIndex {
         }
     }
 
+    pub fn indexed_files(&self) -> Vec<String> {
+        let mut files: Vec<_> = self.file_mapping.keys().cloned().collect();
+        files.sort();
+        files
+    }
+
+    pub fn chunks_for_file(&self, file_path: &str) -> Vec<&Chunk> {
+        self.file_mapping
+            .get(file_path)
+            .map(|ids| ids.iter().map(|id| &self.chunks[*id]).collect())
+            .unwrap_or_default()
+    }
+
     pub fn search(
         &self,
         query: &str,

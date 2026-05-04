@@ -20,27 +20,51 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Search a local directory or Git URL with natural-language or code queries.")]
     Search {
+        #[arg(help = "Natural-language, code, symbol, or literal query to search for.")]
         query: String,
-        #[arg(default_value = ".")]
+        #[arg(
+            default_value = ".",
+            help = "Local directory or Git URL to index and search."
+        )]
         path: String,
-        #[arg(short = 'k', long = "top-k", default_value_t = 5)]
+        #[arg(
+            short = 'k',
+            long = "top-k",
+            default_value_t = 5,
+            help = "Maximum number of ranked chunks to print."
+        )]
         top_k: usize,
-        #[arg(short = 'm', long = "mode", value_enum, default_value_t = ModeArg::Hybrid)]
+        #[arg(short = 'm', long = "mode", value_enum, default_value_t = ModeArg::Hybrid, help = "Ranking mode: hybrid for most searches, bm25 for exact symbols, semantic for conceptual queries.")]
         mode: ModeArg,
     },
+    #[command(about = "Find chunks related to a known file and one-based line number.")]
     FindRelated {
+        #[arg(help = "Repository-relative file path, usually copied from a search result.")]
         file_path: String,
+        #[arg(help = "One-based line number inside the source chunk.")]
         line: usize,
-        #[arg(default_value = ".")]
+        #[arg(
+            default_value = ".",
+            help = "Local directory or Git URL to index and search."
+        )]
         path: String,
-        #[arg(short = 'k', long = "top-k", default_value_t = 5)]
+        #[arg(
+            short = 'k',
+            long = "top-k",
+            default_value_t = 5,
+            help = "Maximum number of related chunks to print."
+        )]
         top_k: usize,
     },
+    #[command(about = "Create the Claude agent file at .claude/agents/sifs-search.md.")]
     Init {
-        #[arg(long)]
+        #[arg(long, help = "Overwrite an existing generated agent file.")]
         force: bool,
     },
+    #[command(about = "Print SIFS agent, CLI, and MCP capabilities.")]
+    Capabilities,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -106,6 +130,7 @@ fn main() -> Result<()> {
             }
         }
         Some(Command::Init { force }) => run_init(force)?,
+        Some(Command::Capabilities) => print_capabilities(),
         None => {
             sifs::mcp::serve(cli.path, cli.ref_name)?;
         }
@@ -136,4 +161,24 @@ fn run_init(force: bool) -> Result<()> {
     fs::write(&dest, include_str!("agents/sifs-search.md"))?;
     println!("Created {}", dest.display());
     Ok(())
+}
+
+fn print_capabilities() {
+    println!(
+        "{}",
+        [
+            "SIFS capabilities:",
+            "- Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.",
+            "- Find related code from a known file and one-based line.",
+            "- Run as an MCP server with search, find_related, index_status, refresh_index, clear_index, list_indexed_files, get_chunk, and init_agent tools.",
+            "- Generate a Claude agent file with `sifs init`.",
+            "- Use `sifs-benchmark` for quality and latency benchmarks.",
+            "- Use `sifs-embed` for embedding diagnostics.",
+            "",
+            "Discovery:",
+            "- `sifs --help` and subcommand help show CLI usage.",
+            "- MCP clients can call `tools/list` and read `sifs://server/context`.",
+        ]
+        .join("\n")
+    );
 }

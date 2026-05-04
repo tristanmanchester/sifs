@@ -70,6 +70,8 @@ how you plan to use SIFS.
   filters, and indexing options.
 - [MCP server usage](docs/mcp.md) covers the stdio protocol surface and tool
   schemas.
+- [Agent-native scorecard](docs/agent-native-scorecard.md) defines the
+  agent-facing contract and readiness evidence.
 - [Benchmarking](docs/benchmarks.md) covers quality, latency, embedding, and
   local smoke benchmarks.
 - [Architecture](docs/architecture.md) explains file selection, chunking,

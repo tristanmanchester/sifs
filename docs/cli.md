@@ -70,6 +70,16 @@ Use `--force` to overwrite an existing file at that path.
 target/release/sifs init --force
 ```
 
+## Capabilities command
+
+The `capabilities` command prints the main CLI and MCP capabilities in one
+place. Use it when onboarding a user or checking what an agent can discover
+without opening the full documentation.
+
+```bash
+target/release/sifs capabilities
+```
+
 ## MCP server mode
 
 Running `sifs` without a subcommand starts the MCP stdio server. You can pass a
