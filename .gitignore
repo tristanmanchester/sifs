@@ -1,1 +1,39 @@
-/target
+# Rust build output
+/target/
+
+# Local SIFS state and generated indexes
+/.sifs/
+
+# Local benchmark and experiment output
+/bench-root/
+/bench-results/
+/results/
+/tmp/
+*.bench.json
+*.profraw
+*.profdata
+
+# Local model and checkpoint artifacts
+/models/
+/checkpoints/
+*.safetensors
+*.onnx
+*.bin
+*.npy
+*.npz
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.envrc
+
+# Editor and IDE state
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

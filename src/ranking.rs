@@ -62,11 +62,26 @@ const SQL_DEFINITION_KEYWORDS: &[&str] = &[
 ];
 
 pub fn resolve_alpha(query: &str, alpha: Option<f32>) -> f32 {
-    alpha.unwrap_or_else(|| if is_symbol_query(query) { 0.3 } else { 0.5 })
+    alpha.unwrap_or_else(|| {
+        if is_symbol_query(query) {
+            0.3
+        } else if is_architecture_query(query) {
+            0.55
+        } else {
+            0.3
+        }
+    })
 }
 
 pub fn is_symbol_query(query: &str) -> bool {
     SYMBOL_QUERY_RE.is_match(query.trim())
+}
+
+fn is_architecture_query(query: &str) -> bool {
+    let lowered = query.trim().to_lowercase();
+    lowered.starts_with("how ")
+        || lowered.starts_with("how does ")
+        || lowered.starts_with("how are ")
 }
 
 pub fn boost_multi_chunk_files(scores: &mut HashMap<usize, f32>, chunks: &[Chunk]) {
@@ -128,9 +143,10 @@ fn boost_symbol_definitions(
     if symbol_name != query.trim() {
         names.insert(query.trim().to_owned());
     }
+    let matchers = definition_matchers(&names);
     let boost_unit = max_score * 3.0;
     for chunk_id in boosted.keys().copied().collect::<Vec<_>>() {
-        let tier = definition_tier(&chunks[chunk_id], &names, boost_unit);
+        let tier = definition_tier(&chunks[chunk_id], &names, &matchers, boost_unit);
         if tier > 0.0 {
             *boosted.get_mut(&chunk_id).unwrap() += tier;
         }
@@ -141,7 +157,7 @@ fn boost_symbol_definitions(
         }
         let stem = path_stem_lower(&chunk.file_path);
         if stem_matches(&stem, &symbol_name.to_lowercase()) {
-            let tier = definition_tier(chunk, &names, boost_unit);
+            let tier = definition_tier(chunk, &names, &matchers, boost_unit);
             if tier > 0.0 {
                 boosted.insert(chunk_id, tier);
             }
@@ -162,9 +178,10 @@ fn boost_embedded_symbols(
     if names.is_empty() {
         return;
     }
+    let matchers = definition_matchers(&names);
     let boost_unit = max_score * 3.0 * 0.5;
     for chunk_id in boosted.keys().copied().collect::<Vec<_>>() {
-        let tier = definition_tier(&chunks[chunk_id], &names, boost_unit);
+        let tier = definition_tier(&chunks[chunk_id], &names, &matchers, boost_unit);
         if tier > 0.0 {
             *boosted.get_mut(&chunk_id).unwrap() += tier;
         }
@@ -183,7 +200,7 @@ fn boost_embedded_symbols(
                 || (stem_norm.len() >= 4 && symbol.starts_with(&stem_norm))
         });
         if stem_ok {
-            let tier = definition_tier(chunk, &names, boost_unit);
+            let tier = definition_tier(chunk, &names, &matchers, boost_unit);
             if tier > 0.0 {
                 boosted.insert(chunk_id, tier);
             }
@@ -231,32 +248,52 @@ fn extract_symbol_name(query: &str) -> String {
     query.trim().to_owned()
 }
 
-fn chunk_defines_symbol(chunk: &Chunk, symbol_name: &str) -> bool {
-    let escaped = regex::escape(symbol_name);
-    let general = format!(
-        r"(?m)(?:^|\s)(?:{})\s+(?:[A-Za-z_][A-Za-z0-9_]*(?:\.|::))*{}(?:\s|[<({{\:\[;]|$)",
-        DEFINITION_KEYWORDS
-            .iter()
-            .map(|k| regex::escape(k))
-            .collect::<Vec<_>>()
-            .join("|"),
-        escaped
-    );
-    let sql = format!(
-        r"(?im)(?:^|\s)(?:{})\s+(?:[A-Za-z_][A-Za-z0-9_]*(?:\.|::))*{}(?:\s|[<({{\:\[;]|$)",
-        SQL_DEFINITION_KEYWORDS
-            .iter()
-            .map(|k| regex::escape(k))
-            .collect::<Vec<_>>()
-            .join("|"),
-        escaped
-    );
-    Regex::new(&general).is_ok_and(|re| re.is_match(&chunk.content))
-        || Regex::new(&sql).is_ok_and(|re| re.is_match(&chunk.content))
+struct DefinitionMatcher {
+    general: Regex,
+    sql: Regex,
 }
 
-fn definition_tier(chunk: &Chunk, names: &HashSet<String>, boost_unit: f32) -> f32 {
-    if !names.iter().any(|name| chunk_defines_symbol(chunk, name)) {
+fn definition_matchers(names: &HashSet<String>) -> Vec<DefinitionMatcher> {
+    names
+        .iter()
+        .filter_map(|name| {
+            let escaped = regex::escape(name);
+            let general_pattern = definition_pattern(DEFINITION_KEYWORDS, &escaped, "");
+            let sql_pattern = definition_pattern(SQL_DEFINITION_KEYWORDS, &escaped, "i");
+            Some(DefinitionMatcher {
+                general: Regex::new(&general_pattern).ok()?,
+                sql: Regex::new(&sql_pattern).ok()?,
+            })
+        })
+        .collect()
+}
+
+fn definition_pattern(keywords: &[&str], escaped_name: &str, flags: &str) -> String {
+    let prefix = if flags.is_empty() { "(?m)" } else { "(?im)" };
+    format!(
+        r"{prefix}(?:^|\s)(?:{})\s+(?:[A-Za-z_][A-Za-z0-9_]*(?:\.|::))*{}(?:\s|[<({{\:\[;]|$)",
+        keywords
+            .iter()
+            .map(|k| regex::escape(k))
+            .collect::<Vec<_>>()
+            .join("|"),
+        escaped_name
+    )
+}
+
+fn chunk_defines_symbol(chunk: &Chunk, matchers: &[DefinitionMatcher]) -> bool {
+    matchers.iter().any(|matcher| {
+        matcher.general.is_match(&chunk.content) || matcher.sql.is_match(&chunk.content)
+    })
+}
+
+fn definition_tier(
+    chunk: &Chunk,
+    names: &HashSet<String>,
+    matchers: &[DefinitionMatcher],
+    boost_unit: f32,
+) -> f32 {
+    if !chunk_defines_symbol(chunk, matchers) {
         return 0.0;
     }
     let stem = path_stem_lower(&chunk.file_path);

@@ -17,6 +17,7 @@ fn main() -> anyhow::Result<()> {
     let index_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     let mut times = Vec::with_capacity(runs);
+    std::hint::black_box(index.search(&query, 10, SearchMode::Hybrid, None, None, None));
     for _ in 0..runs {
         let start = Instant::now();
         let results = index.search(&query, 10, SearchMode::Hybrid, None, None, None);
@@ -28,9 +29,39 @@ fn main() -> anyhow::Result<()> {
     let p90 = times[(times.len() * 9 / 10).min(times.len() - 1)];
     let stats = index.stats();
     println!(
-        "index_ms={index_ms:.3} query_p50_ms={p50:.3} query_p90_ms={p90:.3} files={} chunks={}",
+        "index_ms={index_ms:.3} query_p50_ms={p50:.3} query_p90_ms={p90:.3} peak_rss_mb={:.1} files={} chunks={}",
+        peak_rss_mb(),
         stats.indexed_files,
         index.chunks.len()
     );
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn peak_rss_mb() -> f64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if rc == 0 {
+        let usage = unsafe { usage.assume_init() };
+        usage.ru_maxrss as f64 / (1024.0 * 1024.0)
+    } else {
+        0.0
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn peak_rss_mb() -> f64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if rc == 0 {
+        let usage = unsafe { usage.assume_init() };
+        usage.ru_maxrss as f64 / 1024.0
+    } else {
+        0.0
+    }
+}
+
+#[cfg(not(unix))]
+fn peak_rss_mb() -> f64 {
+    0.0
 }

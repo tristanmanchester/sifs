@@ -28,6 +28,10 @@ struct Args {
     latency_runs: usize,
     #[arg(long)]
     output: Option<PathBuf>,
+    #[arg(long)]
+    include_tasks: bool,
+    #[arg(long)]
+    alpha: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,7 +103,20 @@ struct RepoResult {
     p50_ms: f64,
     p90_ms: f64,
     index_ms: f64,
+    peak_rss_mb: f64,
     by_category: BTreeMap<String, f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    task_results: Vec<TaskResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct TaskResult {
+    query: String,
+    category: String,
+    ranks: Vec<usize>,
+    ndcg5: f64,
+    ndcg10: f64,
+    top_results: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -145,16 +162,25 @@ fn main() -> Result<()> {
         let mut ndcg5_sum = 0.0;
         let mut ndcg10_sum = 0.0;
         let mut by_category_scores: HashMap<String, Vec<f64>> = HashMap::new();
+        let mut task_results = Vec::new();
 
         for task in &tasks {
             let mut last_results = Vec::new();
+            std::hint::black_box(index.search(
+                &task.query,
+                args.top_k,
+                SearchMode::Hybrid,
+                args.alpha,
+                None,
+                None,
+            ));
             for _ in 0..args.latency_runs.max(1) {
                 let start = Instant::now();
                 last_results = index.search(
                     &task.query,
                     args.top_k,
                     SearchMode::Hybrid,
-                    None,
+                    args.alpha,
                     None,
                     None,
                 );
@@ -173,6 +199,20 @@ fn main() -> Result<()> {
                 .entry(task.category.clone())
                 .or_default()
                 .push(ndcg10);
+            if args.include_tasks {
+                task_results.push(TaskResult {
+                    query: task.query.clone(),
+                    category: task.category.clone(),
+                    ranks,
+                    ndcg5,
+                    ndcg10,
+                    top_results: last_results
+                        .iter()
+                        .take(args.top_k.min(10))
+                        .map(|result| result.chunk.location())
+                        .collect(),
+                });
+            }
         }
 
         latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -192,7 +232,9 @@ fn main() -> Result<()> {
             p50_ms: percentile(&latencies, 0.5),
             p90_ms: percentile(&latencies, 0.9),
             index_ms,
+            peak_rss_mb: peak_rss_mb(),
             by_category,
+            task_results,
         });
     }
 
@@ -390,6 +432,35 @@ fn infer_category(query: &str) -> String {
 
 fn elapsed_ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
+}
+
+#[cfg(target_os = "macos")]
+fn peak_rss_mb() -> f64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if rc == 0 {
+        let usage = unsafe { usage.assume_init() };
+        usage.ru_maxrss as f64 / (1024.0 * 1024.0)
+    } else {
+        0.0
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn peak_rss_mb() -> f64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if rc == 0 {
+        let usage = unsafe { usage.assume_init() };
+        usage.ru_maxrss as f64 / 1024.0
+    } else {
+        0.0
+    }
+}
+
+#[cfg(not(unix))]
+fn peak_rss_mb() -> f64 {
+    0.0
 }
 
 fn percentile(values: &[f64], p: f64) -> f64 {

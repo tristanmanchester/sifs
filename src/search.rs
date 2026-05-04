@@ -57,7 +57,7 @@ pub fn search_hybrid(
     selector: Option<&[usize]>,
 ) -> Vec<SearchResult> {
     let alpha_weight = resolve_alpha(query, alpha);
-    let candidate_count = top_k.saturating_mul(5).max(top_k).max(1);
+    let candidate_count = top_k.saturating_mul(9).max(top_k).max(1);
     let encoded = model.encode(&[query.to_owned()]);
     let vector = normalize_vector(encoded.row(0).to_owned());
     let semantic_scores: HashMap<usize, f32> = semantic_index

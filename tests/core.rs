@@ -69,7 +69,11 @@ fn ranking_boosts_definitions_and_penalizes_tests() {
 #[test]
 fn alpha_detection_matches_symbol_vs_natural_language() {
     assert_eq!(resolve_alpha("MyService", None), 0.3);
-    assert_eq!(resolve_alpha("how does routing work", None), 0.5);
+    assert_eq!(resolve_alpha("how does routing work", None), 0.55);
+    assert_eq!(
+        resolve_alpha("request validation and error handling", None),
+        0.3
+    );
     assert_eq!(resolve_alpha("MyService", Some(0.7)), 0.7);
 }
 

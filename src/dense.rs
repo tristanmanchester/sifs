@@ -1,8 +1,9 @@
 use ndarray::{Array1, Array2, Axis};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DenseIndex {
     vectors: Array2<f32>,
 }
@@ -50,8 +51,21 @@ impl DenseIndex {
                 (idx, score)
             })
             .collect();
-        scores.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-        scores.truncate(k.min(scores.len()));
+        truncate_top_k(&mut scores, k);
         scores
     }
+}
+
+pub(crate) fn truncate_top_k(scores: &mut Vec<(usize, f32)>, k: usize) {
+    if scores.len() <= k {
+        scores.sort_unstable_by(desc_score);
+        return;
+    }
+    scores.select_nth_unstable_by(k, desc_score);
+    scores.truncate(k);
+    scores.sort_unstable_by(desc_score);
+}
+
+fn desc_score(a: &(usize, f32), b: &(usize, f32)) -> Ordering {
+    b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal)
 }

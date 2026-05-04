@@ -1,10 +1,11 @@
+use crate::dense::truncate_top_k;
 use crate::tokens::tokenize;
 use crate::types::Chunk;
-use std::cmp::Ordering;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bm25Index {
     postings: HashMap<String, Vec<(usize, u32)>>,
     doc_len: Vec<usize>,
@@ -14,10 +15,20 @@ pub struct Bm25Index {
 
 impl Bm25Index {
     pub fn build(docs: &[String]) -> Self {
+        Self::build_from_tokenized_docs(docs.iter().map(|doc| tokenize(doc)), docs.len())
+    }
+
+    pub fn build_from_chunks(chunks: &[Chunk]) -> Self {
+        Self::build_from_tokenized_docs(chunks.iter().map(tokens_for_chunk), chunks.len())
+    }
+
+    fn build_from_tokenized_docs(
+        docs: impl Iterator<Item = Vec<String>>,
+        doc_count: usize,
+    ) -> Self {
         let mut postings_map: HashMap<String, HashMap<usize, u32>> = HashMap::new();
-        let mut doc_len = Vec::with_capacity(docs.len());
-        for (doc_id, doc) in docs.iter().enumerate() {
-            let tokens = tokenize(doc);
+        let mut doc_len = Vec::with_capacity(doc_count);
+        for (doc_id, tokens) in docs.enumerate() {
             doc_len.push(tokens.len());
             let mut counts: HashMap<String, u32> = HashMap::new();
             for token in tokens {
@@ -44,7 +55,7 @@ impl Bm25Index {
             postings,
             doc_len,
             avg_doc_len,
-            doc_count: docs.len(),
+            doc_count,
         }
     }
 
@@ -84,10 +95,37 @@ impl Bm25Index {
             .into_iter()
             .filter(|(_, score)| *score > 0.0)
             .collect();
-        ranked.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-        ranked.truncate(top_k.min(ranked.len()));
+        truncate_top_k(&mut ranked, top_k);
         ranked
     }
+}
+
+fn tokens_for_chunk(chunk: &Chunk) -> Vec<String> {
+    let mut tokens = tokenize(&chunk.content);
+    let path = Path::new(&chunk.file_path);
+    if let Some(stem) = path.file_stem().map(|s| s.to_string_lossy()) {
+        let stem_tokens = tokenize(&stem);
+        tokens.extend(stem_tokens.iter().cloned());
+        tokens.extend(stem_tokens);
+    }
+    if let Some(parent) = path.parent() {
+        let parts = parent
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_string())
+            .filter(|part| part != "." && part != "/")
+            .collect::<Vec<_>>();
+        for part in parts
+            .iter()
+            .rev()
+            .take(3)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+        {
+            tokens.extend(tokenize(part));
+        }
+    }
+    tokens
 }
 
 pub fn enrich_for_bm25(chunk: &Chunk) -> String {
