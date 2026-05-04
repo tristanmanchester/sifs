@@ -1,4 +1,5 @@
 use crate::SifsIndex;
+use crate::index::{CacheConfig, IndexOptions};
 use crate::model2vec::ModelOptions;
 use crate::types::{SearchMode, SearchOptions};
 use crate::utils::{format_results, is_git_url, resolve_chunk};
@@ -17,16 +18,23 @@ const NO_RESULTS_MESSAGE: &str = include_str!("agents/messages/no-results.md");
 const NO_REPO_MESSAGE: &str = include_str!("agents/messages/no-repo.md");
 
 pub fn serve(default_source: Option<String>, ref_name: Option<String>) -> Result<()> {
-    serve_with_options(default_source, ref_name, ModelOptions::default(), false)
+    serve_with_options(
+        default_source,
+        ref_name,
+        ModelOptions::default(),
+        CacheConfig::default(),
+        false,
+    )
 }
 
 pub fn serve_with_options(
     default_source: Option<String>,
     ref_name: Option<String>,
     model_options: ModelOptions,
+    cache_config: CacheConfig,
     offline: bool,
 ) -> Result<()> {
-    let mut cache = IndexCache::new(model_options, offline);
+    let mut cache = IndexCache::new(model_options, cache_config, offline);
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
     let mut stdout = io::stdout();
@@ -73,20 +81,22 @@ pub fn serve_with_options(
 struct IndexCache {
     indexes: HashMap<String, SifsIndex>,
     model_options: ModelOptions,
+    cache_config: CacheConfig,
     offline: bool,
 }
 
 impl Default for IndexCache {
     fn default() -> Self {
-        Self::new(ModelOptions::default(), false)
+        Self::new(ModelOptions::default(), CacheConfig::default(), false)
     }
 }
 
 impl IndexCache {
-    fn new(model_options: ModelOptions, offline: bool) -> Self {
+    fn new(model_options: ModelOptions, cache_config: CacheConfig, offline: bool) -> Self {
         Self {
             indexes: HashMap::new(),
             model_options,
+            cache_config,
             offline,
         }
     }
@@ -111,18 +121,17 @@ impl IndexCache {
                 if self.offline {
                     anyhow::bail!("--offline does not allow remote Git sources");
                 }
-                SifsIndex::from_git_with_model_options(
+                SifsIndex::from_git_with_index_options(
                     source,
                     ref_name,
-                    self.model_options.clone(),
+                    IndexOptions::new(self.model_options.clone())
+                        .with_cache(self.cache_config.clone()),
                 )?
             } else {
-                SifsIndex::from_path_with_model_options(
+                SifsIndex::from_path_with_index_options(
                     &key,
-                    self.model_options.clone(),
-                    None,
-                    None,
-                    false,
+                    IndexOptions::new(self.model_options.clone())
+                        .with_cache(self.cache_config.clone()),
                 )?
             };
             self.indexes.insert(key.clone(), index);
@@ -136,14 +145,15 @@ impl IndexCache {
             if self.offline {
                 anyhow::bail!("--offline does not allow remote Git sources");
             }
-            SifsIndex::from_git_with_model_options(source, ref_name, self.model_options.clone())?
+            SifsIndex::from_git_with_index_options(
+                source,
+                ref_name,
+                IndexOptions::new(self.model_options.clone()).with_cache(self.cache_config.clone()),
+            )?
         } else {
-            SifsIndex::from_path_with_model_options(
+            SifsIndex::from_path_with_index_options(
                 &key,
-                self.model_options.clone(),
-                None,
-                None,
-                false,
+                IndexOptions::new(self.model_options.clone()).with_cache(self.cache_config.clone()),
             )?
         };
         self.indexes.insert(key.clone(), index);

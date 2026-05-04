@@ -126,9 +126,12 @@ maps. Restarting the server clears the cache.
 
 ## Persistent local indexes
 
-Default local path indexing also writes a persistent cache under `.sifs/` in the
-indexed repository. SIFS validates that cache against the current sorted file
-signature list before loading it.
+Default indexing writes persistent cache entries under the platform cache
+directory, not inside the searched repository. On macOS this is
+`~/Library/Caches/sifs`; on Linux it is `${XDG_CACHE_HOME:-~/.cache}/sifs`.
+Project-local `.sifs/` caching is available only when explicitly requested.
+SIFS validates persistent caches against the current sorted file signature list
+before loading them.
 
 The sparse persistent cache stores:
 
@@ -136,23 +139,22 @@ The sparse persistent cache stores:
 - Chunks and line locations.
 - The BM25 index.
 
-SIFS doesn't use the persistent cache for custom model paths, custom extension
-sets, custom ignore sets, document-file inclusion, or Git temporary checkouts.
-Those cases build an index from source so option-specific behavior stays
-correct.
+Cache entries are keyed by source identity, indexing options, file signatures,
+and cache/chunker version. Semantic cache files add the model name plus a
+fingerprint of the resolved tokenizer, safetensors, and config files, so dense
+vectors are not reused after a model changes.
 
 ## Limitations
 
-SIFS keeps live indexes in memory after construction. Default local path
-indexing persists reusable index data to `.sifs/`, but other indexing modes
-still rebuild from source.
+SIFS keeps live indexes in memory after construction. Persistent caches are
+best-effort: if a cache entry is missing or invalid, SIFS rebuilds from source
+and writes a fresh entry when persistent caching is enabled.
 
 Other current limits are:
 
 - Files must be readable as UTF-8 text.
 - Only the root `.gitignore` file is loaded.
 - Git indexing uses shallow clones.
-- Direct CLI commands can reuse `.sifs/` only for default local indexing.
 - Document-like files require explicit library options.
 
 ## Next steps

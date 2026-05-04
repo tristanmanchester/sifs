@@ -1,7 +1,7 @@
 use crate::chunker::chunk_source;
 use crate::dense::DenseIndex;
 use crate::file_walker::{filter_extensions, language_for_path, walk_files};
-use crate::model2vec::{Encoder, ModelOptions, load_model_with_options};
+use crate::model2vec::{Encoder, ModelOptions, load_model_with_options, model_fingerprint};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::sparse::Bm25Index;
 use crate::types::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult};
@@ -9,8 +9,10 @@ use anyhow::{Context, Result, bail};
 use ndarray::{Array2, s};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -24,8 +26,9 @@ pub struct SifsIndex {
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
     search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchResult>>>,
-    cache_root: Option<PathBuf>,
+    cache_entry: Option<CacheEntry>,
     signatures: Option<Vec<FileSignature>>,
+    cache_context: Option<CacheContext>,
 }
 
 struct SemanticState {
@@ -34,10 +37,110 @@ struct SemanticState {
 }
 
 const EMBED_BATCH_SIZE: usize = 1024;
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 const CACHE_DIR: &str = ".sifs";
-const SPARSE_CACHE_FILE: &str = "index-v2-sparse.bin";
-const SEMANTIC_CACHE_PREFIX: &str = "semantic-v2";
+const PLATFORM_CACHE_DIR: &str = "sifs";
+const SPARSE_CACHE_FILE: &str = "index-v3-sparse.bin";
+const SEMANTIC_CACHE_PREFIX: &str = "semantic-v3";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CacheConfig {
+    Platform,
+    Project,
+    Custom(PathBuf),
+    Disabled,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self::Platform
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexOptions {
+    pub model_options: ModelOptions,
+    pub extensions: Option<HashSet<String>>,
+    pub ignore: Option<HashSet<String>>,
+    pub include_text_files: bool,
+    pub cache: CacheConfig,
+    source_id_override: Option<String>,
+}
+
+impl IndexOptions {
+    pub fn new(model_options: ModelOptions) -> Self {
+        Self {
+            model_options,
+            extensions: None,
+            ignore: None,
+            include_text_files: false,
+            cache: CacheConfig::default(),
+            source_id_override: None,
+        }
+    }
+
+    pub fn with_extensions(mut self, extensions: Option<HashSet<String>>) -> Self {
+        self.extensions = extensions;
+        self
+    }
+
+    pub fn with_ignore(mut self, ignore: Option<HashSet<String>>) -> Self {
+        self.ignore = ignore;
+        self
+    }
+
+    pub fn with_include_text_files(mut self, include_text_files: bool) -> Self {
+        self.include_text_files = include_text_files;
+        self
+    }
+
+    pub fn with_cache(mut self, cache: CacheConfig) -> Self {
+        self.cache = cache;
+        self
+    }
+
+    fn with_source_id(mut self, source_id: String) -> Self {
+        self.source_id_override = Some(source_id);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct CacheContext {
+    source_id: String,
+    options_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct CacheEntry {
+    root: PathBuf,
+}
+
+impl CacheContext {
+    fn for_source(
+        source_id: String,
+        _root: &Path,
+        extensions: &Option<HashSet<String>>,
+        ignore: &Option<HashSet<String>>,
+        include_text_files: bool,
+    ) -> Self {
+        let options_id = cache_hash(&(
+            "index-options-v1",
+            normalized_set(extensions),
+            normalized_set(ignore),
+            include_text_files,
+            CACHE_VERSION,
+        ));
+        Self {
+            source_id,
+            options_id,
+        }
+    }
+
+    fn entry_key(&self) -> String {
+        cache_hash(&(CACHE_VERSION, &self.source_id, &self.options_id))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct SearchCacheKey {
@@ -52,6 +155,7 @@ struct SearchCacheKey {
 #[derive(Debug, Serialize, Deserialize)]
 struct CachedIndexPayload {
     version: u32,
+    context: CacheContext,
     signatures: Vec<FileSignature>,
     chunks: Vec<Chunk>,
     bm25_index: Bm25Index,
@@ -60,6 +164,8 @@ struct CachedIndexPayload {
 #[derive(Debug, Serialize, Deserialize)]
 struct CachedSemanticPayload {
     version: u32,
+    context: CacheContext,
+    model_fingerprint: String,
     signatures: Vec<FileSignature>,
     semantic_index: DenseIndex,
 }
@@ -99,6 +205,17 @@ impl SifsIndex {
         ignore: Option<HashSet<String>>,
         include_text_files: bool,
     ) -> Result<Self> {
+        let options = IndexOptions::new(model_options)
+            .with_extensions(extensions)
+            .with_ignore(ignore)
+            .with_include_text_files(include_text_files);
+        Self::from_path_with_index_options(path, options)
+    }
+
+    pub fn from_path_with_index_options(
+        path: impl AsRef<Path>,
+        options: IndexOptions,
+    ) -> Result<Self> {
         let path = path.as_ref();
         if !path.exists() {
             bail!("Path does not exist: {}", path.display());
@@ -107,23 +224,45 @@ impl SifsIndex {
             bail!("Path is not a directory: {}", path.display());
         }
         let root = path.canonicalize()?;
-        let cacheable = extensions.is_none() && ignore.is_none() && !include_text_files;
-        if cacheable {
-            if let Some(payload) = load_cached_index_payload(&root) {
-                return Self::from_cached_parts(model_options, payload, Some(root));
+        let context = CacheContext::for_source(
+            options
+                .source_id_override
+                .clone()
+                .unwrap_or_else(|| format!("path:{}", root.to_string_lossy())),
+            &root,
+            &options.extensions,
+            &options.ignore,
+            options.include_text_files,
+        );
+        let cache_entry = resolve_cache_entry(&options.cache, &root, &context)?;
+        let signatures = current_file_signatures(
+            &root,
+            options.extensions.as_ref(),
+            options.ignore.as_ref(),
+            options.include_text_files,
+        )
+        .ok();
+        if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures) {
+            if let Some(payload) = load_cached_index_payload(cache_entry, &context, signatures) {
+                return Self::from_cached_parts(
+                    options.model_options,
+                    payload,
+                    Some(cache_entry.clone()),
+                    Some(context),
+                );
             }
         }
         let chunks = create_chunks_from_path(
             &root,
-            extensions,
-            ignore.as_ref(),
-            include_text_files,
+            options.extensions,
+            options.ignore.as_ref(),
+            options.include_text_files,
             &root,
         )?;
-        let mut index = Self::from_chunks_with_model_options(model_options, chunks)?;
-        if cacheable {
-            index.attach_cache_root(root.clone());
-            write_cached_index_payload(&root, &index);
+        let mut index = Self::from_chunks_with_model_options(options.model_options, chunks)?;
+        if let (Some(cache_entry), Some(signatures)) = (cache_entry, signatures) {
+            index.attach_cache(cache_entry, signatures, context);
+            write_cached_index_payload(&index);
         }
         Ok(index)
     }
@@ -136,6 +275,14 @@ impl SifsIndex {
         url: &str,
         ref_name: Option<&str>,
         model_options: ModelOptions,
+    ) -> Result<Self> {
+        Self::from_git_with_index_options(url, ref_name, IndexOptions::new(model_options))
+    }
+
+    pub fn from_git_with_index_options(
+        url: &str,
+        ref_name: Option<&str>,
+        options: IndexOptions,
     ) -> Result<Self> {
         let tmp = tempfile::tempdir()?;
         let mut cmd = Command::new("git");
@@ -151,7 +298,10 @@ impl SifsIndex {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        Self::from_path_with_model_options(tmp.path(), model_options, None, None, false)
+        let source_id = ref_name
+            .map(|name| format!("git:{url}@{name}"))
+            .unwrap_or_else(|| format!("git:{url}"));
+        Self::from_path_with_index_options(tmp.path(), options.with_source_id(source_id))
     }
 
     pub fn from_chunks(model: Box<dyn Encoder>, chunks: Vec<Chunk>) -> Result<Self> {
@@ -175,8 +325,9 @@ impl SifsIndex {
             file_mapping,
             language_mapping,
             search_cache: Mutex::new(HashMap::new()),
-            cache_root: None,
+            cache_entry: None,
             signatures: None,
+            cache_context: None,
         })
     }
 
@@ -200,7 +351,8 @@ impl SifsIndex {
     fn from_cached_parts(
         model_options: ModelOptions,
         payload: CachedIndexPayload,
-        cache_root: Option<PathBuf>,
+        cache_entry: Option<CacheEntry>,
+        context: Option<CacheContext>,
     ) -> Result<Self> {
         if payload.chunks.is_empty() {
             bail!("No supported files found.");
@@ -215,8 +367,9 @@ impl SifsIndex {
             file_mapping,
             language_mapping,
             search_cache: Mutex::new(HashMap::new()),
-            cache_root,
+            cache_entry,
             signatures: Some(signatures),
+            cache_context: context,
         })
     }
 
@@ -364,12 +517,15 @@ impl SifsIndex {
             .map_err(|_| anyhow::anyhow!("semantic index lock is poisoned"))?;
         if state.is_none() {
             let model = load_model_with_options(&self.model_options)?;
-            let semantic_index = self.load_cached_semantic_index().unwrap_or_else(|| {
-                let embeddings = encode_chunks_batched(model.as_ref(), &self.chunks);
-                let semantic_index = DenseIndex::new(embeddings);
-                self.write_cached_semantic_index(&semantic_index);
-                semantic_index
-            });
+            let fingerprint = model_fingerprint(&self.model_options)?;
+            let semantic_index = self
+                .load_cached_semantic_index(&fingerprint)
+                .unwrap_or_else(|| {
+                    let embeddings = encode_chunks_batched(model.as_ref(), &self.chunks);
+                    let semantic_index = DenseIndex::new(embeddings);
+                    self.write_cached_semantic_index(&semantic_index, &fingerprint);
+                    semantic_index
+                });
             *state = Some(SemanticState {
                 model,
                 index: semantic_index,
@@ -378,37 +534,57 @@ impl SifsIndex {
         Ok(state)
     }
 
-    fn attach_cache_root(&mut self, root: PathBuf) {
-        self.signatures = current_file_signatures(&root).ok();
-        self.cache_root = Some(root);
+    fn attach_cache(
+        &mut self,
+        cache_entry: CacheEntry,
+        signatures: Vec<FileSignature>,
+        context: CacheContext,
+    ) {
+        self.signatures = Some(signatures);
+        self.cache_entry = Some(cache_entry);
+        self.cache_context = Some(context);
     }
 
-    fn load_cached_semantic_index(&self) -> Option<DenseIndex> {
-        let root = self.cache_root.as_ref()?;
+    fn load_cached_semantic_index(&self, model_fingerprint: &str) -> Option<DenseIndex> {
+        let cache_entry = self.cache_entry.as_ref()?;
         let signatures = self.signatures.as_ref()?;
-        let bytes = fs::read(semantic_cache_path(root, &self.model_options)).ok()?;
+        let context = self.cache_context.as_ref()?;
+        let bytes = fs::read(semantic_cache_path(
+            cache_entry,
+            &self.model_options,
+            model_fingerprint,
+        ))
+        .ok()?;
         let (payload, _): (CachedSemanticPayload, usize) =
             bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
-        (payload.version == CACHE_VERSION && payload.signatures == *signatures)
+        (payload.version == CACHE_VERSION
+            && payload.context == *context
+            && payload.model_fingerprint == model_fingerprint
+            && payload.signatures == *signatures)
             .then_some(payload.semantic_index)
     }
 
-    fn write_cached_semantic_index(&self, semantic_index: &DenseIndex) {
-        let Some(root) = self.cache_root.as_ref() else {
+    fn write_cached_semantic_index(&self, semantic_index: &DenseIndex, model_fingerprint: &str) {
+        let Some(cache_entry) = self.cache_entry.as_ref() else {
             return;
         };
         let Some(signatures) = self.signatures.as_ref() else {
             return;
         };
+        let Some(context) = self.cache_context.as_ref() else {
+            return;
+        };
         let payload = CachedSemanticPayload {
             version: CACHE_VERSION,
+            context: context.clone(),
+            model_fingerprint: model_fingerprint.to_owned(),
             signatures: signatures.clone(),
             semantic_index: semantic_index.clone(),
         };
         let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
             return;
         };
-        let cache_path = semantic_cache_path(root, &self.model_options);
+        let cache_path = semantic_cache_path(cache_entry, &self.model_options, model_fingerprint);
         if let Some(parent) = cache_path.parent() {
             if fs::create_dir_all(parent).is_err() {
                 return;
@@ -450,28 +626,41 @@ impl SifsIndex {
     }
 }
 
-fn load_cached_index_payload(root: &Path) -> Option<CachedIndexPayload> {
-    let signatures = current_file_signatures(root).ok()?;
-    let bytes = fs::read(cache_path(root)).ok()?;
+fn load_cached_index_payload(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    signatures: &[FileSignature],
+) -> Option<CachedIndexPayload> {
+    let bytes = fs::read(sparse_cache_path(cache_entry)).ok()?;
     let (payload, _): (CachedIndexPayload, usize) =
         bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
-    (payload.version == CACHE_VERSION && payload.signatures == signatures).then_some(payload)
+    (payload.version == CACHE_VERSION
+        && payload.context == *context
+        && payload.signatures == signatures)
+        .then_some(payload)
 }
 
-fn write_cached_index_payload(root: &Path, index: &SifsIndex) {
-    let Ok(signatures) = current_file_signatures(root) else {
+fn write_cached_index_payload(index: &SifsIndex) {
+    let Some(cache_entry) = index.cache_entry.as_ref() else {
+        return;
+    };
+    let Some(signatures) = index.signatures.as_ref() else {
+        return;
+    };
+    let Some(context) = index.cache_context.as_ref() else {
         return;
     };
     let payload = CachedIndexPayload {
         version: CACHE_VERSION,
-        signatures,
+        context: context.clone(),
+        signatures: signatures.clone(),
         chunks: index.chunks.clone(),
         bm25_index: index.bm25_index.clone(),
     };
     let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
         return;
     };
-    let cache_path = cache_path(root);
+    let cache_path = sparse_cache_path(cache_entry);
     if let Some(parent) = cache_path.parent() {
         if fs::create_dir_all(parent).is_err() {
             return;
@@ -483,20 +672,122 @@ fn write_cached_index_payload(root: &Path, index: &SifsIndex) {
     }
 }
 
-fn cache_path(root: &Path) -> PathBuf {
-    root.join(CACHE_DIR).join(SPARSE_CACHE_FILE)
+fn sparse_cache_path(cache_entry: &CacheEntry) -> PathBuf {
+    cache_entry.root.join(SPARSE_CACHE_FILE)
 }
 
-fn semantic_cache_path(root: &Path, model_options: &ModelOptions) -> PathBuf {
-    root.join(CACHE_DIR).join(format!(
-        "{SEMANTIC_CACHE_PREFIX}-{}.bin",
-        model_options.cache_key()
+fn semantic_cache_path(
+    cache_entry: &CacheEntry,
+    model_options: &ModelOptions,
+    model_fingerprint: &str,
+) -> PathBuf {
+    cache_entry.root.join(format!(
+        "{SEMANTIC_CACHE_PREFIX}-{}-{model_fingerprint}.bin",
+        model_options.cache_key(),
     ))
 }
 
-fn current_file_signatures(root: &Path) -> Result<Vec<FileSignature>> {
-    let extensions = filter_extensions(None, false);
-    let files = walk_files(root, &extensions, None);
+fn resolve_cache_entry(
+    config: &CacheConfig,
+    source_root: &Path,
+    context: &CacheContext,
+) -> Result<Option<CacheEntry>> {
+    let root = match config {
+        CacheConfig::Disabled => return Ok(None),
+        CacheConfig::Project => source_root.join(CACHE_DIR),
+        CacheConfig::Custom(path) => path.join(context.entry_key()),
+        CacheConfig::Platform => platform_cache_root()?.join(context.entry_key()),
+    };
+    Ok(Some(CacheEntry { root }))
+}
+
+pub fn platform_cache_root() -> Result<PathBuf> {
+    if cfg!(target_os = "macos") {
+        Ok(home_dir()?
+            .join("Library")
+            .join("Caches")
+            .join(PLATFORM_CACHE_DIR))
+    } else if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
+        Ok(PathBuf::from(xdg).join(PLATFORM_CACHE_DIR))
+    } else {
+        Ok(home_dir()?.join(".cache").join(PLATFORM_CACHE_DIR))
+    }
+}
+
+pub fn cache_summary(root: &Path) -> CacheSummary {
+    let mut summary = CacheSummary {
+        root: root.to_path_buf(),
+        exists: root.exists(),
+        entries: 0,
+        files: 0,
+        bytes: 0,
+    };
+    visit_cache_files(root, &mut |path, metadata| {
+        if path.file_name().and_then(|name| name.to_str()) == Some(SPARSE_CACHE_FILE) {
+            summary.entries += 1;
+        }
+        summary.files += 1;
+        summary.bytes += metadata.len();
+    });
+    summary
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CacheSummary {
+    pub root: PathBuf,
+    pub exists: bool,
+    pub entries: usize,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+fn visit_cache_files(root: &Path, f: &mut impl FnMut(&Path, &fs::Metadata)) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            visit_cache_files(&path, f);
+        } else if metadata.is_file() {
+            f(&path, &metadata);
+        }
+    }
+}
+
+fn home_dir() -> Result<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .context("HOME is not set; pass --cache-dir to choose a cache location")
+}
+
+fn normalized_set(values: &Option<HashSet<String>>) -> Vec<String> {
+    let mut values: Vec<_> = values
+        .as_ref()
+        .map(|set| set.iter().cloned().collect())
+        .unwrap_or_default();
+    values.sort();
+    values
+}
+
+fn cache_hash<T: Hash>(value: &T) -> String {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn current_file_signatures(
+    root: &Path,
+    extensions: Option<&HashSet<String>>,
+    ignore: Option<&HashSet<String>>,
+    include_text_files: bool,
+) -> Result<Vec<FileSignature>> {
+    let extensions = filter_extensions(extensions.cloned(), include_text_files);
+    let files = walk_files(root, &extensions, ignore);
     files
         .into_iter()
         .map(|path| {

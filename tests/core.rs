@@ -1,6 +1,6 @@
 use sifs::{
-    Chunk, HashingEncoder, ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SearchResult,
-    SifsIndex, format_results,
+    CacheConfig, Chunk, HashingEncoder, IndexOptions, ModelLoadPolicy, ModelOptions, SearchMode,
+    SearchOptions, SearchResult, SifsIndex, cache_summary, format_results,
 };
 use std::fs;
 
@@ -169,6 +169,7 @@ fn semantic_search_reports_missing_model_with_no_download() {
 #[test]
 fn semantic_search_writes_and_reuses_dense_cache() {
     let dir = tempfile::tempdir().unwrap();
+    let cache_dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("main.py"),
         "def authenticate():\n    return True\n",
@@ -178,10 +179,10 @@ fn semantic_search_writes_and_reuses_dense_cache() {
         Some("__force_hashing_fallback__"),
         ModelLoadPolicy::NoDownload,
     );
+    let index_options = IndexOptions::new(options.clone())
+        .with_cache(CacheConfig::Custom(cache_dir.path().to_path_buf()));
 
-    let index =
-        SifsIndex::from_path_with_model_options(dir.path(), options.clone(), None, None, false)
-            .unwrap();
+    let index = SifsIndex::from_path_with_index_options(dir.path(), index_options.clone()).unwrap();
     assert!(!index.semantic_loaded());
     let first_results = index
         .search_with(
@@ -192,18 +193,12 @@ fn semantic_search_writes_and_reuses_dense_cache() {
     assert!(!first_results.is_empty());
     assert!(index.semantic_loaded());
 
-    let cache_files: Vec<_> = fs::read_dir(dir.path().join(".sifs"))
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
-        .collect();
-    assert!(
-        cache_files
-            .iter()
-            .any(|name| name.starts_with("semantic-v2-"))
-    );
+    let summary = cache_summary(cache_dir.path());
+    assert!(summary.entries >= 1);
+    assert!(summary.files >= 2);
+    assert!(!dir.path().join(".sifs").exists());
 
-    let index =
-        SifsIndex::from_path_with_model_options(dir.path(), options, None, None, false).unwrap();
+    let index = SifsIndex::from_path_with_index_options(dir.path(), index_options).unwrap();
     assert!(!index.semantic_loaded());
     let second_results = index
         .search_with(
@@ -218,4 +213,62 @@ fn semantic_search_writes_and_reuses_dense_cache() {
         second_results[0].chunk.file_path
     );
     assert!(index.semantic_loaded());
+}
+
+#[test]
+fn default_cache_does_not_write_project_local_state() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("main.py"), "def foo():\n    pass\n").unwrap();
+
+    let index = SifsIndex::from_path_with_model_options(
+        dir.path(),
+        ModelOptions::new(
+            Some("__missing_model_for_default_cache_test__"),
+            ModelLoadPolicy::NoDownload,
+        ),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    assert!(!index.chunks.is_empty());
+    assert!(!dir.path().join(".sifs").exists());
+}
+
+#[test]
+fn project_cache_writes_project_local_state() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("main.py"), "def foo():\n    pass\n").unwrap();
+    let options = IndexOptions::new(ModelOptions::new(
+        Some("__missing_model_for_project_cache_test__"),
+        ModelLoadPolicy::NoDownload,
+    ))
+    .with_cache(CacheConfig::Project);
+
+    let index = SifsIndex::from_path_with_index_options(dir.path(), options).unwrap();
+
+    assert!(!index.chunks.is_empty());
+    assert!(
+        dir.path()
+            .join(".sifs")
+            .join("index-v3-sparse.bin")
+            .exists()
+    );
+}
+
+#[test]
+fn disabled_cache_writes_no_persistent_state() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("main.py"), "def foo():\n    pass\n").unwrap();
+    let options = IndexOptions::new(ModelOptions::new(
+        Some("__missing_model_for_disabled_cache_test__"),
+        ModelLoadPolicy::NoDownload,
+    ))
+    .with_cache(CacheConfig::Disabled);
+
+    let index = SifsIndex::from_path_with_index_options(dir.path(), options).unwrap();
+
+    assert!(!index.chunks.is_empty());
+    assert!(!dir.path().join(".sifs").exists());
 }

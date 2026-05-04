@@ -28,6 +28,8 @@ Protocol server for agent clients.
 - Index local directories or shallow-cloned Git repositories.
 - Use hybrid, semantic-only, or BM25-only ranking.
 - Run BM25 search fully offline without loading or downloading a model.
+- Cache indexes in platform cache directories by default, without writing into
+  searched repositories unless `--project-cache` is requested.
 - Run quality and latency benchmarks over annotated repositories.
 
 ## Build SIFS
@@ -96,6 +98,11 @@ loader. The loader reads the model tensors and tokenizer files directly, so the
 query path stays inside the Rust process after the model is available locally.
 BM25 mode does not use the model at all, so it is safe for network-free package
 manager smoke tests and first-run checks.
+
+Persistent index caches live under `~/Library/Caches/sifs` on macOS and
+`${XDG_CACHE_HOME:-~/.cache}/sifs` on Linux by default. Use `--no-cache` to
+disable persistent cache writes, `--cache-dir` to choose a cache root, or
+`--project-cache` to opt into repository-local `.sifs/` files.
 
 Hybrid search combines semantic and BM25 rankings. It over-fetches candidates,
 normalizes each ranking with reciprocal rank fusion, applies query-aware boosts,

@@ -16,7 +16,7 @@ is the current directory, the default result count is `5`, and the default mode
 is `hybrid`.
 
 ```bash
-target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--model <model>] [--offline] [--no-download]
+target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
 ```
 
 Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
@@ -39,6 +39,12 @@ Use `--offline` to prevent all network access by SIFS, including remote Git
 clones and model downloads. Use `--no-download` to prevent model downloads while
 still allowing local path indexing and remote Git sources.
 
+Persistent index caches use platform cache directories by default:
+`~/Library/Caches/sifs` on macOS and `${XDG_CACHE_HOME:-~/.cache}/sifs` on
+Linux. Use `--cache-dir` to choose another cache root, `--no-cache` to disable
+persistent caches, or `--project-cache` to opt into a repository-local `.sifs/`
+cache.
+
 ## Find-related command
 
 The `find-related` command resolves a file and line into the indexed chunk that
@@ -46,7 +52,7 @@ contains that line. It then searches for semantically related chunks in the same
 language when language metadata is available.
 
 ```bash
-target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--model <model>] [--offline] [--no-download]
+target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
 ```
 
 Pass the file path as it appears in search results or as a path relative to the
@@ -77,6 +83,24 @@ target/release/sifs model pull --model minishlab/potion-code-16M
 
 `model status` checks local files only and never downloads. `model pull`
 downloads or validates the model through the normal Hugging Face cache.
+
+## Cache command
+
+SIFS stores persistent sparse and semantic index caches outside searched
+repositories by default. Use `cache status` to inspect the cache and
+`cache clean` to remove it.
+
+```bash
+target/release/sifs cache status
+target/release/sifs cache status --json
+target/release/sifs cache clean --dry-run
+target/release/sifs cache clean
+target/release/sifs cache clean --cache-dir /tmp/sifs-cache
+```
+
+`cache clean` removes the whole SIFS platform cache by default. It does not
+search for or remove project-local `.sifs/` directories unless you explicitly
+point `--cache-dir` at one.
 
 ## Init command
 
@@ -110,7 +134,7 @@ local path or Git URL as the default source. The optional `--ref` value selects
 a branch or tag when the default source is a Git URL.
 
 ```bash
-target/release/sifs [path-or-git-url] [--ref <branch-or-tag>] [--model <model>] [--offline] [--no-download]
+target/release/sifs [path-or-git-url] [--ref <branch-or-tag>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
 ```
 
 These examples start MCP server mode with different default sources.

@@ -78,6 +78,19 @@ pub fn load_model_with_options(options: &ModelOptions) -> Result<Box<dyn Encoder
     )?))
 }
 
+pub fn model_fingerprint(options: &ModelOptions) -> Result<String> {
+    if options.model == "__force_hashing_fallback__" {
+        return Ok("hashing-fallback-v1".to_owned());
+    }
+    let (tokenizer_path, model_path, config_path) = model_files(options)?;
+    let mut hasher = DefaultHasher::new();
+    options.model.hash(&mut hasher);
+    hash_file(&tokenizer_path, &mut hasher)?;
+    hash_file(&model_path, &mut hasher)?;
+    hash_file(&config_path, &mut hasher)?;
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelStatus {
     pub model: String,
@@ -287,6 +300,13 @@ fn model_files(options: &ModelOptions) -> Result<(PathBuf, PathBuf, PathBuf)> {
 
 fn existing_file(path: PathBuf) -> Option<PathBuf> {
     path.exists().then_some(path)
+}
+
+fn hash_file(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
+    let bytes = fs::read(path).with_context(|| format!("read model file {}", path.display()))?;
+    path.file_name().hash(hasher);
+    bytes.hash(hasher);
+    Ok(())
 }
 
 fn read_matrix(tensors: &SafeTensors<'_>, name: &str) -> Result<Array2<f32>> {

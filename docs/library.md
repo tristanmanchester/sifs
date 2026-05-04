@@ -10,7 +10,10 @@ The crate re-exports the main index and result types from `src/lib.rs`. These
 types are the stable surface to use from downstream Rust code.
 
 ```rust
-use sifs::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult, SifsIndex};
+use sifs::{
+    CacheConfig, Chunk, IndexOptions, IndexStats, SearchMode, SearchOptions,
+    SearchResult, SifsIndex,
+};
 ```
 
 The core types are:
@@ -49,6 +52,11 @@ fn main() -> anyhow::Result<()> {
 `from_path` returns an error when the path doesn't exist, isn't a directory, or
 contains no supported non-empty files. Model-loading errors are returned later
 from semantic or hybrid search.
+
+By default, persistent caches are written under the platform cache directory
+instead of the indexed repository. Use `IndexOptions` with `CacheConfig` when
+you need to disable persistent caches, use a custom cache root, or explicitly
+opt into project-local `.sifs/` state.
 
 ## Customize indexing
 
@@ -90,6 +98,23 @@ let index = SifsIndex::from_path_with_model_options(
     false,
 )?;
 ```
+
+Use `SifsIndex::from_path_with_index_options` for cache policy and model policy
+in one call.
+
+```rust
+use sifs::{CacheConfig, IndexOptions, ModelLoadPolicy, ModelOptions, SifsIndex};
+
+let options = IndexOptions::new(ModelOptions::new(None, ModelLoadPolicy::NoDownload))
+    .with_cache(CacheConfig::Disabled);
+
+let index = SifsIndex::from_path_with_index_options("/path/to/project", options)?;
+```
+
+`CacheConfig::Platform` is the default. `CacheConfig::Project` reads and writes
+`.sifs/` inside the indexed repository. `CacheConfig::Custom(path)` stores
+entries under a caller-provided cache root. `CacheConfig::Disabled` performs no
+persistent cache reads or writes.
 
 The `include_text_files` flag controls whether default document-like extensions
 such as Markdown, YAML, TOML, and JSON are included when you don't pass an

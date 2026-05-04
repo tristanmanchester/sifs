@@ -203,6 +203,11 @@ in-memory `SifsIndex`, including the BM25 index and chunk mappings. Semantic
 model state and dense vectors are loaded lazily only after semantic, hybrid, or
 `find_related` calls. BM25 tool calls stay model-free.
 
+The MCP server also uses SIFS persistent caches unless started with
+`--no-cache`. By default those entries live in the platform cache directory;
+start the server with `--cache-dir` for a custom cache root or `--project-cache`
+to opt into repository-local `.sifs/` state.
+
 If files change while the MCP server keeps running, call `refresh_index` before
 trusting search results for the changed source. Git URL mode indexes a temporary
 clone, so it does not include uncommitted changes from a separate local checkout.
