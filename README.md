@@ -4,7 +4,7 @@
 
 # SIFS
 
-SIFS means "SIFS Is Fast Search." It is a Rust code search tool and library for
+SIFS ("**S**IFS **I**s **F**ast **S**earch") is a Rust code search tool and library for
 agents, editor integrations, and local developer workflows. It indexes a
 repository, splits files into useful chunks, embeds those chunks with a
 Model2Vec-compatible encoder, and runs hybrid search over semantic and BM25
