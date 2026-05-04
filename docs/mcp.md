@@ -19,8 +19,9 @@ When the default source is a Git URL, use `--ref` to choose a branch or tag.
 target/release/sifs mcp https://github.com/owner/project --ref main
 ```
 
-Use `--model`, `--no-download`, or `--offline` to control semantic model
-loading for server mode. `--offline` also rejects Git URL sources.
+Use `--encoder`, `--model`, `--no-download`, or `--offline` to control
+semantic encoder and model loading for server mode. `--offline` also rejects
+Git URL sources.
 
 When you pass a default source, MCP tool calls are scoped to that source and can
 omit `repo`. Calls that pass a different `repo` are rejected. If you don't pass
