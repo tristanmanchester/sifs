@@ -38,10 +38,11 @@ install that binary by default.
 cargo install --locked sifs
 ```
 
-Homebrew installs are published through
-[`tristanmanchester/homebrew-tap`](https://github.com/tristanmanchester/homebrew-tap).
-The draft formula in [packaging/homebrew/sifs.rb](packaging/homebrew/sifs.rb)
-is the source-repo template for the tap formula.
+Install with Homebrew from the public tap.
+
+```bash
+brew install tristanmanchester/tap/sifs
+```
 
 ## Build SIFS
 

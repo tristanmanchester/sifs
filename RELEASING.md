@@ -6,16 +6,15 @@ SIFS uses a small manual release flow for now:
 - create a GitHub release tag
 - publish the Homebrew formula to `tristanmanchester/homebrew-tap`
 
-The source repository keeps a draft formula at
-[`packaging/homebrew/sifs.rb`](packaging/homebrew/sifs.rb). The installable
-formula lives in the tap repository at `Formula/sifs.rb`.
+Homebrew releases are published from the tap repository at
+`tristanmanchester/homebrew-tap`.
 
 ## Files involved
 
 - [`Cargo.toml`](Cargo.toml) - crate version and release metadata
 - [`Cargo.lock`](Cargo.lock) - locked dependency graph used by Homebrew
 - [`README.md`](README.md) - user-facing install and usage documentation
-- [`packaging/homebrew/sifs.rb`](packaging/homebrew/sifs.rb) - source-repo draft formula
+- [`packaging/homebrew/sifs.rb`](packaging/homebrew/sifs.rb) - formula used for release preparation
 - `tristanmanchester/homebrew-tap:Formula/sifs.rb` - published Homebrew formula
 
 ## Normal release flow
@@ -60,8 +59,10 @@ formula lives in the tap repository at `Formula/sifs.rb`.
    ```bash
    git clone https://github.com/tristanmanchester/homebrew-tap.git /tmp/homebrew-tap
    cp packaging/homebrew/sifs.rb /tmp/homebrew-tap/Formula/sifs.rb
-   # Replace REPLACE_WITH_RELEASE_TARBALL_SHA256 with the real checksum.
    ```
+
+   Update the copied formula so `url` points at the new tag and `sha256` is the
+   checksum from the previous step.
 
 9. Validate the tap formula:
 
@@ -93,4 +94,3 @@ formula lives in the tap repository at `Formula/sifs.rb`.
 - Publish the Homebrew formula to the dedicated tap, not `homebrew/core`.
 - The Homebrew test must stay model-free and network-free after installation;
   use BM25 with `--offline --no-cache`.
-- Do not publish a tap formula with `REPLACE_WITH_RELEASE_TARBALL_SHA256`.
