@@ -22,10 +22,10 @@ target/release/sifs mcp https://github.com/owner/project --ref main
 Use `--model`, `--no-download`, or `--offline` to control semantic model
 loading for server mode. `--offline` also rejects Git URL sources.
 
-When you pass a default source, MCP tool calls are scoped to that source and can
-omit `repo`. Calls that pass a different `repo` are rejected. If you don't pass
-a default source, MCP tool calls must include `repo` with a local path or Git
-URL.
+When you pass a default source, MCP tool calls can omit `repo` to use that
+source. Calls may still pass a different `repo` local path or Git URL when the
+agent needs to search another checkout. If you don't pass a default source, MCP
+tool calls must include `repo` with a local path or Git URL.
 
 ## Configure a client
 
@@ -107,9 +107,9 @@ that clients should launch.
 sifs mcp doctor /path/to/project --offline --no-cache
 ```
 
-Security note: SIFS runs as a local stdio process and can read the configured
-source path. Project-scoped Claude Code `.mcp.json` files are shared through the
-repository, so only add them to trusted repositories.
+Security note: SIFS runs as a local stdio process and can read local paths
+provided in tool calls. Project-scoped Claude Code `.mcp.json` files are shared
+through the repository, so only add them to trusted repositories.
 
 ## Protocol surface
 
@@ -121,7 +121,7 @@ Supported methods are:
 
 - `initialize`: Returns server metadata, tool capability information, and usage
   instructions. The instructions include the configured default source/ref and
-  the repo override policy when a default source is present.
+  repo selection policy when a default source is present.
 - `resources/list`: Returns context resources for server state and index
   discovery.
 - `resources/read`: Reads context resources such as `sifs://server/context`.
@@ -151,7 +151,8 @@ Fields:
 
 - `query` is required.
 - `repo` is optional when the server started with a default source. When a
-  default source is configured, `repo` must be omitted or match that source.
+  default source is configured, omitting `repo` uses that source; passing `repo`
+  searches the requested local path or Git URL instead.
 - `mode` is optional and can be `hybrid`, `semantic`, or `bm25`.
 - `top_k` is optional and defaults to `5`.
 - `alpha` is optional for hybrid search. Omit it to let SIFS choose the blend
@@ -189,7 +190,8 @@ Fields:
 - `file_path` is required.
 - `line` is required and uses one-based line numbers.
 - `repo` is optional when the server started with a default source. When a
-  default source is configured, `repo` must be omitted or match that source.
+  default source is configured, omitting `repo` uses that source; passing `repo`
+  searches the requested local path or Git URL instead.
 - `top_k` is optional and defaults to `5`.
 
 When SIFS can't resolve the file and line, the tool returns a text error that

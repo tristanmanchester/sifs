@@ -98,7 +98,8 @@ sifs mcp install --client claude --scope local --source /path/to/project
 
 You can also start the server directly. Passing a path pre-indexes that source,
 so MCP clients can call `search` and `find_related` without sending a `repo`
-argument on every tool call.
+argument on every tool call. Tool calls can still pass `repo` to search another
+local path or Git URL from the same MCP server.
 
 ```bash
 sifs mcp /path/to/project
@@ -139,8 +140,8 @@ Claude Code project config uses `.mcp.json`:
 }
 ```
 
-This is a local process with read access to the configured source path. Only
-check project-scoped Claude Code `.mcp.json` into repositories you trust.
+This is a local process with read access to local paths provided in tool calls.
+Only check project-scoped Claude Code `.mcp.json` into repositories you trust.
 
 ## CLI
 

@@ -558,33 +558,7 @@ fn selected_source<'a>(
     default_source: Option<&'a str>,
 ) -> std::result::Result<Option<&'a str>, String> {
     let requested = args.get("repo").and_then(Value::as_str);
-    if let Some(default_source) = default_source {
-        if let Some(requested) = requested
-            && !sources_match(requested, default_source)
-        {
-            return Err(format!(
-                "This MCP server is scoped to {default_source:?}; refusing repo override {requested:?}."
-            ));
-        }
-        return Ok(Some(default_source));
-    }
-    Ok(requested)
-}
-
-fn sources_match(requested: &str, default_source: &str) -> bool {
-    if requested == default_source {
-        return true;
-    }
-    if is_git_url(requested) || is_git_url(default_source) {
-        return false;
-    }
-    let Ok(requested) = Path::new(requested).canonicalize() else {
-        return false;
-    };
-    let Ok(default_source) = Path::new(default_source).canonicalize() else {
-        return false;
-    };
-    requested == default_source
+    Ok(requested.or(default_source))
 }
 
 fn search_options_from_args(args: &Value, top_k: usize, mode: SearchMode) -> SearchOptions {
@@ -649,7 +623,7 @@ fn no_repo_message() -> &'static str {
 fn build_instructions(default_source: Option<&str>, ref_name: Option<&str>) -> String {
     let source_context = match default_source {
         Some(source) => format!(
-            "\n\nCurrent server context:\n- Default source: {source}\n- Git ref: {}\n- Repo override policy: tool calls may omit `repo`; if provided it must match the default source.\n- Long-lived sessions cache indexes in memory; call `refresh_index` after files change.",
+            "\n\nCurrent server context:\n- Default source: {source}\n- Git ref: {}\n- Repo selection policy: tool calls may omit `repo` to use the default source, or pass `repo` to search another local path or Git URL.\n- Long-lived sessions cache indexes in memory; call `refresh_index` after files change.",
             ref_name.unwrap_or("none")
         ),
         None => "\n\nCurrent server context:\n- No default source is configured. Tool calls must pass `repo` as a local path or Git URL.".to_owned(),
@@ -909,21 +883,25 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn default_source_rejects_repo_override() {
+    fn default_source_allows_repo_override() {
         let args = json!({"repo": "/other/repo"});
-        let err = selected_source(&args, Some("/default/repo")).unwrap_err();
 
-        assert!(err.contains("refusing repo override"));
-        assert!(err.contains("/default/repo"));
-        assert!(err.contains("/other/repo"));
+        assert_eq!(
+            selected_source(&args, Some("/default/repo")).unwrap(),
+            Some("/other/repo")
+        );
     }
 
     #[test]
-    fn default_source_allows_omitted_or_matching_repo() {
+    fn default_source_is_fallback_when_repo_is_omitted() {
         assert_eq!(
             selected_source(&json!({}), Some("/default/repo")).unwrap(),
             Some("/default/repo")
         );
+    }
+
+    #[test]
+    fn default_source_allows_matching_repo() {
         assert_eq!(
             selected_source(&json!({"repo": "/default/repo"}), Some("/default/repo")).unwrap(),
             Some("/default/repo")
@@ -937,7 +915,7 @@ mod tests {
         let requested = temp.path().join(".").to_string_lossy().to_string();
         assert_eq!(
             selected_source(&json!({"repo": requested}), Some(&default)).unwrap(),
-            Some(default.as_str())
+            Some(requested.as_str())
         );
     }
 

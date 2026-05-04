@@ -181,8 +181,9 @@ target/release/sifs mcp https://github.com/owner/project --ref main
 ```
 
 When you provide a default source, MCP tool calls can omit the `repo` argument.
-When you don't provide one, every `search` and `find_related` call must include
-a local path or Git URL in `repo`.
+They can also pass `repo` to search another local path or Git URL. When you
+don't provide a default source, every `search` and `find_related` call must
+include a local path or Git URL in `repo`.
 
 ### MCP client installer
 

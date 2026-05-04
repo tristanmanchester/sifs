@@ -13,3 +13,9 @@ versioning where practical.
 
 - Added a changelog and local agent instructions so release notes are maintained
   as changes are built.
+
+### Fixed
+
+- Allowed SIFS MCP tool calls to search an explicit `repo` even when the server
+  was started with a default source, so one configured MCP server can search
+  other local checkouts or Git URLs instead of rejecting repo overrides.
