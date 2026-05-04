@@ -11,6 +11,7 @@ or identifier:
 sifs search "authentication flow" ./my-project
 sifs search "save_pretrained" ./my-project
 sifs search "save model to disk" ./my-project --top-k 10
+sifs search "auth flow" ./my-project --mode semantic --encoder hashing
 ```
 
 Use `sifs find-related` to discover code similar to a known location. Pass
