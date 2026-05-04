@@ -44,6 +44,61 @@ Install with Homebrew from the public tap.
 brew install tristanmanchester/tap/sifs
 ```
 
+## Install as MCP
+
+SIFS can configure itself as a local stdio MCP server for Codex and Claude Code.
+Install the `sifs` binary first, then run the installer from any project you
+want agents to search.
+
+```bash
+cargo install --locked sifs
+sifs mcp install --client all --source /path/to/project
+```
+
+With Homebrew:
+
+```bash
+brew install tristanmanchester/tap/sifs
+sifs mcp install --client codex --source /path/to/project
+sifs mcp install --client claude --scope local --source /path/to/project
+```
+
+The installer uses the client CLIs when available:
+
+```bash
+codex mcp add sifs -- /absolute/path/to/sifs mcp /path/to/project
+claude mcp add-json sifs '{"type":"stdio","command":"/absolute/path/to/sifs","args":["mcp","/path/to/project"],"env":{}}' --scope local
+```
+
+If a client CLI is not available, `sifs mcp install --dry-run` prints the
+fallback config. Codex uses `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.sifs]
+command = "/absolute/path/to/sifs"
+args = ["mcp", "/path/to/project"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+```
+
+Claude Code project config uses `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "sifs": {
+      "type": "stdio",
+      "command": "/absolute/path/to/sifs",
+      "args": ["mcp", "/path/to/project"],
+      "env": {}
+    }
+  }
+}
+```
+
+This is a local stdio process that can read the configured source path. Only
+check project-scoped Claude Code `.mcp.json` into repositories you trust.
+
 ## Build SIFS
 
 SIFS builds with Cargo. The default release build gives you the public `sifs`
@@ -86,12 +141,12 @@ elsewhere in the same index.
 target/release/sifs find-related src/auth/session.rs 42 /path/to/project -k 8
 ```
 
-Start the MCP server by running `sifs` without a subcommand. Passing a path
-pre-indexes that source and lets MCP clients call `search` and `find_related`
-without including a `repo` argument on every tool call.
+Start the MCP server with `sifs mcp`. Passing a path pre-indexes that source and
+lets MCP clients call `search` and `find_related` without including a `repo`
+argument on every tool call.
 
 ```bash
-target/release/sifs /path/to/project
+target/release/sifs mcp /path/to/project
 ```
 
 ## Documentation

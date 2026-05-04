@@ -184,6 +184,35 @@ When you provide a default source, MCP tool calls can omit the `repo` argument.
 When you don't provide one, every `search` and `find_related` call must include
 a local path or Git URL in `repo`.
 
+### MCP client installer
+
+Use `sifs mcp install` to configure the current `sifs` binary as a local stdio
+MCP server for Codex and/or Claude Code.
+
+```bash
+sifs mcp install [--client codex|claude|all] [--scope local|project|user] [--source <path-or-git-url>] [--ref <branch-or-tag>] [--name sifs] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache] [--force] [--dry-run]
+```
+
+Examples:
+
+```bash
+sifs mcp install --client all --source /path/to/project
+sifs mcp install --client codex --source /path/to/project --offline
+sifs mcp install --client claude --scope local --source /path/to/project
+sifs mcp install --client codex --source https://github.com/owner/project --ref main
+```
+
+`--dry-run` prints the generated client commands and fallback config without
+changing Codex or Claude Code state. `--force` replaces an existing same-name
+MCP server entry.
+
+Use `sifs mcp doctor` to inspect local MCP readiness and print the exact command
+clients should launch.
+
+```bash
+sifs mcp doctor /path/to/project --offline --no-cache
+```
+
 ## Output format
 
 The default CLI output is human-readable text. Each search result includes the

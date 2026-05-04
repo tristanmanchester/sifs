@@ -8,6 +8,7 @@ use sifs::{
 };
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -113,8 +114,10 @@ enum Command {
         #[arg(long, help = "Use a project-local .sifs cache.")]
         project_cache: bool,
     },
-    #[command(about = "Start the SIFS stdio MCP server.")]
+    #[command(about = "Start, install, or inspect the SIFS stdio MCP server.")]
     Mcp {
+        #[command(subcommand)]
+        command: Option<McpCommand>,
         #[arg(help = "Local directory or git URL to pre-index.")]
         path: Option<String>,
         #[arg(long = "ref", help = "Branch or tag to check out for a Git URL.")]
@@ -234,6 +237,69 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum McpCommand {
+    #[command(about = "Configure SIFS as a local stdio MCP server for Codex and/or Claude Code.")]
+    Install {
+        #[arg(long, value_enum, default_value_t = McpClientArg::All)]
+        client: McpClientArg,
+        #[arg(long, value_enum)]
+        scope: Option<McpScopeArg>,
+        #[arg(
+            long,
+            help = "Local directory or Git URL to expose through the MCP server."
+        )]
+        source: Option<String>,
+        #[arg(
+            long = "ref",
+            help = "Branch or tag to check out for a Git URL source."
+        )]
+        ref_name: Option<String>,
+        #[arg(long, default_value = "sifs", help = "MCP server name to configure.")]
+        name: String,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+        #[arg(long, help = "Replace an existing same-name MCP server.")]
+        force: bool,
+        #[arg(
+            long,
+            help = "Print commands and config without changing client state."
+        )]
+        dry_run: bool,
+    },
+    #[command(about = "Inspect local MCP install readiness.")]
+    Doctor {
+        #[arg(
+            default_value = ".",
+            help = "Local directory or Git URL the MCP server would expose."
+        )]
+        source: String,
+        #[arg(
+            long = "ref",
+            help = "Branch or tag to check out for a Git URL source."
+        )]
+        ref_name: Option<String>,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum ModelCommand {
     #[command(about = "Download or validate the embedding model in the Hugging Face cache.")]
     Pull {
@@ -284,6 +350,20 @@ enum EncoderArg {
     #[value(name = "model2vec")]
     Model2Vec,
     Hashing,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum McpClientArg {
+    Codex,
+    Claude,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum McpScopeArg {
+    Local,
+    Project,
+    User,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -436,6 +516,7 @@ fn main() -> Result<()> {
             offline,
         )?,
         Some(Command::Mcp {
+            command,
             path,
             ref_name,
             model,
@@ -444,22 +525,68 @@ fn main() -> Result<()> {
             cache_dir,
             no_cache,
             project_cache,
-        }) => {
-            let policy = model_policy(offline, no_download);
-            if offline
-                && let Some(path) = &path
-                && is_git_url(path)
-            {
-                bail!("--offline does not allow remote Git sources");
-            }
-            sifs::mcp::serve_with_options(
-                path,
+        }) => match command {
+            Some(McpCommand::Install {
+                client,
+                scope,
+                source,
                 ref_name,
-                ModelOptions::new(model.as_deref(), policy),
-                cache_config(cache_dir, no_cache, project_cache),
+                name,
                 offline,
-            )?;
-        }
+                no_download,
+                cache_dir,
+                no_cache,
+                project_cache,
+                force,
+                dry_run,
+            }) => run_mcp_install(McpInstallOptions {
+                client,
+                scope,
+                source,
+                ref_name,
+                name,
+                offline,
+                no_download,
+                cache_dir,
+                no_cache,
+                project_cache,
+                force,
+                dry_run,
+            })?,
+            Some(McpCommand::Doctor {
+                source,
+                ref_name,
+                offline,
+                no_download,
+                cache_dir,
+                no_cache,
+                project_cache,
+            }) => run_mcp_doctor(McpDoctorOptions {
+                source,
+                ref_name,
+                offline,
+                no_download,
+                cache_dir,
+                no_cache,
+                project_cache,
+            })?,
+            None => {
+                let policy = model_policy(offline, no_download);
+                if offline
+                    && let Some(path) = &path
+                    && is_git_url(path)
+                {
+                    bail!("--offline does not allow remote Git sources");
+                }
+                sifs::mcp::serve_with_options(
+                    path,
+                    ref_name,
+                    ModelOptions::new(model.as_deref(), policy),
+                    cache_config(cache_dir, no_cache, project_cache),
+                    offline,
+                )?;
+            }
+        },
         Some(Command::Files {
             path,
             limit,
@@ -1116,6 +1243,447 @@ fn run_doctor(
 fn file_status(path: Option<&PathBuf>) -> String {
     path.map(|path| format!("found at {}", path.display()))
         .unwrap_or_else(|| "missing".to_owned())
+}
+
+struct McpInstallOptions {
+    client: McpClientArg,
+    scope: Option<McpScopeArg>,
+    source: Option<String>,
+    ref_name: Option<String>,
+    name: String,
+    offline: bool,
+    no_download: bool,
+    cache_dir: Option<PathBuf>,
+    no_cache: bool,
+    project_cache: bool,
+    force: bool,
+    dry_run: bool,
+}
+
+struct McpDoctorOptions {
+    source: String,
+    ref_name: Option<String>,
+    offline: bool,
+    no_download: bool,
+    cache_dir: Option<PathBuf>,
+    no_cache: bool,
+    project_cache: bool,
+}
+
+struct McpConfig {
+    sifs_path: PathBuf,
+    source: String,
+    ref_name: Option<String>,
+    offline: bool,
+    no_download: bool,
+    cache_dir: Option<PathBuf>,
+    no_cache: bool,
+    project_cache: bool,
+}
+
+fn run_mcp_install(options: McpInstallOptions) -> Result<()> {
+    let source = resolve_mcp_source(options.source.as_deref(), options.offline)?;
+    let config = McpConfig {
+        sifs_path: std::env::current_exe().context("resolve current sifs executable")?,
+        source,
+        ref_name: options.ref_name,
+        offline: options.offline,
+        no_download: options.no_download,
+        cache_dir: options.cache_dir,
+        no_cache: options.no_cache,
+        project_cache: options.project_cache,
+    };
+    warn_if_development_binary(&config.sifs_path);
+    if !options.dry_run && stable_binary_path(&config.sifs_path) == "no" {
+        bail!(
+            "refusing to write durable MCP config for development binary {}. Install with `cargo install --locked sifs` or Homebrew, then rerun this command.",
+            config.sifs_path.display()
+        );
+    }
+
+    match options.client {
+        McpClientArg::Codex => {
+            install_codex(&options.name, &config, options.force, options.dry_run)?
+        }
+        McpClientArg::Claude => install_claude(
+            &options.name,
+            options.scope,
+            &config,
+            options.force,
+            options.dry_run,
+        )?,
+        McpClientArg::All => {
+            install_codex(&options.name, &config, options.force, options.dry_run)?;
+            install_claude(
+                &options.name,
+                options.scope,
+                &config,
+                options.force,
+                options.dry_run,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
+    let source = resolve_mcp_source(Some(&options.source), options.offline)?;
+    let config = McpConfig {
+        sifs_path: std::env::current_exe().context("resolve current sifs executable")?,
+        source,
+        ref_name: options.ref_name,
+        offline: options.offline,
+        no_download: options.no_download,
+        cache_dir: options.cache_dir,
+        no_cache: options.no_cache,
+        project_cache: options.project_cache,
+    };
+    println!("SIFS MCP doctor");
+    println!("SIFS executable: {}", config.sifs_path.display());
+    println!(
+        "Stable install path: {}",
+        stable_binary_path(&config.sifs_path)
+    );
+    println!("Codex CLI: {}", command_status("codex"));
+    println!("Claude CLI: {}", command_status("claude"));
+    println!(
+        "MCP command: {}",
+        display_command(&mcp_server_command(&config))
+    );
+
+    if !is_git_url(&config.source) {
+        let smoke = ProcessCommand::new(&config.sifs_path)
+            .args([
+                "search",
+                "sifs_mcp_smoke",
+                &config.source,
+                "--mode",
+                "bm25",
+                "--offline",
+                "--no-cache",
+            ])
+            .output();
+        match smoke {
+            Ok(output) if output.status.success() => println!("BM25 smoke: passed"),
+            Ok(output) => println!(
+                "BM25 smoke: failed ({})",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            Err(error) => println!("BM25 smoke: could not run ({error})"),
+        }
+    } else {
+        println!("BM25 smoke: skipped for Git URL source");
+    }
+    Ok(())
+}
+
+fn install_codex(name: &str, config: &McpConfig, force: bool, dry_run: bool) -> Result<()> {
+    let add_args = codex_add_args(name, config);
+    println!("Codex MCP:");
+    println!(
+        "  {}",
+        display_command(&prepend_command("codex", &add_args))
+    );
+    if dry_run {
+        println!(
+            "\nCodex config.toml fallback:\n{}",
+            codex_toml(name, config)
+        );
+        return Ok(());
+    }
+    if command_path("codex").is_none() {
+        println!("codex was not found on PATH. Add this to ~/.codex/config.toml instead:");
+        println!("{}", codex_toml(name, config));
+        return Ok(());
+    }
+    if mcp_server_exists("codex", name, None)? {
+        if !force {
+            bail!("Codex MCP server {name:?} already exists. Re-run with --force to replace it.");
+        }
+        run_checked("codex", &["mcp", "remove", name])?;
+    }
+    run_checked_owned("codex", &add_args)?;
+    println!("Configured Codex MCP server {name:?}.");
+    Ok(())
+}
+
+fn install_claude(
+    name: &str,
+    scope: Option<McpScopeArg>,
+    config: &McpConfig,
+    force: bool,
+    dry_run: bool,
+) -> Result<()> {
+    let scope = scope.unwrap_or(McpScopeArg::Local);
+    let add_args = claude_add_args(name, scope, config)?;
+    println!("Claude Code MCP:");
+    println!(
+        "  {}",
+        display_command(&prepend_command("claude", &add_args))
+    );
+    if dry_run {
+        println!(
+            "\nClaude .mcp.json fallback:\n{}",
+            claude_project_json(name, config)?
+        );
+        return Ok(());
+    }
+    if command_path("claude").is_none() {
+        if matches!(scope, McpScopeArg::Project) {
+            bail!(
+                "claude was not found on PATH. Project-scoped .mcp.json should be written through Claude Code; install Claude or use --dry-run to print the fallback config."
+            );
+        }
+        println!(
+            "claude was not found on PATH. Add this project config only in trusted repositories:"
+        );
+        println!("{}", claude_project_json(name, config)?);
+        return Ok(());
+    }
+    if mcp_server_exists("claude", name, Some(scope))? {
+        if !force {
+            bail!("Claude MCP server {name:?} already exists. Re-run with --force to replace it.");
+        }
+        let mut remove_args = vec!["mcp".to_owned(), "remove".to_owned(), name.to_owned()];
+        remove_args.push("--scope".to_owned());
+        remove_args.push(scope_arg(scope).to_owned());
+        run_checked_owned("claude", &remove_args)?;
+    }
+    run_checked_owned("claude", &add_args)?;
+    println!(
+        "Configured Claude Code MCP server {name:?} at {} scope.",
+        scope_arg(scope)
+    );
+    Ok(())
+}
+
+fn resolve_mcp_source(source: Option<&str>, offline: bool) -> Result<String> {
+    let source = match source {
+        Some(source) => source.to_owned(),
+        None => std::env::current_dir()
+            .context("resolve current directory")?
+            .to_string_lossy()
+            .into_owned(),
+    };
+    if is_git_url(&source) {
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        return Ok(source);
+    }
+    let path = PathBuf::from(source);
+    if !path.exists() {
+        bail!("local MCP source does not exist: {}", path.display());
+    }
+    if !path.is_dir() {
+        bail!("local MCP source is not a directory: {}", path.display());
+    }
+    Ok(path
+        .canonicalize()
+        .with_context(|| format!("canonicalize MCP source {}", path.display()))?
+        .to_string_lossy()
+        .into_owned())
+}
+
+fn mcp_args(config: &McpConfig) -> Vec<String> {
+    let mut args = vec!["mcp".to_owned(), config.source.clone()];
+    if let Some(ref_name) = &config.ref_name {
+        args.push("--ref".to_owned());
+        args.push(ref_name.clone());
+    }
+    if config.offline {
+        args.push("--offline".to_owned());
+    }
+    if config.no_download {
+        args.push("--no-download".to_owned());
+    }
+    if let Some(cache_dir) = &config.cache_dir {
+        args.push("--cache-dir".to_owned());
+        args.push(cache_dir.to_string_lossy().into_owned());
+    }
+    if config.no_cache {
+        args.push("--no-cache".to_owned());
+    }
+    if config.project_cache {
+        args.push("--project-cache".to_owned());
+    }
+    args
+}
+
+fn mcp_server_command(config: &McpConfig) -> Vec<String> {
+    let mut command = vec![config.sifs_path.to_string_lossy().into_owned()];
+    command.extend(mcp_args(config));
+    command
+}
+
+fn codex_add_args(name: &str, config: &McpConfig) -> Vec<String> {
+    let mut args = vec![
+        "mcp".to_owned(),
+        "add".to_owned(),
+        name.to_owned(),
+        "--".to_owned(),
+    ];
+    args.extend(mcp_server_command(config));
+    args
+}
+
+fn claude_add_args(name: &str, scope: McpScopeArg, config: &McpConfig) -> Result<Vec<String>> {
+    Ok(vec![
+        "mcp".to_owned(),
+        "add-json".to_owned(),
+        name.to_owned(),
+        claude_server_json(config)?,
+        "--scope".to_owned(),
+        scope_arg(scope).to_owned(),
+    ])
+}
+
+fn codex_toml(name: &str, config: &McpConfig) -> String {
+    let args = mcp_args(config)
+        .iter()
+        .map(|arg| serde_json::to_string(arg).unwrap())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "[mcp_servers.{name}]\ncommand = {}\nargs = [{args}]\nstartup_timeout_sec = 20\ntool_timeout_sec = 60\n",
+        toml_string(&config.sifs_path.to_string_lossy())
+    )
+}
+
+fn claude_server_json(config: &McpConfig) -> Result<String> {
+    Ok(serde_json::to_string(&json!({
+        "type": "stdio",
+        "command": config.sifs_path.to_string_lossy(),
+        "args": mcp_args(config),
+        "env": {},
+    }))?)
+}
+
+fn claude_project_json(name: &str, config: &McpConfig) -> Result<String> {
+    Ok(serde_json::to_string_pretty(&json!({
+        "mcpServers": {
+            name: {
+                "type": "stdio",
+                "command": config.sifs_path.to_string_lossy(),
+                "args": mcp_args(config),
+                "env": {},
+            }
+        }
+    }))?)
+}
+
+fn toml_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap()
+}
+
+fn scope_arg(scope: McpScopeArg) -> &'static str {
+    match scope {
+        McpScopeArg::Local => "local",
+        McpScopeArg::Project => "project",
+        McpScopeArg::User => "user",
+    }
+}
+
+fn mcp_server_exists(command: &str, name: &str, _scope: Option<McpScopeArg>) -> Result<bool> {
+    let args = vec!["mcp".to_owned(), "get".to_owned(), name.to_owned()];
+    let output = ProcessCommand::new(command)
+        .args(&args)
+        .output()
+        .with_context(|| format!("run {command} {}", args.join(" ")))?;
+    Ok(output.status.success())
+}
+
+fn run_checked(command: &str, args: &[&str]) -> Result<()> {
+    let output = ProcessCommand::new(command)
+        .args(args)
+        .output()
+        .with_context(|| format!("run {command} {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "{} failed: {}",
+            display_command(&prepend_command(
+                command,
+                &args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>()
+            )),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+fn run_checked_owned(command: &str, args: &[String]) -> Result<()> {
+    let output = ProcessCommand::new(command)
+        .args(args)
+        .output()
+        .with_context(|| format!("run {command} {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "{} failed: {}",
+            display_command(&prepend_command(command, args)),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+fn prepend_command(command: &str, args: &[String]) -> Vec<String> {
+    let mut full = vec![command.to_owned()];
+    full.extend(args.iter().cloned());
+    full
+}
+
+fn display_command(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|part| shell_quote(part))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_quote(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | ':' | '='))
+    {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+fn command_status(command: &str) -> String {
+    command_path(command)
+        .map(|path| format!("found at {}", path.display()))
+        .unwrap_or_else(|| "not found on PATH".to_owned())
+}
+
+fn command_path(command: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    std::env::split_paths(&path_var)
+        .map(|dir| dir.join(command))
+        .find(|candidate| candidate.is_file())
+}
+
+fn stable_binary_path(path: &Path) -> &'static str {
+    if path.components().any(|component| {
+        matches!(
+            component.as_os_str().to_str(),
+            Some("target" | "debug" | "release")
+        )
+    }) {
+        "no"
+    } else {
+        "yes"
+    }
+}
+
+fn warn_if_development_binary(path: &Path) {
+    if stable_binary_path(path) == "no" {
+        eprintln!(
+            "Warning: sifs is running from {}. Install with `cargo install --locked sifs` or Homebrew before creating durable MCP config.",
+            path.display()
+        );
+    }
 }
 
 fn run_cache(command: CacheCommand) -> Result<()> {

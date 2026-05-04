@@ -39,11 +39,121 @@ fn mcp_help_documents_server_options() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("install"));
+    assert!(stdout.contains("doctor"));
     assert!(stdout.contains("--ref"));
     assert!(stdout.contains("--model"));
     assert!(stdout.contains("--offline"));
     assert!(stdout.contains("--no-download"));
     assert!(stdout.contains("[PATH]"));
+}
+
+#[test]
+fn mcp_install_dry_run_prints_codex_command_and_config() {
+    let dir = fixture();
+    let output = sifs()
+        .args([
+            "mcp",
+            "install",
+            "--dry-run",
+            "--client",
+            "codex",
+            "--source",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("codex mcp add sifs --"));
+    assert!(stdout.contains(" mcp "));
+    assert!(stdout.contains(dir.path().canonicalize().unwrap().to_str().unwrap()));
+    assert!(stdout.contains("[mcp_servers.sifs]"));
+    assert!(stdout.contains("startup_timeout_sec = 20"));
+    assert!(stdout.contains("tool_timeout_sec = 60"));
+}
+
+#[test]
+fn mcp_install_dry_run_prints_claude_command_and_project_json() {
+    let dir = fixture();
+    let output = sifs()
+        .args([
+            "mcp",
+            "install",
+            "--dry-run",
+            "--client",
+            "claude",
+            "--scope",
+            "local",
+            "--source",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("claude mcp add-json sifs"));
+    assert!(stdout.contains("--scope local"));
+    assert!(stdout.contains("\"type\": \"stdio\""));
+    assert!(stdout.contains("\"command\""));
+    assert!(stdout.contains("\"args\": ["));
+    assert!(stdout.contains("\"mcp\""));
+    assert!(stdout.contains(dir.path().canonicalize().unwrap().to_str().unwrap()));
+}
+
+#[test]
+fn mcp_install_dry_run_all_includes_offline_for_both_clients() {
+    let dir = fixture();
+    let output = sifs()
+        .args([
+            "mcp",
+            "install",
+            "--dry-run",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--offline",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Codex MCP:"));
+    assert!(stdout.contains("Claude Code MCP:"));
+    assert!(stdout.contains("--offline"));
+}
+
+#[test]
+fn mcp_install_offline_rejects_git_url() {
+    let output = sifs()
+        .args([
+            "mcp",
+            "install",
+            "--dry-run",
+            "--source",
+            "https://github.com/owner/repo",
+            "--offline",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--offline does not allow remote Git sources"));
 }
 
 #[test]
