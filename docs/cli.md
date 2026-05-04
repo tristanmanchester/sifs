@@ -16,7 +16,7 @@ is the current directory, the default result count is `5`, and the default mode
 is `hybrid`.
 
 ```bash
-target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--model <model>] [--offline] [--no-download]
+target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--encoder <encoder>] [--model <model>] [--offline] [--no-download]
 ```
 
 Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
@@ -35,6 +35,10 @@ The mode values are:
 - `bm25`: Rank by sparse lexical matching only. This mode is model-free and
   never loads tokenizers, safetensors, or Hugging Face model files.
 
+Semantic and hybrid search default to `--encoder model2vec`. Use
+`--encoder hashing` for a model-free dense encoder that is useful for smoke
+tests and fully local experiments.
+
 Use `--offline` to prevent all network access by SIFS, including remote Git
 clones and model downloads. Use `--no-download` to prevent model downloads while
 still allowing local path indexing and remote Git sources.
@@ -46,7 +50,7 @@ contains that line. It then searches for semantically related chunks in the same
 language when language metadata is available.
 
 ```bash
-target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--model <model>] [--offline] [--no-download]
+target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--encoder <encoder>] [--model <model>] [--offline] [--no-download]
 ```
 
 Pass the file path as it appears in search results or as a path relative to the
@@ -73,10 +77,24 @@ target/release/sifs model status
 target/release/sifs model status --json
 target/release/sifs model pull
 target/release/sifs model pull --model minishlab/potion-code-16M
+target/release/sifs model fetch --model minishlab/potion-code-16M
 ```
 
 `model status` checks local files only and never downloads. `model pull`
 downloads or validates the model through the normal Hugging Face cache.
+`model fetch` is an alias for `model pull`.
+
+## Doctor command
+
+The `doctor` command prints local readiness for a path, cache directory, and
+semantic encoder. It is a broader diagnostic than `model status`.
+
+```bash
+target/release/sifs doctor [path] [--encoder <encoder>] [--model <model>] [--offline] [--no-download]
+```
+
+Use it before offline semantic or hybrid search to confirm whether model files
+are already local.
 
 ## Init command
 
@@ -145,7 +163,7 @@ indexing canonicalizes the path and respects the root `.gitignore` file.
 BM25 mode is the safest network-free smoke path for package managers:
 
 ```bash
-target/release/sifs search --mode bm25 --offline "SessionToken" /path/to/project
+target/release/sifs search "SessionToken" /path/to/project --mode bm25 --offline
 ```
 
 ## Next steps

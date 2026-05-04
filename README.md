@@ -28,6 +28,7 @@ Protocol server for agent clients.
 - Index local directories or shallow-cloned Git repositories.
 - Use hybrid, semantic-only, or BM25-only ranking.
 - Run BM25 search fully offline without loading or downloading a model.
+- Use explicit sparse-only indexes or model-free hashing for local smoke tests.
 - Run quality and latency benchmarks over annotated repositories.
 
 ## Build SIFS
@@ -54,6 +55,7 @@ current directory and the default mode is `hybrid`.
 ```bash
 target/release/sifs search "authentication flow" /path/to/project
 target/release/sifs search "parse JWT claims" /path/to/project --mode bm25 --offline -k 10
+target/release/sifs search "auth flow" /path/to/project --mode semantic --encoder hashing
 ```
 
 Use `sifs find-related` when you already have a location and want similar code
@@ -96,6 +98,9 @@ loader. The loader reads the model tensors and tokenizer files directly, so the
 query path stays inside the Rust process after the model is available locally.
 BM25 mode does not use the model at all, so it is safe for network-free package
 manager smoke tests and first-run checks.
+
+Use `sifs model pull` or `sifs model fetch` to prefetch the default model, and
+`sifs doctor` to check whether semantic search is ready for offline use.
 
 Hybrid search combines semantic and BM25 rankings. It over-fetches candidates,
 normalizes each ranking with reciprocal rank fusion, applies query-aware boosts,

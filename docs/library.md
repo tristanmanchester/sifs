@@ -10,7 +10,7 @@ The crate re-exports the main index and result types from `src/lib.rs`. These
 types are the stable surface to use from downstream Rust code.
 
 ```rust
-use sifs::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult, SifsIndex};
+use sifs::{Chunk, EncoderSpec, IndexStats, SearchMode, SearchOptions, SearchResult, SifsIndex};
 ```
 
 The core types are:
@@ -23,10 +23,10 @@ The core types are:
 
 ## Index a local path
 
-Use `SifsIndex::from_path` for the default local indexing behavior. It walks
-supported code files, chunks them, and builds a sparse BM25 index. It does not
-load the embedding model until semantic, hybrid, or related-code search needs
-the dense index.
+Use `SifsIndex::from_path` for the default semantic-capable local indexing
+behavior. It walks supported code files, chunks them, and builds a sparse BM25
+index. It does not load the embedding model until semantic, hybrid, or
+related-code search needs the dense index.
 
 ```rust
 use sifs::{SearchMode, SearchOptions, SifsIndex};
@@ -49,6 +49,33 @@ fn main() -> anyhow::Result<()> {
 `from_path` returns an error when the path doesn't exist, isn't a directory, or
 contains no supported non-empty files. Model-loading errors are returned later
 from semantic or hybrid search.
+
+Use `SifsIndex::from_path_sparse` when you want an explicitly sparse-only index
+that can never initialize semantic state. BM25 search works normally; semantic,
+hybrid, and related-code search return an error telling callers to build a
+hybrid index or use `SearchMode::Bm25`.
+
+```rust
+use sifs::{SearchMode, SearchOptions, SifsIndex};
+
+let index = SifsIndex::from_path_sparse("/path/to/project")?;
+let results = index.search_with(
+    "SessionToken",
+    &SearchOptions::new(10).with_mode(SearchMode::Bm25),
+)?;
+```
+
+Use `SifsIndex::from_path_hybrid` when you want the default lazy semantic
+capability with explicit model policy.
+
+```rust
+use sifs::{ModelLoadPolicy, ModelOptions, SifsIndex};
+
+let index = SifsIndex::from_path_hybrid(
+    "/path/to/project",
+    ModelOptions::new(None, ModelLoadPolicy::NoDownload),
+)?;
+```
 
 ## Customize indexing
 
@@ -85,6 +112,21 @@ use sifs::{ModelLoadPolicy, ModelOptions, SifsIndex};
 let index = SifsIndex::from_path_with_model_options(
     "/path/to/project",
     ModelOptions::new(None, ModelLoadPolicy::NoDownload),
+    None,
+    None,
+    false,
+)?;
+```
+
+Use `SifsIndex::from_path_with_encoder_spec` for non-Model2Vec encoders such
+as the built-in hashing encoder.
+
+```rust
+use sifs::{EncoderSpec, SifsIndex};
+
+let index = SifsIndex::from_path_with_encoder_spec(
+    "/path/to/project",
+    EncoderSpec::hashing(),
     None,
     None,
     false,
@@ -139,8 +181,9 @@ fn main() -> anyhow::Result<()> {
 ```
 
 `from_chunks` preserves compatibility for callers that already have an encoder:
-it builds BM25 data and preloads semantic state. Use
-`from_chunks_with_model_options` to build a sparse-only index from chunks.
+it builds BM25 data and preloads semantic state. Use `from_chunks_sparse` for a
+sparse-only chunk index, `from_chunks_hybrid` for a lazy Model2Vec-backed
+semantic-capable index, or `from_chunks_with_encoder_spec` for hashing.
 
 ## Search an index
 

@@ -19,8 +19,9 @@ The pipeline stages are:
 4. Fall back to overlapping line chunks when syntax-aware chunking fails.
 5. Build enriched BM25 documents from chunks.
 6. Store file and language mappings for filters and chunk lookup.
-7. Lazily load the Model2Vec model and embed chunks when semantic, hybrid, or
-   related-code search first needs dense vectors.
+7. For semantic-capable indexes, lazily load the configured encoder and embed
+   chunks when semantic, hybrid, or related-code search first needs dense
+   vectors.
 
 ## File walking
 
@@ -35,9 +36,10 @@ Default ignored directories are:
 - `node_modules`, `.venv`, `venv`, `.tox`, and `.eggs`
 - `.cache`, `.sifs`, `dist`, and `build`
 
-By default, the public `from_path` constructor indexes code extensions only.
-Use `from_path_with_options` with `include_text_files=true` to include default
-document extensions such as Markdown, YAML, TOML, and JSON.
+By default, the public `from_path` constructor indexes code extensions only and
+returns a semantic-capable index. Use `from_path_sparse` for an explicitly
+BM25-only index, or `from_path_with_options` with `include_text_files=true` to
+include default document extensions such as Markdown, YAML, TOML, and JSON.
 
 ## Chunking
 
@@ -57,20 +59,22 @@ line chunks with a default maximum of `50` lines and `5` overlapping lines.
 
 ## Embedding model
 
-SIFS loads a Model2Vec-compatible model through `src/model2vec.rs`. The default
-model is `minishlab/potion-code-16M`, and callers can pass a custom model path
-through `from_path_with_options`, `from_path_with_model_options`,
-`sifs search --model`, or `sifs-embed --model`.
+SIFS loads semantic encoders through `src/model2vec.rs`. The default encoder is
+Model2Vec with model `minishlab/potion-code-16M`, and callers can pass a custom
+model path through `from_path_with_options`, `from_path_with_model_options`,
+`sifs search --model`, or `sifs-embed --model`. The CLI also exposes
+`--encoder hashing` as a model-free semantic encoder for smoke tests and local
+experiments.
 
 The loader reads tokenizer and tensor files directly. It supports embedding
 matrices, optional weights, optional token mappings, truncation settings, and
 normalization metadata. Query and chunk embeddings stay in process after the
 model loads.
 
-Model loading is lazy. BM25-only construction and BM25-only search do not load
-tokenizers, read safetensors, or call Hugging Face. `--no-download` prevents
-model downloads while allowing local indexing. `--offline` also rejects remote
-Git sources.
+Model loading is lazy for semantic-capable indexes. Explicit sparse-only
+construction and BM25-only search do not load tokenizers, read safetensors, or
+call Hugging Face. `--no-download` prevents model downloads while allowing local
+indexing. `--offline` also rejects remote Git sources.
 
 ## Sparse index
 
@@ -136,10 +140,12 @@ The sparse persistent cache stores:
 - Chunks and line locations.
 - The BM25 index.
 
-SIFS doesn't use the persistent cache for custom model paths, custom extension
-sets, custom ignore sets, document-file inclusion, or Git temporary checkouts.
-Those cases build an index from source so option-specific behavior stays
-correct.
+Semantic-capable local indexes also write a separate dense cache keyed by the
+encoder configuration. Sparse-only indexes never write dense cache files.
+
+SIFS doesn't use the persistent sparse cache for custom extension sets, custom
+ignore sets, document-file inclusion, or Git temporary checkouts. Those cases
+build an index from source so option-specific behavior stays correct.
 
 ## Limitations
 
