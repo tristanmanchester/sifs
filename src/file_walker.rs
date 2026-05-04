@@ -1,8 +1,7 @@
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::WalkBuilder;
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileCategory {
@@ -307,25 +306,23 @@ pub fn walk_files(
     ignore: Option<&HashSet<String>>,
 ) -> Vec<PathBuf> {
     let ignore_owned = ignore.cloned().unwrap_or_default();
-    let gitignore = RootGitignore::load(root);
-    let files: Vec<PathBuf> = WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|entry| {
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .hidden(true)
+        .parents(true)
+        .ignore(true)
+        .git_ignore(true)
+        .git_exclude(true)
+        .git_global(true)
+        .require_git(false)
+        .filter_entry(move |entry| {
             let name = entry.file_name().to_string_lossy();
-            if DEFAULT_IGNORED_DIRS.contains(name.as_ref()) || ignore_owned.contains(name.as_ref())
-            {
-                return false;
-            }
-            entry.path() == root || !gitignore.is_match(entry.path(), entry.file_type().is_dir())
-        })
+            !DEFAULT_IGNORED_DIRS.contains(name.as_ref()) && !ignore_owned.contains(name.as_ref())
+        });
+    let files: Vec<PathBuf> = builder
+        .build()
         .filter_map(Result::ok)
-        .filter(|entry| {
-            if entry.path() == root {
-                return true;
-            }
-            !gitignore.is_match(entry.path(), entry.file_type().is_dir())
-        })
-        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.file_type().is_some_and(|ft| ft.is_file()))
         .map(|entry| entry.into_path())
         .filter(|path| {
             path.extension()
@@ -339,29 +336,6 @@ pub fn walk_files(
     let mut files = files;
     files.sort();
     files
-}
-
-struct RootGitignore {
-    matcher: Gitignore,
-}
-
-impl RootGitignore {
-    fn load(root: &Path) -> Self {
-        let mut builder = GitignoreBuilder::new(root);
-        let gitignore = root.join(".gitignore");
-        if gitignore.is_file() {
-            let _ = builder.add(gitignore);
-        }
-        Self {
-            matcher: builder.build().unwrap_or_else(|_| Gitignore::empty()),
-        }
-    }
-
-    fn is_match(&self, rel: &Path, is_dir: bool) -> bool {
-        self.matcher
-            .matched_path_or_any_parents(rel, is_dir)
-            .is_ignore()
-    }
 }
 
 #[cfg(test)]
@@ -395,5 +369,54 @@ mod tests {
 
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with("src/lib.rs"));
+    }
+
+    #[test]
+    fn walk_files_respects_nested_gitignore_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src/generated")).unwrap();
+        fs::write(dir.path().join("src/lib.rs"), "fn main() {}\n").unwrap();
+        fs::write(dir.path().join("src/.gitignore"), "generated/\n").unwrap();
+        fs::write(
+            dir.path().join("src/generated/lib.rs"),
+            "fn generated() {}\n",
+        )
+        .unwrap();
+        let extensions = HashSet::from([".rs".to_owned()]);
+
+        let files = walk_files(dir.path(), &extensions, None);
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("src/lib.rs"));
+    }
+
+    #[test]
+    fn walk_files_respects_git_info_exclude() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git/info")).unwrap();
+        fs::write(dir.path().join(".git/info/exclude"), "excluded.rs\n").unwrap();
+        fs::write(dir.path().join("included.rs"), "fn included() {}\n").unwrap();
+        fs::write(dir.path().join("excluded.rs"), "fn excluded() {}\n").unwrap();
+        let extensions = HashSet::from([".rs".to_owned()]);
+
+        let files = walk_files(dir.path(), &extensions, None);
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("included.rs"));
+    }
+
+    #[test]
+    fn walk_files_ignores_hidden_files_and_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".hidden")).unwrap();
+        fs::write(dir.path().join("visible.rs"), "fn visible() {}\n").unwrap();
+        fs::write(dir.path().join(".hidden.rs"), "fn hidden_file() {}\n").unwrap();
+        fs::write(dir.path().join(".hidden/lib.rs"), "fn hidden_dir() {}\n").unwrap();
+        let extensions = HashSet::from([".rs".to_owned()]);
+
+        let files = walk_files(dir.path(), &extensions, None);
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("visible.rs"));
     }
 }

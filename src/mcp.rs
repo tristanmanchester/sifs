@@ -272,6 +272,7 @@ fn tool_search(
                 "filter_languages": options.filter_languages,
                 "filter_paths": options.filter_paths,
                 "stats": index.stats(),
+                "warnings": index_warnings(index),
                 "results": structured_results(&results),
             });
             if results.is_empty() {
@@ -323,6 +324,7 @@ fn tool_find_related(
                 "file_path": file_path,
                 "line": line,
                 "stats": index.stats(),
+                "warnings": index_warnings(index),
                 "results": structured_results(&results),
             });
             if results.is_empty() {
@@ -366,15 +368,17 @@ fn tool_index_status(
                 "ref": ref_name,
                 "memory_cached": was_cached,
                 "stats": stats,
+                "warnings": index_warnings(index),
                 "semantic_loaded": index.semantic_loaded(),
                 "tools": tool_names(),
             });
             ToolText::ok_structured(
                 format!(
-                    "Index status for {source:?}: {} files, {} chunks, languages: {}. Memory cache: {}. Semantic index: {}.",
+                    "Index status for {source:?}: {} files, {} chunks, languages: {}. Warnings: {}. Memory cache: {}. Semantic index: {}.",
                     stats.indexed_files,
                     stats.total_chunks,
                     format_languages(&stats.languages),
+                    index.warnings().len(),
                     if was_cached { "hit" } else { "built or loaded" },
                     if index.semantic_loaded() {
                         "loaded"
@@ -405,10 +409,12 @@ fn tool_refresh_index(
             let stats = index.stats();
             ToolText::ok_structured(
                 format!(
-                    "Refreshed index for {source:?}: {} files, {} chunks.",
-                    stats.indexed_files, stats.total_chunks
+                    "Refreshed index for {source:?}: {} files, {} chunks, {} warnings.",
+                    stats.indexed_files,
+                    stats.total_chunks,
+                    index.warnings().len()
                 ),
-                json!({"source": source, "ref": ref_name, "stats": stats, "refreshed": true}),
+                json!({"source": source, "ref": ref_name, "stats": stats, "warnings": index_warnings(index), "refreshed": true}),
             )
         }
         Err(err) => ToolText::error(format!("Failed to refresh {source:?}: {err}")),
@@ -462,7 +468,7 @@ fn tool_list_indexed_files(
                     files.len(),
                     shown.join("\n")
                 ),
-                json!({"source": source, "total": files.len(), "limit": limit, "files": shown}),
+                json!({"source": source, "total": files.len(), "limit": limit, "warnings": index_warnings(index), "files": shown}),
             )
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
@@ -499,7 +505,7 @@ fn tool_get_chunk(
                     chunk.language.clone().unwrap_or_default(),
                     chunk.content
                 ),
-                json!({"source": source, "chunk": chunk}),
+                json!({"source": source, "warnings": index_warnings(index), "chunk": chunk}),
             )
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
@@ -604,6 +610,19 @@ fn structured_results(results: &[crate::types::SearchResult]) -> Value {
                 "score": result.score,
                 "source": result.source.to_string(),
                 "content": result.chunk.content,
+            }))
+            .collect::<Vec<_>>()
+    )
+}
+
+fn index_warnings(index: &SifsIndex) -> Value {
+    json!(
+        index
+            .warnings()
+            .iter()
+            .map(|warning| json!({
+                "path": warning.path,
+                "message": warning.message,
             }))
             .collect::<Vec<_>>()
     )

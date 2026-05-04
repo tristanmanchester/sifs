@@ -70,6 +70,9 @@ impl Bm25Index {
         if tokens.is_empty() || top_k == 0 {
             return Vec::new();
         }
+        if selector.is_some_and(|s| s.is_empty()) {
+            return Vec::new();
+        }
         let allowed: Option<HashSet<usize>> = selector.map(|s| s.iter().copied().collect());
         let mut scores: HashMap<usize, f32> = HashMap::new();
         let unique_terms: HashSet<String> = tokens.into_iter().collect();
@@ -164,5 +167,14 @@ mod tests {
         let results = index.search("alpha", 10, Some(&[1]));
 
         assert_eq!(results, vec![(1, results[0].1)]);
+    }
+
+    #[test]
+    fn bm25_search_with_empty_selector_returns_no_candidates() {
+        let index = Bm25Index::build(&["alpha token".to_owned(), "alpha token".to_owned()]);
+
+        let results = index.search("alpha", 10, Some(&[]));
+
+        assert!(results.is_empty());
     }
 }

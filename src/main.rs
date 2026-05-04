@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use sifs::{
-    ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex, format_results,
-    is_git_url, load_model_with_options, model_status, resolve_chunk,
+    CacheMode, IndexOptions, ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex,
+    format_results, is_git_url, load_model_with_options, model_status, resolve_chunk,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -56,6 +56,10 @@ enum Command {
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
         no_download: bool,
+        #[arg(long, value_enum, default_value_t = CacheArg::Platform, help = "Persistent index cache location.")]
+        cache: CacheArg,
+        #[arg(long, help = "Print skipped-file warnings after the search output.")]
+        verbose: bool,
     },
     #[command(about = "Find chunks related to a known file and one-based line number.")]
     FindRelated {
@@ -81,6 +85,23 @@ enum Command {
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
         no_download: bool,
+        #[arg(long, value_enum, default_value_t = CacheArg::Platform, help = "Persistent index cache location.")]
+        cache: CacheArg,
+        #[arg(
+            long,
+            help = "Print skipped-file warnings after the related chunks output."
+        )]
+        verbose: bool,
+    },
+    #[command(about = "Remove SIFS persistent index cache data for a local directory.")]
+    Clean {
+        #[arg(
+            default_value = ".",
+            help = "Local directory whose persistent cache should be removed."
+        )]
+        path: String,
+        #[arg(long, value_enum, default_value_t = CacheArg::Platform, help = "Persistent index cache location to clean.")]
+        cache: CacheArg,
     },
     #[command(about = "Manage the SIFS embedding model cache.")]
     Model {
@@ -119,6 +140,13 @@ enum ModeArg {
     Bm25,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CacheArg {
+    Platform,
+    Local,
+    Off,
+}
+
 impl From<ModeArg> for SearchMode {
     fn from(value: ModeArg) -> Self {
         match value {
@@ -140,10 +168,17 @@ fn main() -> Result<()> {
             model,
             offline,
             no_download,
+            cache,
+            verbose,
         }) => {
             let mode = SearchMode::from(mode);
             let policy = model_policy(offline, no_download);
-            let index = build_index(&path, ModelOptions::new(model.as_deref(), policy), offline)?;
+            let index = build_index(
+                &path,
+                ModelOptions::new(model.as_deref(), policy),
+                offline,
+                cache.into(),
+            )?;
             let results = index.search_with(&query, &SearchOptions::new(top_k).with_mode(mode))?;
             if results.is_empty() {
                 println!("No results found.");
@@ -156,6 +191,9 @@ fn main() -> Result<()> {
                     )
                 );
             }
+            if verbose {
+                print_warnings(index.warnings());
+            }
         }
         Some(Command::FindRelated {
             file_path,
@@ -165,9 +203,16 @@ fn main() -> Result<()> {
             model,
             offline,
             no_download,
+            cache,
+            verbose,
         }) => {
             let policy = model_policy(offline, no_download);
-            let index = build_index(&path, ModelOptions::new(model.as_deref(), policy), offline)?;
+            let index = build_index(
+                &path,
+                ModelOptions::new(model.as_deref(), policy),
+                offline,
+                cache.into(),
+            )?;
             let Some(chunk) = resolve_chunk(&index.chunks, &file_path, line) else {
                 eprintln!("No chunk found at {file_path}:{line}.");
                 std::process::exit(1);
@@ -180,6 +225,17 @@ fn main() -> Result<()> {
                     "{}",
                     format_results(&format!("Chunks related to {file_path}:{line}"), &results)
                 );
+            }
+            if verbose {
+                print_warnings(index.warnings());
+            }
+        }
+        Some(Command::Clean { path, cache }) => {
+            let removed = SifsIndex::clean_cache(&path, cache.into())?;
+            if removed {
+                println!("Removed SIFS persistent cache for {path:?}.");
+            } else {
+                println!("No SIFS persistent cache found for {path:?}.");
             }
         }
         Some(Command::Model { command }) => run_model(command)?,
@@ -204,14 +260,36 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn build_index(path: &str, model_options: ModelOptions, offline: bool) -> Result<SifsIndex> {
+fn build_index(
+    path: &str,
+    model_options: ModelOptions,
+    offline: bool,
+    cache_mode: CacheMode,
+) -> Result<SifsIndex> {
     if is_git_url(path) {
         if offline {
             bail!("--offline does not allow remote Git sources");
         }
         SifsIndex::from_git_with_model_options(path, None, model_options)
     } else {
-        SifsIndex::from_path_with_model_options(path, model_options, None, None, false)
+        SifsIndex::from_path_with_model_options_and_index_options(
+            path,
+            model_options,
+            None,
+            None,
+            false,
+            IndexOptions { cache_mode },
+        )
+    }
+}
+
+impl From<CacheArg> for CacheMode {
+    fn from(value: CacheArg) -> Self {
+        match value {
+            CacheArg::Platform => CacheMode::Platform,
+            CacheArg::Local => CacheMode::Local,
+            CacheArg::Off => CacheMode::Off,
+        }
     }
 }
 
@@ -253,6 +331,16 @@ fn run_model(command: ModelCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn print_warnings(warnings: &[sifs::IndexWarning]) {
+    if warnings.is_empty() {
+        return;
+    }
+    eprintln!("Index warnings:");
+    for warning in warnings {
+        eprintln!("- {}: {}", warning.path, warning.message);
+    }
 }
 
 fn run_init(force: bool) -> Result<()> {

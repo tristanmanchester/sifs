@@ -174,10 +174,10 @@ fn text_ranges_from_node_groups(
         }
         let start = group.first().unwrap().start;
         let mut end = group.last().unwrap().end;
-        if idx < node_groups.len() - 1 {
-            if let Some(next_start) = node_groups[idx + 1].first().map(|range| range.start) {
-                end = next_start;
-            }
+        if idx < node_groups.len() - 1
+            && let Some(next_start) = node_groups[idx + 1].first().map(|range| range.start)
+        {
+            end = next_start;
         }
         ranges.push(start..end);
     }

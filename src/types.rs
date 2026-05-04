@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CacheMode {
+    #[default]
+    Platform,
+    Local,
+    Off,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexWarning {
+    pub path: String,
+    pub message: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Chunk {
     pub content: String,
@@ -107,4 +121,17 @@ pub struct IndexStats {
     pub indexed_files: usize,
     pub total_chunks: usize,
     pub languages: std::collections::BTreeMap<String, usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexOptions {
+    pub cache_mode: CacheMode,
+}
+
+impl Default for IndexOptions {
+    fn default() -> Self {
+        Self {
+            cache_mode: CacheMode::Platform,
+        }
+    }
 }

@@ -203,8 +203,8 @@ around `1.783-2.070ms` after the first optimization pass.
 
 Small chunk-count differences can be valid when chunk boundaries differ while
 file coverage stays the same. Large file-count differences usually point to
-file walker behavior, root `.gitignore` handling, default ignored directories,
-or document-file inclusion.
+file walker behavior, ignore-file handling, default ignored directories,
+skipped-file warnings, or document-file inclusion.
 
 When a delta appears, compare these values in order:
 

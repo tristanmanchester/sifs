@@ -36,7 +36,7 @@ prompt-native feature entities.
 | Action Parity | 33/33 | 100% | Complete | CLI/library actions are shell- or Rust-composable; MCP covers core search, index inspection, refresh, chunk read, and agent-file creation. |
 | Tools as Primitives | 8/8 | 100% | Complete | MCP tools expose primitive capabilities: search, related lookup, status, refresh, clear, file list, chunk read, and agent install. |
 | Context Injection | 10/10 | 100% | Complete | Dynamic instructions, MCP resources, index status, indexed file inventory, structured results, default source/ref, cache keys, capabilities, and prompt/spec guidance are exposed. |
-| Shared Workspace | 10/10 | 100% | Complete | Local paths share the same source tree and repo-local `.sifs` cache; MCP refresh/clear handles long-running sessions; Git URL isolation is explicit. |
+| Shared Workspace | 10/10 | 100% | Complete | Local paths share the same source tree without dirtying it by default; platform cache is default, repo-local `.sifs` is opt-in, MCP refresh/clear handles long-running sessions, and Git URL isolation is explicit. |
 | CRUD Completeness | 8/8 | 100% | Complete | Each first-class agent-facing entity has create/read/update/delete or a documented non-mutating equivalent. |
 | UI Integration | 10/10 | 100% | Complete | CLI/MCP actions return visible output, structured content, status, refresh feedback, benchmark progress, and output-write confirmation. |
 | Capability Discovery | 7/7 | 100% | Complete | README/docs, CLI help, `sifs capabilities`, MCP `tools/list`, MCP resources, generated agent capabilities, and empty-state guidance are present. |

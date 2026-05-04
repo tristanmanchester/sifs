@@ -25,8 +25,10 @@ The pipeline stages are:
 ## File walking
 
 The file walker selects files by extension, skips common generated directories,
-and respects the root `.gitignore` file. It sorts paths before returning them so
-index construction is deterministic for the same filesystem state.
+and uses `ignore::WalkBuilder` for nested `.gitignore` files,
+`.git/info/exclude`, global Git ignores, parent ignore files, and hidden-file
+behavior. It sorts paths before returning them so index construction is
+deterministic for the same filesystem state.
 
 Default ignored directories are:
 
@@ -126,33 +128,37 @@ maps. Restarting the server clears the cache.
 
 ## Persistent local indexes
 
-Default local path indexing also writes a persistent cache under `.sifs/` in the
-indexed repository. SIFS validates that cache against the current sorted file
-signature list before loading it.
+Default local path indexing writes persistent cache data under the platform
+cache directory, such as `~/Library/Caches/sifs` on macOS. Repository-local
+`.sifs/` caching is available only when callers opt into local cache mode.
+SIFS validates persistent cache data against metadata and the current sorted
+file signature list before loading it.
 
 The sparse persistent cache stores:
 
+- Cache metadata: SIFS version, cache format version, root hash, model identity,
+  chunking settings, file walker options, extension/text-file settings, and
+  ignore settings.
 - File signatures for cache validation.
+- Skipped-file warnings.
 - Chunks and line locations.
 - The BM25 index.
 
-SIFS doesn't use the persistent cache for custom model paths, custom extension
-sets, custom ignore sets, document-file inclusion, or Git temporary checkouts.
-Those cases build an index from source so option-specific behavior stays
-correct.
+The semantic persistent cache additionally validates the embedding dimension
+before reuse. Git temporary checkouts still build from source-specific cache
+state because each clone path is temporary.
 
 ## Limitations
 
-SIFS keeps live indexes in memory after construction. Default local path
-indexing persists reusable index data to `.sifs/`, but other indexing modes
-still rebuild from source.
+SIFS keeps live indexes in memory after construction. Persistent cache reuse is
+controlled by cache mode: platform cache by default, repo-local `.sifs/` when
+requested, or disabled with cache-off mode.
 
 Other current limits are:
 
-- Files must be readable as UTF-8 text.
-- Only the root `.gitignore` file is loaded.
+- Unreadable, non-UTF-8, and oversized files are skipped with warnings rather
+  than indexed.
 - Git indexing uses shallow clones.
-- Direct CLI commands can reuse `.sifs/` only for default local indexing.
 - Document-like files require explicit library options.
 
 ## Next steps

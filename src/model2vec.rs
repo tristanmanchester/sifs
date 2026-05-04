@@ -311,10 +311,7 @@ fn read_f32_data(dtype: Dtype, raw: &[u8]) -> Result<Vec<f32>> {
             .chunks_exact(8)
             .map(|b| f64::from_le_bytes(b.try_into().unwrap()) as f32)
             .collect()),
-        Dtype::F16 => Ok(raw
-            .chunks_exact(2)
-            .map(|b| half_from_le_bytes(b) as f32)
-            .collect()),
+        Dtype::F16 => Ok(raw.chunks_exact(2).map(half_from_le_bytes).collect()),
         other => Err(anyhow!("unsupported float tensor dtype: {other:?}")),
     }
 }
