@@ -312,15 +312,17 @@ pub fn walk_files(
         .into_iter()
         .filter_entry(|entry| {
             let name = entry.file_name().to_string_lossy();
-            !(DEFAULT_IGNORED_DIRS.contains(name.as_ref()) || ignore_owned.contains(name.as_ref()))
+            if DEFAULT_IGNORED_DIRS.contains(name.as_ref()) || ignore_owned.contains(name.as_ref()) {
+                return false;
+            }
+            entry.path() == root || !gitignore.is_match(entry.path(), entry.file_type().is_dir())
         })
         .filter_map(Result::ok)
         .filter(|entry| {
             if entry.path() == root {
                 return true;
             }
-            let rel = entry.path().strip_prefix(root).unwrap_or(entry.path());
-            !gitignore.is_match(rel, entry.file_type().is_dir())
+            !gitignore.is_match(entry.path(), entry.file_type().is_dir())
         })
         .filter(|entry| entry.file_type().is_file())
         .map(|entry| entry.into_path())
@@ -355,6 +357,6 @@ impl RootGitignore {
     }
 
     fn is_match(&self, rel: &Path, is_dir: bool) -> bool {
-        self.matcher.matched(rel, is_dir).is_ignore()
+        self.matcher.matched_path_or_any_parents(rel, is_dir).is_ignore()
     }
 }

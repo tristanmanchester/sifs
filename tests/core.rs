@@ -140,9 +140,17 @@ fn from_path_respects_markdown_option() {
 fn file_walker_honors_root_gitignore_negation() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join("out")).unwrap();
+    fs::create_dir_all(dir.path().join("ios")).unwrap();
+    fs::create_dir_all(dir.path().join(".expo")).unwrap();
     fs::write(dir.path().join("out/a.py"), "x = 1\n").unwrap();
     fs::write(dir.path().join("out/keep.py"), "x = 1\n").unwrap();
-    fs::write(dir.path().join(".gitignore"), "out/*\n!out/keep.py\n").unwrap();
+    fs::write(dir.path().join("ios/Generated.swift"), "let x = 1\n").unwrap();
+    fs::write(dir.path().join(".expo/state.ts"), "export const x = 1\n").unwrap();
+    fs::write(
+        dir.path().join(".gitignore"),
+        "out/*\n!out/keep.py\n/ios\n.expo/\n",
+    )
+    .unwrap();
     let extensions = std::collections::HashSet::from([".py".to_owned()]);
     let found: std::collections::HashSet<String> =
         sifs::file_walker::walk_files(dir.path(), &extensions, None)
