@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use sifs::{
-    CacheConfig, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
+    CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
     SearchOptions, SearchResult, SifsIndex, cache_summary, format_results, is_git_url,
     load_model_with_options, model_status, platform_cache_root, resolve_chunk,
 };
@@ -65,6 +65,8 @@ enum Command {
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
         model: Option<String>,
+        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec, help = "Encoder for semantic and hybrid search.")]
+        encoder: EncoderArg,
         #[arg(long, help = "Disable model downloads and remote Git sources.")]
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
@@ -98,6 +100,8 @@ enum Command {
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
         model: Option<String>,
+        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec, help = "Encoder for related-code search.")]
+        encoder: EncoderArg,
         #[arg(long, help = "Disable model downloads and remote Git sources.")]
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
@@ -199,6 +203,22 @@ enum Command {
         #[command(subcommand)]
         command: CacheCommand,
     },
+    #[command(about = "Check SIFS model, cache, and offline readiness.")]
+    Doctor {
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec)]
+        encoder: EncoderArg,
+        #[arg(
+            default_value = ".",
+            help = "Local directory to inspect for cache readiness."
+        )]
+        path: String,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+    },
     #[command(about = "Manage the SIFS embedding model cache.")]
     Model {
         #[command(subcommand)]
@@ -217,6 +237,11 @@ enum Command {
 enum ModelCommand {
     #[command(about = "Download or validate the embedding model in the Hugging Face cache.")]
     Pull {
+        #[arg(long)]
+        model: Option<String>,
+    },
+    #[command(about = "Alias for `pull`: download or validate the embedding model.")]
+    Fetch {
         #[arg(long)]
         model: Option<String>,
     },
@@ -252,6 +277,13 @@ enum ModeArg {
     Hybrid,
     Semantic,
     Bm25,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum EncoderArg {
+    #[value(name = "model2vec")]
+    Model2Vec,
+    Hashing,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -294,6 +326,7 @@ fn main() -> Result<()> {
             explain,
             output,
             model,
+            encoder,
             offline,
             no_download,
             cache_dir,
@@ -310,6 +343,7 @@ fn main() -> Result<()> {
             explain,
             output,
             model,
+            encoder,
             offline,
             no_download,
             cache: cache_config(cache_dir, no_cache, project_cache),
@@ -321,6 +355,7 @@ fn main() -> Result<()> {
             top_k,
             output,
             model,
+            encoder,
             offline,
             no_download,
             cache_dir,
@@ -329,9 +364,9 @@ fn main() -> Result<()> {
         }) => {
             let policy = model_policy(offline, no_download);
             let started = Instant::now();
-            let index = build_index(
+            let index = build_hybrid_index(
                 &path,
-                ModelOptions::new(model.as_deref(), policy),
+                encoder_spec(encoder, model.as_deref(), policy),
                 cache_config(cache_dir, no_cache, project_cache),
                 offline,
             )?;
@@ -387,6 +422,19 @@ fn main() -> Result<()> {
         }
         Some(Command::Model { command }) => run_model(command)?,
         Some(Command::Cache { command }) => run_cache(command)?,
+        Some(Command::Doctor {
+            model,
+            encoder,
+            path,
+            offline,
+            no_download,
+        }) => run_doctor(
+            &path,
+            encoder,
+            model.as_deref(),
+            model_policy(offline, no_download),
+            offline,
+        )?,
         Some(Command::Mcp {
             path,
             ref_name,
@@ -458,6 +506,7 @@ struct SearchCommand {
     explain: bool,
     output: OutputArgs,
     model: Option<String>,
+    encoder: EncoderArg,
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
@@ -466,9 +515,10 @@ struct SearchCommand {
 fn run_search(command: SearchCommand) -> Result<()> {
     let policy = model_policy(command.offline, command.no_download);
     let started = Instant::now();
-    let index = build_index(
+    let index = build_index_for_mode(
         &command.path,
-        ModelOptions::new(command.model.as_deref(), policy),
+        command.mode,
+        encoder_spec(command.encoder, command.model.as_deref(), policy),
         command.cache,
         command.offline,
     )?;
@@ -539,13 +589,42 @@ fn run_search(command: SearchCommand) -> Result<()> {
     Ok(())
 }
 
-fn build_index(
+fn build_index_for_mode(
     path: &str,
-    model_options: ModelOptions,
+    mode: SearchMode,
+    encoder_spec: EncoderSpec,
     cache: CacheConfig,
     offline: bool,
 ) -> Result<SifsIndex> {
-    let options = IndexOptions::new(model_options).with_cache(cache);
+    match mode {
+        SearchMode::Bm25 => build_sparse_index(path, cache, offline),
+        SearchMode::Semantic | SearchMode::Hybrid => {
+            build_hybrid_index(path, encoder_spec, cache, offline)
+        }
+    }
+}
+
+fn build_sparse_index(path: &str, cache: CacheConfig, offline: bool) -> Result<SifsIndex> {
+    let options = IndexOptions::sparse().with_cache(cache);
+    if is_git_url(path) {
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        SifsIndex::from_git_with_index_options(path, None, options)
+    } else {
+        SifsIndex::from_path_with_index_options(path, options)
+    }
+}
+
+fn build_hybrid_index(
+    path: &str,
+    encoder_spec: EncoderSpec,
+    cache: CacheConfig,
+    offline: bool,
+) -> Result<SifsIndex> {
+    let options = IndexOptions::sparse()
+        .with_encoder_spec(encoder_spec)
+        .with_cache(cache);
     if is_git_url(path) {
         if offline {
             bail!("--offline does not allow remote Git sources");
@@ -578,9 +657,9 @@ fn run_files(
 ) -> Result<()> {
     let policy = model_policy(offline, no_download);
     let started = Instant::now();
-    let index = build_index(
+    let index = build_hybrid_index(
         path,
-        ModelOptions::new(model.as_deref(), policy),
+        EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
     )?;
@@ -640,9 +719,9 @@ fn run_status(
 ) -> Result<()> {
     let policy = model_policy(offline, no_download);
     let started = Instant::now();
-    let index = build_index(
+    let index = build_hybrid_index(
         path,
-        ModelOptions::new(model.as_deref(), policy),
+        EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
     )?;
@@ -697,9 +776,9 @@ fn run_get(
     no_download: bool,
 ) -> Result<()> {
     let policy = model_policy(offline, no_download);
-    let index = build_index(
+    let index = build_hybrid_index(
         path,
-        ModelOptions::new(model.as_deref(), policy),
+        EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
     )?;
@@ -933,9 +1012,16 @@ fn model_policy(offline: bool, no_download: bool) -> ModelLoadPolicy {
     }
 }
 
+fn encoder_spec(encoder: EncoderArg, model: Option<&str>, policy: ModelLoadPolicy) -> EncoderSpec {
+    match encoder {
+        EncoderArg::Model2Vec => EncoderSpec::model2vec(model, policy),
+        EncoderArg::Hashing => EncoderSpec::hashing(),
+    }
+}
+
 fn run_model(command: ModelCommand) -> Result<()> {
     match command {
-        ModelCommand::Pull { model } => {
+        ModelCommand::Pull { model } | ModelCommand::Fetch { model } => {
             let options = ModelOptions::new(model.as_deref(), ModelLoadPolicy::AllowDownload);
             load_model_with_options(&options)?;
             println!("Model is available: {}", options.model);
@@ -961,6 +1047,75 @@ fn run_model(command: ModelCommand) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn run_doctor(
+    path: &str,
+    encoder: EncoderArg,
+    model: Option<&str>,
+    policy: ModelLoadPolicy,
+    offline: bool,
+) -> Result<()> {
+    println!("SIFS doctor");
+    println!("Path: {path}");
+    if is_git_url(path) {
+        println!("Source: remote Git URL");
+        println!(
+            "Remote Git under offline mode: {}",
+            if offline { "blocked" } else { "allowed" }
+        );
+    } else {
+        let path = PathBuf::from(path);
+        println!("Source: local directory");
+        println!("Path exists: {}", path.exists());
+        println!("Path is directory: {}", path.is_dir());
+        if path.is_dir() {
+            let cache_dir = path.join(".sifs");
+            let cache_writable = if cache_dir.exists() {
+                fs::metadata(&cache_dir)
+                    .map(|metadata| !metadata.permissions().readonly())
+                    .unwrap_or(false)
+            } else {
+                fs::metadata(&path)
+                    .map(|metadata| !metadata.permissions().readonly())
+                    .unwrap_or(false)
+            };
+            println!("Cache directory: {}", cache_dir.display());
+            println!("Cache writable: {cache_writable}");
+        }
+    }
+
+    match encoder {
+        EncoderArg::Hashing => {
+            println!("Encoder: hashing");
+            println!("Semantic readiness: ready without model files");
+        }
+        EncoderArg::Model2Vec => {
+            let options = ModelOptions::new(model, policy);
+            let status = model_status(Some(&options.model));
+            println!("Encoder: model2vec");
+            println!("Model: {}", status.model);
+            println!("Tokenizer: {}", file_status(status.tokenizer.as_ref()));
+            println!("Safetensors: {}", file_status(status.safetensors.as_ref()));
+            println!("Config: {}", file_status(status.config.as_ref()));
+            println!(
+                "Semantic readiness: {}",
+                if status.available() {
+                    "ready from local files"
+                } else if policy == ModelLoadPolicy::AllowDownload {
+                    "will download on first semantic/hybrid search"
+                } else {
+                    "not ready in offline/no-download mode"
+                }
+            );
+        }
+    }
+    Ok(())
+}
+
+fn file_status(path: Option<&PathBuf>) -> String {
+    path.map(|path| format!("found at {}", path.display()))
+        .unwrap_or_else(|| "missing".to_owned())
 }
 
 fn run_cache(command: CacheCommand) -> Result<()> {

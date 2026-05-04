@@ -30,6 +30,12 @@ pub struct ModelOptions {
     pub policy: ModelLoadPolicy,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EncoderSpec {
+    Model2Vec(ModelOptions),
+    Hashing { dim: usize },
+}
+
 impl Default for ModelOptions {
     fn default() -> Self {
         Self {
@@ -58,6 +64,23 @@ impl ModelOptions {
     }
 }
 
+impl EncoderSpec {
+    pub fn model2vec(model: Option<&str>, policy: ModelLoadPolicy) -> Self {
+        Self::Model2Vec(ModelOptions::new(model, policy))
+    }
+
+    pub fn hashing() -> Self {
+        Self::Hashing { dim: DEFAULT_DIM }
+    }
+
+    pub fn cache_key(&self) -> String {
+        match self {
+            Self::Model2Vec(options) => options.cache_key(),
+            Self::Hashing { dim } => format!("hashing-{dim}"),
+        }
+    }
+}
+
 pub fn default_model_name() -> String {
     std::env::var("SIFS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL_NAME.to_owned())
 }
@@ -76,6 +99,20 @@ pub fn load_model_with_options(options: &ModelOptions) -> Result<Box<dyn Encoder
     Ok(Box::new(Model2VecEncoder::from_pretrained_with_options(
         options,
     )?))
+}
+
+pub fn load_encoder(spec: &EncoderSpec) -> Result<Box<dyn Encoder>> {
+    match spec {
+        EncoderSpec::Model2Vec(options) => load_model_with_options(options),
+        EncoderSpec::Hashing { dim } => Ok(Box::new(HashingEncoder::new(*dim))),
+    }
+}
+
+pub fn encoder_fingerprint(spec: &EncoderSpec) -> Result<String> {
+    match spec {
+        EncoderSpec::Model2Vec(options) => model_fingerprint(options),
+        EncoderSpec::Hashing { dim } => Ok(format!("hashing-{dim}")),
+    }
 }
 
 pub fn model_fingerprint(options: &ModelOptions) -> Result<String> {

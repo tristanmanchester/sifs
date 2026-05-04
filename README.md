@@ -28,8 +28,7 @@ Protocol server for agent clients.
 - Index local directories or shallow-cloned Git repositories.
 - Use hybrid, semantic-only, or BM25-only ranking.
 - Run BM25 search fully offline without loading or downloading a model.
-- Cache indexes in platform cache directories by default, without writing into
-  searched repositories unless `--project-cache` is requested.
+- Use explicit sparse-only indexes or model-free hashing for local smoke tests.
 - Run quality and latency benchmarks over annotated repositories.
 
 ## Build SIFS
@@ -56,6 +55,7 @@ current directory and the default mode is `hybrid`.
 ```bash
 target/release/sifs search "authentication flow" /path/to/project
 target/release/sifs search "parse JWT claims" /path/to/project --mode bm25 --offline -k 10
+target/release/sifs search "auth flow" /path/to/project --mode semantic --encoder hashing
 ```
 
 Use `sifs find-related` when you already have a location and want similar code
@@ -65,13 +65,12 @@ elsewhere in the same index.
 target/release/sifs find-related src/auth/session.rs 42 /path/to/project -k 8
 ```
 
-Running `sifs` without a subcommand prints help. Start the MCP server with the
-explicit `mcp` subcommand. Passing a path pre-indexes that source and lets MCP
-clients call `search` and `find_related` without including a `repo` argument on
-every tool call.
+Start the MCP server by running `sifs` without a subcommand. Passing a path
+pre-indexes that source and lets MCP clients call `search` and `find_related`
+without including a `repo` argument on every tool call.
 
 ```bash
-target/release/sifs mcp /path/to/project
+target/release/sifs /path/to/project
 ```
 
 ## Documentation
@@ -100,10 +99,8 @@ query path stays inside the Rust process after the model is available locally.
 BM25 mode does not use the model at all, so it is safe for network-free package
 manager smoke tests and first-run checks.
 
-Persistent index caches live under `~/Library/Caches/sifs` on macOS and
-`${XDG_CACHE_HOME:-~/.cache}/sifs` on Linux by default. Use `--no-cache` to
-disable persistent cache writes, `--cache-dir` to choose a cache root, or
-`--project-cache` to opt into repository-local `.sifs/` files.
+Use `sifs model pull` or `sifs model fetch` to prefetch the default model, and
+`sifs doctor` to check whether semantic search is ready for offline use.
 
 Hybrid search combines semantic and BM25 rankings. It over-fetches candidates,
 normalizes each ranking with reciprocal rank fusion, applies query-aware boosts,

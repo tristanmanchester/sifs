@@ -16,7 +16,7 @@ is the current directory, the default result count is `5`, and the default mode
 is `hybrid`.
 
 ```bash
-target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--language <language>] [--path <file>] [--json|--jsonl|--format <format>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
+target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--language <language>] [--path <file>] [--json|--jsonl|--format <format>] [--encoder <encoder>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
 ```
 
 Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
@@ -35,6 +35,10 @@ The mode values are:
 - `semantic`: Rank by embedding similarity only.
 - `bm25`: Rank by sparse lexical matching only. This mode is model-free and
   never loads tokenizers, safetensors, or Hugging Face model files.
+
+Semantic and hybrid search default to `--encoder model2vec`. Use
+`--encoder hashing` for a model-free dense encoder that is useful for smoke
+tests and fully local experiments.
 
 Use `--offline` to prevent all network access by SIFS, including remote Git
 clones and model downloads. Use `--no-download` to prevent model downloads while
@@ -59,7 +63,7 @@ contains that line. It then searches for semantically related chunks in the same
 language when language metadata is available.
 
 ```bash
-target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--json|--jsonl|--format <format>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
+target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--json|--jsonl|--format <format>] [--encoder <encoder>] [--model <model>] [--offline] [--no-download] [--cache-dir <path>] [--no-cache] [--project-cache]
 ```
 
 Pass the file path as it appears in search results or as a path relative to the
@@ -87,12 +91,24 @@ target/release/sifs model status
 target/release/sifs model status --json
 target/release/sifs model pull
 target/release/sifs model pull --model minishlab/potion-code-16M
+target/release/sifs model fetch --model minishlab/potion-code-16M
 ```
 
 `model status` checks local files only and never downloads. `model pull`
 downloads or validates the model through the normal Hugging Face cache.
+`model fetch` is an alias for `model pull`.
 
-## Init command
+## Doctor command
+
+The `doctor` command prints local readiness for a path, cache directory, and
+semantic encoder. It is a broader diagnostic than `model status`.
+
+```bash
+target/release/sifs doctor [path] [--encoder <encoder>] [--model <model>] [--offline] [--no-download]
+```
+
+Use it before offline semantic or hybrid search to confirm whether model files
+are already local.
 
 ## Cache command
 
@@ -111,6 +127,8 @@ target/release/sifs cache clean --cache-dir /tmp/sifs-cache
 `cache clean` removes the whole SIFS platform cache by default. It does not
 search for or remove project-local `.sifs/` directories unless you explicitly
 point `--cache-dir` at one.
+
+## Init command
 
 The `init` command writes a ready-to-use agent description for clients that
 support local agent files. It creates `.claude/agents/sifs-search.md`.
@@ -134,30 +152,6 @@ without opening the full documentation.
 ```bash
 target/release/sifs capabilities
 ```
-
-## Index utility commands
-
-Use `files`, `status`, and `get` when shell scripts or editors need MCP-style
-index inspection without starting a server.
-
-```bash
-target/release/sifs files [path] [--limit <count>] [--json|--jsonl|--format compact]
-target/release/sifs status [path] [--json]
-target/release/sifs get <file-path> <line> [path] [--json|--format compact]
-target/release/sifs clean [path]
-```
-
-Examples:
-
-```bash
-target/release/sifs files . --format compact
-target/release/sifs status . --json
-target/release/sifs get src/auth.rs 42 . --json
-target/release/sifs clean .
-```
-
-`clean` only removes the local `.sifs` cache directory for the selected path. It
-does not support Git URL sources.
 
 ## MCP server mode
 
@@ -201,8 +195,8 @@ target/release/sifs search "auth flow" . --format compact
 ## Operational notes
 
 SIFS indexes on demand for each direct CLI invocation. For repeated searches
-against the same repository, use MCP server mode or call the Rust library from
-a long-lived process so the index stays in memory.
+against the same repository, use MCP server mode or call the Rust library from a
+long-lived process so the index stays in memory.
 
 Git URL indexing uses a shallow clone into a temporary directory. Local path
 indexing canonicalizes the path and respects the root `.gitignore` file.

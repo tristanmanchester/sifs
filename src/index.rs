@@ -1,7 +1,7 @@
 use crate::chunker::chunk_source;
 use crate::dense::DenseIndex;
 use crate::file_walker::{filter_extensions, language_for_path, walk_files};
-use crate::model2vec::{Encoder, ModelOptions, load_model_with_options, model_fingerprint};
+use crate::model2vec::{Encoder, EncoderSpec, ModelOptions, encoder_fingerprint, load_encoder};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::sparse::Bm25Index;
 use crate::types::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult};
@@ -21,7 +21,7 @@ use std::time::UNIX_EPOCH;
 pub struct SifsIndex {
     bm25_index: Bm25Index,
     semantic_state: Mutex<Option<SemanticState>>,
-    model_options: ModelOptions,
+    semantic_config: Option<EncoderSpec>,
     pub chunks: Vec<Chunk>,
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
@@ -59,7 +59,7 @@ impl Default for CacheConfig {
 
 #[derive(Clone, Debug)]
 pub struct IndexOptions {
-    pub model_options: ModelOptions,
+    pub semantic_config: Option<EncoderSpec>,
     pub extensions: Option<HashSet<String>>,
     pub ignore: Option<HashSet<String>>,
     pub include_text_files: bool,
@@ -70,13 +70,29 @@ pub struct IndexOptions {
 impl IndexOptions {
     pub fn new(model_options: ModelOptions) -> Self {
         Self {
-            model_options,
+            semantic_config: Some(EncoderSpec::Model2Vec(model_options)),
             extensions: None,
             ignore: None,
             include_text_files: false,
             cache: CacheConfig::default(),
             source_id_override: None,
         }
+    }
+
+    pub fn sparse() -> Self {
+        Self {
+            semantic_config: None,
+            extensions: None,
+            ignore: None,
+            include_text_files: false,
+            cache: CacheConfig::default(),
+            source_id_override: None,
+        }
+    }
+
+    pub fn with_encoder_spec(mut self, encoder_spec: EncoderSpec) -> Self {
+        self.semantic_config = Some(encoder_spec);
+        self
     }
 
     pub fn with_extensions(mut self, extensions: Option<HashSet<String>>) -> Self {
@@ -212,6 +228,29 @@ impl SifsIndex {
         Self::from_path_with_index_options(path, options)
     }
 
+    pub fn from_path_sparse(path: impl AsRef<Path>) -> Result<Self> {
+        Self::from_path_with_index_options(path, IndexOptions::sparse())
+    }
+
+    pub fn from_path_hybrid(path: impl AsRef<Path>, model_options: ModelOptions) -> Result<Self> {
+        Self::from_path_with_index_options(path, IndexOptions::new(model_options))
+    }
+
+    pub fn from_path_with_encoder_spec(
+        path: impl AsRef<Path>,
+        encoder_spec: EncoderSpec,
+        extensions: Option<HashSet<String>>,
+        ignore: Option<HashSet<String>>,
+        include_text_files: bool,
+    ) -> Result<Self> {
+        let options = IndexOptions::sparse()
+            .with_encoder_spec(encoder_spec)
+            .with_extensions(extensions)
+            .with_ignore(ignore)
+            .with_include_text_files(include_text_files);
+        Self::from_path_with_index_options(path, options)
+    }
+
     pub fn from_path_with_index_options(
         path: impl AsRef<Path>,
         options: IndexOptions,
@@ -245,7 +284,7 @@ impl SifsIndex {
         if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures) {
             if let Some(payload) = load_cached_index_payload(cache_entry, &context, signatures) {
                 return Self::from_cached_parts(
-                    options.model_options,
+                    options.semantic_config.clone(),
                     payload,
                     Some(cache_entry.clone()),
                     Some(context),
@@ -259,7 +298,7 @@ impl SifsIndex {
             options.include_text_files,
             &root,
         )?;
-        let mut index = Self::from_chunks_with_model_options(options.model_options, chunks)?;
+        let mut index = Self::from_chunks_with_semantic_config(options.semantic_config, chunks)?;
         if let (Some(cache_entry), Some(signatures)) = (cache_entry, signatures) {
             index.attach_cache(cache_entry, signatures, context);
             write_cached_index_payload(&index);
@@ -277,6 +316,30 @@ impl SifsIndex {
         model_options: ModelOptions,
     ) -> Result<Self> {
         Self::from_git_with_index_options(url, ref_name, IndexOptions::new(model_options))
+    }
+
+    pub fn from_git_sparse(url: &str, ref_name: Option<&str>) -> Result<Self> {
+        Self::from_git_with_index_options(url, ref_name, IndexOptions::sparse())
+    }
+
+    pub fn from_git_hybrid(
+        url: &str,
+        ref_name: Option<&str>,
+        model_options: ModelOptions,
+    ) -> Result<Self> {
+        Self::from_git_with_index_options(url, ref_name, IndexOptions::new(model_options))
+    }
+
+    pub fn from_git_with_encoder_spec(
+        url: &str,
+        ref_name: Option<&str>,
+        encoder_spec: EncoderSpec,
+    ) -> Result<Self> {
+        Self::from_git_with_index_options(
+            url,
+            ref_name,
+            IndexOptions::sparse().with_encoder_spec(encoder_spec),
+        )
     }
 
     pub fn from_git_with_index_options(
@@ -305,11 +368,33 @@ impl SifsIndex {
     }
 
     pub fn from_chunks(model: Box<dyn Encoder>, chunks: Vec<Chunk>) -> Result<Self> {
-        Self::from_chunks_with_semantic_state(ModelOptions::default(), model, chunks)
+        Self::from_chunks_with_semantic_state(None, model, chunks)
+    }
+
+    pub fn from_chunks_sparse(chunks: Vec<Chunk>) -> Result<Self> {
+        Self::from_chunks_with_semantic_config(None, chunks)
+    }
+
+    pub fn from_chunks_hybrid(chunks: Vec<Chunk>, model_options: ModelOptions) -> Result<Self> {
+        Self::from_chunks_with_semantic_config(Some(EncoderSpec::Model2Vec(model_options)), chunks)
     }
 
     pub fn from_chunks_with_model_options(
         model_options: ModelOptions,
+        chunks: Vec<Chunk>,
+    ) -> Result<Self> {
+        Self::from_chunks_hybrid(chunks, model_options)
+    }
+
+    pub fn from_chunks_with_encoder_spec(
+        encoder_spec: EncoderSpec,
+        chunks: Vec<Chunk>,
+    ) -> Result<Self> {
+        Self::from_chunks_with_semantic_config(Some(encoder_spec), chunks)
+    }
+
+    fn from_chunks_with_semantic_config(
+        semantic_config: Option<EncoderSpec>,
         chunks: Vec<Chunk>,
     ) -> Result<Self> {
         if chunks.is_empty() {
@@ -320,7 +405,7 @@ impl SifsIndex {
         Ok(Self {
             bm25_index,
             semantic_state: Mutex::new(None),
-            model_options,
+            semantic_config,
             chunks,
             file_mapping,
             language_mapping,
@@ -332,11 +417,11 @@ impl SifsIndex {
     }
 
     fn from_chunks_with_semantic_state(
-        model_options: ModelOptions,
+        semantic_config: Option<EncoderSpec>,
         model: Box<dyn Encoder>,
         chunks: Vec<Chunk>,
     ) -> Result<Self> {
-        let index = Self::from_chunks_with_model_options(model_options, chunks)?;
+        let index = Self::from_chunks_with_semantic_config(semantic_config, chunks)?;
         let embeddings = encode_chunks_batched(model.as_ref(), &index.chunks);
         let semantic_index = DenseIndex::new(embeddings);
         if let Ok(mut state) = index.semantic_state.lock() {
@@ -349,7 +434,7 @@ impl SifsIndex {
     }
 
     fn from_cached_parts(
-        model_options: ModelOptions,
+        semantic_config: Option<EncoderSpec>,
         payload: CachedIndexPayload,
         cache_entry: Option<CacheEntry>,
         context: Option<CacheContext>,
@@ -362,7 +447,7 @@ impl SifsIndex {
         Ok(Self {
             bm25_index: payload.bm25_index,
             semantic_state: Mutex::new(None),
-            model_options,
+            semantic_config,
             chunks: payload.chunks,
             file_mapping,
             language_mapping,
@@ -516,8 +601,13 @@ impl SifsIndex {
             .lock()
             .map_err(|_| anyhow::anyhow!("semantic index lock is poisoned"))?;
         if state.is_none() {
-            let model = load_model_with_options(&self.model_options)?;
-            let fingerprint = model_fingerprint(&self.model_options)?;
+            let Some(semantic_config) = self.semantic_config.as_ref() else {
+                bail!(
+                    "semantic search is not available on this sparse-only index. Build with SifsIndex::from_path_hybrid or use SearchMode::Bm25."
+                );
+            };
+            let model = load_encoder(semantic_config)?;
+            let fingerprint = encoder_fingerprint(semantic_config)?;
             let semantic_index = self
                 .load_cached_semantic_index(&fingerprint)
                 .unwrap_or_else(|| {
@@ -551,7 +641,7 @@ impl SifsIndex {
         let context = self.cache_context.as_ref()?;
         let bytes = fs::read(semantic_cache_path(
             cache_entry,
-            &self.model_options,
+            self.semantic_config.as_ref()?,
             model_fingerprint,
         ))
         .ok()?;
@@ -584,7 +674,10 @@ impl SifsIndex {
         let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
             return;
         };
-        let cache_path = semantic_cache_path(cache_entry, &self.model_options, model_fingerprint);
+        let Some(semantic_config) = self.semantic_config.as_ref() else {
+            return;
+        };
+        let cache_path = semantic_cache_path(cache_entry, semantic_config, model_fingerprint);
         if let Some(parent) = cache_path.parent() {
             if fs::create_dir_all(parent).is_err() {
                 return;
@@ -690,12 +783,12 @@ fn sparse_cache_path(cache_entry: &CacheEntry) -> PathBuf {
 
 fn semantic_cache_path(
     cache_entry: &CacheEntry,
-    model_options: &ModelOptions,
+    encoder_spec: &EncoderSpec,
     model_fingerprint: &str,
 ) -> PathBuf {
     cache_entry.root.join(format!(
         "{SEMANTIC_CACHE_PREFIX}-{}-{model_fingerprint}.bin",
-        model_options.cache_key(),
+        encoder_spec.cache_key(),
     ))
 }
 

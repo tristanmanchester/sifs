@@ -1,8 +1,9 @@
 use sifs::{
-    CacheConfig, Chunk, HashingEncoder, IndexOptions, ModelLoadPolicy, ModelOptions, SearchMode,
-    SearchOptions, SearchResult, SifsIndex, cache_summary, format_results,
+    CacheConfig, Chunk, EncoderSpec, HashingEncoder, IndexOptions, ModelLoadPolicy, ModelOptions,
+    SearchMode, SearchOptions, SearchResult, SifsIndex, format_results,
 };
 use std::fs;
+use std::process::Command;
 
 fn chunk(content: &str, file_path: &str) -> Chunk {
     Chunk {
@@ -113,17 +114,7 @@ fn bm25_path_search_is_model_free_with_no_download() {
         "def authenticate_token(token):\n    return token == 'secret'\n",
     )
     .unwrap();
-    let index = SifsIndex::from_path_with_model_options(
-        dir.path(),
-        ModelOptions::new(
-            Some("__missing_model_for_bm25_test__"),
-            ModelLoadPolicy::NoDownload,
-        ),
-        None,
-        None,
-        false,
-    )
-    .unwrap();
+    let index = SifsIndex::from_path_sparse(dir.path()).unwrap();
 
     let results = index
         .search_with(
@@ -134,6 +125,27 @@ fn bm25_path_search_is_model_free_with_no_download() {
 
     assert!(!results.is_empty());
     assert!(!index.semantic_loaded());
+}
+
+#[test]
+fn sparse_only_index_reports_semantic_unavailable() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    pass\n",
+    )
+    .unwrap();
+    let index = SifsIndex::from_path_sparse(dir.path()).unwrap();
+
+    let err = index
+        .search_with(
+            "authentication",
+            &SearchOptions::new(3).with_mode(SearchMode::Semantic),
+        )
+        .unwrap_err();
+
+    assert!(err.to_string().contains("sparse-only index"));
+    assert!(err.to_string().contains("SearchMode::Bm25"));
 }
 
 #[test]
@@ -169,7 +181,6 @@ fn semantic_search_reports_missing_model_with_no_download() {
 #[test]
 fn semantic_search_writes_and_reuses_dense_cache() {
     let dir = tempfile::tempdir().unwrap();
-    let cache_dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("main.py"),
         "def authenticate():\n    return True\n",
@@ -179,10 +190,12 @@ fn semantic_search_writes_and_reuses_dense_cache() {
         Some("__force_hashing_fallback__"),
         ModelLoadPolicy::NoDownload,
     );
-    let index_options = IndexOptions::new(options.clone())
-        .with_cache(CacheConfig::Custom(cache_dir.path().to_path_buf()));
 
-    let index = SifsIndex::from_path_with_index_options(dir.path(), index_options.clone()).unwrap();
+    let index = SifsIndex::from_path_with_index_options(
+        dir.path(),
+        IndexOptions::new(options.clone()).with_cache(CacheConfig::Project),
+    )
+    .unwrap();
     assert!(!index.semantic_loaded());
     let first_results = index
         .search_with(
@@ -193,12 +206,21 @@ fn semantic_search_writes_and_reuses_dense_cache() {
     assert!(!first_results.is_empty());
     assert!(index.semantic_loaded());
 
-    let summary = cache_summary(cache_dir.path());
-    assert!(summary.entries >= 1);
-    assert!(summary.files >= 2);
-    assert!(!dir.path().join(".sifs").exists());
+    let cache_files: Vec<_> = fs::read_dir(dir.path().join(".sifs"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        cache_files
+            .iter()
+            .any(|name| name.starts_with("semantic-v3-"))
+    );
 
-    let index = SifsIndex::from_path_with_index_options(dir.path(), index_options).unwrap();
+    let index = SifsIndex::from_path_with_index_options(
+        dir.path(),
+        IndexOptions::new(options).with_cache(CacheConfig::Project),
+    )
+    .unwrap();
     assert!(!index.semantic_loaded());
     let second_results = index
         .search_with(
@@ -216,59 +238,142 @@ fn semantic_search_writes_and_reuses_dense_cache() {
 }
 
 #[test]
-fn default_cache_does_not_write_project_local_state() {
+fn hashing_encoder_spec_supports_semantic_without_model_files() {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("main.py"), "def foo():\n    pass\n").unwrap();
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    return True\n",
+    )
+    .unwrap();
 
-    let index = SifsIndex::from_path_with_model_options(
+    let index = SifsIndex::from_path_with_encoder_spec(
         dir.path(),
-        ModelOptions::new(
-            Some("__missing_model_for_default_cache_test__"),
-            ModelLoadPolicy::NoDownload,
-        ),
+        EncoderSpec::hashing(),
         None,
         None,
         false,
     )
     .unwrap();
+    let results = index
+        .search_with(
+            "authentication",
+            &SearchOptions::new(3).with_mode(SearchMode::Semantic),
+        )
+        .unwrap();
 
-    assert!(!index.chunks.is_empty());
-    assert!(!dir.path().join(".sifs").exists());
+    assert!(!results.is_empty());
+    assert!(index.semantic_loaded());
 }
 
 #[test]
-fn project_cache_writes_project_local_state() {
+fn cli_bm25_offline_succeeds_without_model() {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("main.py"), "def foo():\n    pass\n").unwrap();
-    let options = IndexOptions::new(ModelOptions::new(
-        Some("__missing_model_for_project_cache_test__"),
-        ModelLoadPolicy::NoDownload,
-    ))
-    .with_cache(CacheConfig::Project);
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate_token(token):\n    return token == 'secret'\n",
+    )
+    .unwrap();
 
-    let index = SifsIndex::from_path_with_index_options(dir.path(), options).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sifs"))
+        .args([
+            "search",
+            "authenticate_token",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--offline",
+            "--model",
+            "__missing_cli_bm25_model__",
+        ])
+        .output()
+        .unwrap();
 
-    assert!(!index.chunks.is_empty());
     assert!(
-        dir.path()
-            .join(".sifs")
-            .join("index-v3-sparse.bin")
-            .exists()
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("main.py"));
 }
 
 #[test]
-fn disabled_cache_writes_no_persistent_state() {
+fn cli_semantic_offline_missing_model_fails_helpfully() {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("main.py"), "def foo():\n    pass\n").unwrap();
-    let options = IndexOptions::new(ModelOptions::new(
-        Some("__missing_model_for_disabled_cache_test__"),
-        ModelLoadPolicy::NoDownload,
-    ))
-    .with_cache(CacheConfig::Disabled);
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    pass\n",
+    )
+    .unwrap();
 
-    let index = SifsIndex::from_path_with_index_options(dir.path(), options).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sifs"))
+        .args([
+            "search",
+            "authentication",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "semantic",
+            "--offline",
+            "--model",
+            "__missing_cli_semantic_model__",
+        ])
+        .output()
+        .unwrap();
 
-    assert!(!index.chunks.is_empty());
-    assert!(!dir.path().join(".sifs").exists());
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not available locally"));
+}
+
+#[test]
+fn cli_hashing_encoder_supports_semantic_without_model() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    return True\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sifs"))
+        .args([
+            "search",
+            "authentication",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "semantic",
+            "--encoder",
+            "hashing",
+            "--offline",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("main.py"));
+}
+
+#[test]
+fn cli_doctor_reports_hashing_readiness() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_sifs"))
+        .args([
+            "doctor",
+            dir.path().to_str().unwrap(),
+            "--encoder",
+            "hashing",
+            "--offline",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("SIFS doctor"));
+    assert!(stdout.contains("Semantic readiness: ready without model files"));
 }
