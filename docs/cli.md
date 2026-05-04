@@ -16,7 +16,7 @@ is the current directory, the default result count is `5`, and the default mode
 is `hybrid`.
 
 ```bash
-target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--model <model>] [--offline] [--no-download]
+target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--language <language>] [--path <file>] [--json|--jsonl|--format <format>] [--model <model>] [--offline] [--no-download]
 ```
 
 Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
@@ -26,6 +26,7 @@ Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
 target/release/sifs search "where is the login redirect handled" .
 target/release/sifs search "SessionToken" /path/to/project --mode bm25 -k 10
 target/release/sifs search "stream upload backpressure" https://github.com/owner/project
+target/release/sifs search "token validation" . --mode bm25 --language rust --path src/auth.rs --json
 ```
 
 The mode values are:
@@ -39,6 +40,12 @@ Use `--offline` to prevent all network access by SIFS, including remote Git
 clones and model downloads. Use `--no-download` to prevent model downloads while
 still allowing local path indexing and remote Git sources.
 
+Use repeatable `--language` and `--path` filters to narrow searches to exact
+language labels or repository-relative file paths. Use `--context-lines` to ask
+for surrounding source lines in structured output when local files are
+available. Use `--explain` to print query, ranking, filter, timing, and warning
+metadata before human-readable results.
+
 ## Find-related command
 
 The `find-related` command resolves a file and line into the indexed chunk that
@@ -46,7 +53,7 @@ contains that line. It then searches for semantically related chunks in the same
 language when language metadata is available.
 
 ```bash
-target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--model <model>] [--offline] [--no-download]
+target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--json|--jsonl|--format <format>] [--model <model>] [--offline] [--no-download]
 ```
 
 Pass the file path as it appears in search results or as a path relative to the
@@ -54,6 +61,7 @@ indexed repository root.
 
 ```bash
 target/release/sifs find-related src/auth/session.rs 42 /path/to/project -k 8
+target/release/sifs find-related src/auth/session.rs 42 /path/to/project --json
 ```
 
 If SIFS can't resolve the location, it exits with an error that names the file
@@ -103,21 +111,46 @@ without opening the full documentation.
 target/release/sifs capabilities
 ```
 
-## MCP server mode
+## Index utility commands
 
-Running `sifs` without a subcommand starts the MCP stdio server. You can pass a
-local path or Git URL as the default source. The optional `--ref` value selects
-a branch or tag when the default source is a Git URL.
+Use `files`, `status`, and `get` when shell scripts or editors need MCP-style
+index inspection without starting a server.
 
 ```bash
-target/release/sifs [path-or-git-url] [--ref <branch-or-tag>] [--model <model>] [--offline] [--no-download]
+target/release/sifs files [path] [--limit <count>] [--json|--jsonl|--format compact]
+target/release/sifs status [path] [--json]
+target/release/sifs get <file-path> <line> [path] [--json|--format compact]
+target/release/sifs clean [path]
+```
+
+Examples:
+
+```bash
+target/release/sifs files . --format compact
+target/release/sifs status . --json
+target/release/sifs get src/auth.rs 42 . --json
+target/release/sifs clean .
+```
+
+`clean` only removes the local `.sifs` cache directory for the selected path. It
+does not support Git URL sources.
+
+## MCP server mode
+
+Running `sifs` without a subcommand prints help. Use the explicit `mcp`
+subcommand to start the MCP stdio server. You can pass a local path or Git URL
+as the default source. The optional `--ref` value selects a branch or tag when
+the default source is a Git URL.
+
+```bash
+target/release/sifs mcp [path-or-git-url] [--ref <branch-or-tag>] [--model <model>] [--offline] [--no-download]
 ```
 
 These examples start MCP server mode with different default sources.
 
 ```bash
-target/release/sifs /path/to/project
-target/release/sifs https://github.com/owner/project --ref main
+target/release/sifs mcp /path/to/project
+target/release/sifs mcp https://github.com/owner/project --ref main
 ```
 
 When you provide a default source, MCP tool calls can omit the `repo` argument.
@@ -126,18 +159,26 @@ a local path or Git URL in `repo`.
 
 ## Output format
 
-The CLI prints human-readable results rather than JSON. Each result includes
-the chunk location, ranking score, source mode, and code content. This format is
-intended for terminal use and agent context injection.
+The default CLI output is human-readable text. Each search result includes the
+chunk location, ranking score, source mode, and code content. Use
+`--format compact` when you want one concise text line per result.
 
-Use the Rust library if you need structured `SearchResult` values in another
-program. See [Rust library usage](library.md) for the API surface.
+Use `--json` for one pretty JSON object or `--jsonl` for newline-delimited JSON
+records. Search JSON includes query, mode, source, filters, index stats,
+elapsed timing, warnings, and result rows with file path, line range, language,
+score, source mode, and content.
+
+```bash
+target/release/sifs search "auth flow" . --json
+target/release/sifs search "auth flow" . --jsonl
+target/release/sifs search "auth flow" . --format compact
+```
 
 ## Operational notes
 
 SIFS indexes on demand for each direct CLI invocation. For repeated searches
-against the same repository, use MCP server mode or call the Rust library from a
-long-lived process so the index stays in memory.
+against the same repository, use MCP server mode or call the Rust library from
+a long-lived process so the index stays in memory.
 
 Git URL indexing uses a shallow clone into a temporary directory. Local path
 indexing canonicalizes the path and respects the root `.gitignore` file.
@@ -145,7 +186,7 @@ indexing canonicalizes the path and respects the root `.gitignore` file.
 BM25 mode is the safest network-free smoke path for package managers:
 
 ```bash
-target/release/sifs search --mode bm25 --offline "SessionToken" /path/to/project
+target/release/sifs search "SessionToken" /path/to/project --mode bm25 --offline
 ```
 
 ## Next steps

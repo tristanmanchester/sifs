@@ -6,17 +6,17 @@ searches much faster than rebuilding the index for each direct CLI command.
 
 ## Start the server
 
-Run `sifs` without a subcommand to start stdio server mode. You can pass a
-default local path or Git URL as the first positional argument.
+Run `sifs mcp` to start stdio server mode. You can pass a default local path or
+Git URL as the first positional argument.
 
 ```bash
-target/release/sifs /path/to/project
+target/release/sifs mcp /path/to/project
 ```
 
 When the default source is a Git URL, use `--ref` to choose a branch or tag.
 
 ```bash
-target/release/sifs https://github.com/owner/project --ref main
+target/release/sifs mcp https://github.com/owner/project --ref main
 ```
 
 Use `--model`, `--no-download`, or `--offline` to control semantic model
@@ -35,7 +35,7 @@ path to the release binary when the client doesn't run from the SIFS repository.
 ```toml
 [mcp_servers.sifs]
 command = "/absolute/path/to/sifs"
-args = ["/path/to/project"]
+args = ["mcp", "/path/to/project"]
 ```
 
 For Git-backed search, pass the Git URL and optional ref as arguments.
@@ -43,7 +43,7 @@ For Git-backed search, pass the Git URL and optional ref as arguments.
 ```toml
 [mcp_servers.sifs]
 command = "/absolute/path/to/sifs"
-args = ["https://github.com/owner/project", "--ref", "main"]
+args = ["mcp", "https://github.com/owner/project", "--ref", "main"]
 ```
 
 ## Protocol surface
