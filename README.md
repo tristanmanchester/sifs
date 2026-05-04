@@ -31,13 +31,35 @@ Protocol server for agent clients.
 - Use explicit sparse-only indexes or model-free hashing for local smoke tests.
 - Run quality and latency benchmarks over annotated repositories.
 
+## Install SIFS
+
+SIFS is intended to ship as the `sifs` command. Package-manager installs should
+install that binary by default.
+
+```bash
+cargo install --locked sifs
+```
+
+Homebrew release work starts from the draft formula in
+[packaging/homebrew/sifs.rb](packaging/homebrew/sifs.rb). After publishing a
+GitHub release tag, replace the formula's placeholder `sha256` with the release
+tarball checksum.
+
 ## Build SIFS
 
-SIFS builds with Cargo. The release build gives you the `sifs`,
-`sifs-benchmark`, and `sifs-embed` binaries under `target/release/`.
+SIFS builds with Cargo. The default release build gives you the public `sifs`
+binary under `target/release/`.
 
 ```bash
 cargo build --release
+```
+
+The `sifs-benchmark` and `sifs-embed` binaries are supported diagnostics for
+benchmarking and embedding-model checks. Build them explicitly with the
+`diagnostics` feature.
+
+```bash
+cargo build --release --features diagnostics --bins
 ```
 
 Run the test suite after changing indexing, chunking, ranking, or model-loading

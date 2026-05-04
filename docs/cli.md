@@ -1,11 +1,20 @@
 # Command-line usage
 
 SIFS includes a command-line interface for one-shot searches, related-code
-lookups, agent-file generation, and MCP server startup. Build the release
-binary before running these examples from the repository root.
+lookups, agent-file generation, and MCP server startup. The public install
+surface is the `sifs` binary. Build the release binary before running these
+examples from the repository root.
 
 ```bash
 cargo build --release
+```
+
+The repository also contains `sifs-benchmark` and `sifs-embed` diagnostics.
+They are intentionally behind the explicit `diagnostics` Cargo feature so
+package-manager installs only expose the main command by default.
+
+```bash
+cargo build --release --features diagnostics --bins
 ```
 
 ## Search command
