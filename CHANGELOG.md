@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.2.1 - 2026-05-04
+
 ### Added
 
 - Added an MCP hardening plan for stdio compatibility, Codex startup
