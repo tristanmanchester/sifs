@@ -26,8 +26,9 @@ The pipeline stages are:
 ## File walking
 
 The file walker selects files by extension, skips common generated directories,
-and respects the root `.gitignore` file. It sorts paths before returning them so
-index construction is deterministic for the same filesystem state.
+and uses the `ignore` crate for nested `.gitignore`, Git excludes, global Git
+ignores, and hidden-file behavior. It sorts paths before returning them so index
+construction is deterministic for the same filesystem state.
 
 Default ignored directories are:
 
@@ -158,7 +159,6 @@ writes a fresh entry when persistent caching is enabled.
 Other current limits are:
 
 - Files must be readable as UTF-8 text.
-- Only the root `.gitignore` file is loaded.
 - Git indexing uses shallow clones.
 - Direct CLI commands use platform caches by default and only write `.sifs/`
   when `--project-cache` is set.
