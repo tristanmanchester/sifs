@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.2.0 - 2026-05-04
+
 ### Added
 
 - Added `sifs --version` and `sifs -V` so installed binaries can report their
