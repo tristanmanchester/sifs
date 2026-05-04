@@ -45,6 +45,56 @@ impl std::fmt::Display for SearchMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SearchOptions {
+    pub top_k: usize,
+    pub mode: SearchMode,
+    pub alpha: Option<f32>,
+    pub filter_languages: Vec<String>,
+    pub filter_paths: Vec<String>,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            top_k: 5,
+            mode: SearchMode::Hybrid,
+            alpha: None,
+            filter_languages: Vec::new(),
+            filter_paths: Vec::new(),
+        }
+    }
+}
+
+impl SearchOptions {
+    pub fn new(top_k: usize) -> Self {
+        Self {
+            top_k,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_mode(mut self, mode: SearchMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn with_alpha(mut self, alpha: f32) -> Self {
+        self.alpha = Some(alpha);
+        self
+    }
+
+    pub fn with_languages(mut self, languages: impl IntoIterator<Item = String>) -> Self {
+        self.filter_languages = languages.into_iter().collect();
+        self
+    }
+
+    pub fn with_paths(mut self, paths: impl IntoIterator<Item = String>) -> Self {
+        self.filter_paths = paths.into_iter().collect();
+        self
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SearchResult {
     pub chunk: Chunk,

@@ -19,8 +19,10 @@ When the default source is a Git URL, use `--ref` to choose a branch or tag.
 target/release/sifs https://github.com/owner/project --ref main
 ```
 
-If you don't pass a default source, MCP tool calls must include `repo` with a
-local path or Git URL.
+When you pass a default source, MCP tool calls are scoped to that source and can
+omit `repo`. Calls that pass a different `repo` are rejected. If you don't pass
+a default source, MCP tool calls must include `repo` with a local path or Git
+URL.
 
 ## Configure a client
 
@@ -75,7 +77,8 @@ Input schema:
 Fields:
 
 - `query` is required.
-- `repo` is optional when the server started with a default source.
+- `repo` is optional when the server started with a default source. When a
+  default source is configured, `repo` must be omitted or match that source.
 - `mode` is optional and can be `hybrid`, `semantic`, or `bm25`.
 - `top_k` is optional and defaults to `5`.
 
@@ -102,7 +105,8 @@ Fields:
 
 - `file_path` is required.
 - `line` is required and uses one-based line numbers.
-- `repo` is optional when the server started with a default source.
+- `repo` is optional when the server started with a default source. When a
+  default source is configured, `repo` must be omitted or match that source.
 - `top_k` is optional and defaults to `5`.
 
 When SIFS can't resolve the file and line, the tool returns a text error that

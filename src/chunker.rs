@@ -1,19 +1,5 @@
-use crate::file_walker::language_for_path;
 use crate::types::Chunk;
-use std::fs;
 use std::ops::Range;
-use std::path::Path;
-
-pub fn chunk_file(file_path: &Path) -> Vec<Chunk> {
-    match fs::read_to_string(file_path) {
-        Ok(source) => chunk_source(
-            &source,
-            &file_path.to_string_lossy(),
-            language_for_path(file_path).map(str::to_owned),
-        ),
-        Err(_) => Vec::new(),
-    }
-}
 
 pub fn chunk_source(source: &str, file_path: &str, language: Option<String>) -> Vec<Chunk> {
     if source.trim().is_empty() {
@@ -31,9 +17,10 @@ pub fn chunk_lines(
     overlap_lines: usize,
 ) -> Vec<Chunk> {
     let lines: Vec<&str> = source.split_inclusive('\n').collect();
-    if lines.is_empty() {
+    if lines.is_empty() || max_lines == 0 {
         return Vec::new();
     }
+    let overlap_lines = overlap_lines.min(max_lines.saturating_sub(1));
     let mut chunks = Vec::new();
     let mut start = 0usize;
     while start < lines.len() {
@@ -208,4 +195,38 @@ fn token_count(source: &str, range: &Range<usize>) -> usize {
         .get(range.clone())
         .map(|text| text.chars().count())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chunk_lines, chunk_source};
+
+    #[test]
+    fn chunk_lines_uses_overlap_and_locations() {
+        let source = (1..=60).map(|i| format!("line {i}\n")).collect::<String>();
+        let chunks = chunk_lines(&source, "src/foo.py", Some("python".to_owned()), 50, 5);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].start_line, 1);
+        assert_eq!(chunks[0].end_line, 50);
+        assert_eq!(chunks[1].start_line, 46);
+    }
+
+    #[test]
+    fn chunk_lines_clamps_overlap_to_keep_progress() {
+        let source = (1..=5).map(|i| format!("line {i}\n")).collect::<String>();
+        let chunks = chunk_lines(&source, "src/foo.py", None, 2, 2);
+        assert_eq!(chunks.len(), 4);
+        assert_eq!(chunks.last().unwrap().start_line, 4);
+        assert!(chunk_lines(&source, "src/foo.py", None, 0, 10).is_empty());
+    }
+
+    #[test]
+    fn code_chunker_uses_tree_sitter_boundaries() {
+        let source = "def alpha():\n    return 1\n\n".repeat(80);
+        let chunks = chunk_source(&source, "many.py", Some("python".to_owned()));
+        assert!(chunks.len() > 1);
+        assert_eq!(chunks.first().unwrap().start_line, 1);
+        assert!(chunks.windows(2).all(|w| w[0].end_line <= w[1].start_line));
+        assert!(chunks.iter().all(|chunk| chunk.content.len() <= 1800));
+    }
 }

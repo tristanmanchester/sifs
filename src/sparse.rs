@@ -1,4 +1,4 @@
-use crate::dense::truncate_top_k;
+use crate::ranking::truncate_top_k;
 use crate::tokens::tokenize;
 use crate::types::Chunk;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,8 @@ pub struct Bm25Index {
 }
 
 impl Bm25Index {
-    pub fn build(docs: &[String]) -> Self {
+    #[cfg(test)]
+    fn build(docs: &[String]) -> Self {
         Self::build_from_tokenized_docs(docs.iter().map(|doc| tokenize(doc)), docs.len())
     }
 
@@ -128,29 +129,40 @@ fn tokens_for_chunk(chunk: &Chunk) -> Vec<String> {
     tokens
 }
 
-pub fn enrich_for_bm25(chunk: &Chunk) -> String {
-    let path = Path::new(&chunk.file_path);
-    let stem = path
-        .file_stem()
-        .map(|s| s.to_string_lossy())
-        .unwrap_or_default();
-    let dir_text = path
-        .parent()
-        .map(|parent| {
-            parent
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().to_string())
-                .filter(|part| part != "." && part != "/")
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-        .into_iter()
-        .rev()
-        .take(3)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!("{} {} {} {}", chunk.content, stem, stem, dir_text)
+#[cfg(test)]
+mod tests {
+    use super::Bm25Index;
+    use crate::types::Chunk;
+
+    fn chunk(content: &str, file_path: &str) -> Chunk {
+        Chunk {
+            content: content.to_owned(),
+            file_path: file_path.to_owned(),
+            start_line: 1,
+            end_line: 1,
+            language: Some("rust".to_owned()),
+        }
+    }
+
+    #[test]
+    fn bm25_search_uses_content_and_path_tokens() {
+        let chunks = vec![
+            chunk("fn parse_token() {}", "src/auth/session.rs"),
+            chunk("fn render_view() {}", "src/ui/view.rs"),
+        ];
+        let index = Bm25Index::build_from_chunks(&chunks);
+
+        let results = index.search("session", 1, None);
+
+        assert_eq!(results[0].0, 0);
+    }
+
+    #[test]
+    fn bm25_search_respects_selector() {
+        let index = Bm25Index::build(&["alpha token".to_owned(), "alpha token".to_owned()]);
+
+        let results = index.search("alpha", 10, Some(&[1]));
+
+        assert_eq!(results, vec![(1, results[0].1)]);
+    }
 }

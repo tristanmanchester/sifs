@@ -1,8 +1,7 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use sifs::SifsIndex;
-use sifs::types::SearchMode;
+use sifs::{SearchMode, SearchOptions, SifsIndex, metrics::peak_rss_mb};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -166,24 +165,12 @@ fn main() -> Result<()> {
 
         for task in &tasks {
             let mut last_results = Vec::new();
-            std::hint::black_box(index.search(
-                &task.query,
-                args.top_k,
-                SearchMode::Hybrid,
-                args.alpha,
-                None,
-                None,
-            ));
+            let mut search_options = SearchOptions::new(args.top_k).with_mode(SearchMode::Hybrid);
+            search_options.alpha = args.alpha;
+            std::hint::black_box(index.search_with(&task.query, &search_options));
             for _ in 0..args.latency_runs.max(1) {
                 let start = Instant::now();
-                last_results = index.search(
-                    &task.query,
-                    args.top_k,
-                    SearchMode::Hybrid,
-                    args.alpha,
-                    None,
-                    None,
-                );
+                last_results = index.search_with(&task.query, &search_options);
                 latencies.push(elapsed_ms(start));
             }
             let ranks: Vec<usize> = task
@@ -432,35 +419,6 @@ fn infer_category(query: &str) -> String {
 
 fn elapsed_ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
-}
-
-#[cfg(target_os = "macos")]
-fn peak_rss_mb() -> f64 {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if rc == 0 {
-        let usage = unsafe { usage.assume_init() };
-        usage.ru_maxrss as f64 / (1024.0 * 1024.0)
-    } else {
-        0.0
-    }
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn peak_rss_mb() -> f64 {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if rc == 0 {
-        let usage = unsafe { usage.assume_init() };
-        usage.ru_maxrss as f64 / 1024.0
-    } else {
-        0.0
-    }
-}
-
-#[cfg(not(unix))]
-fn peak_rss_mb() -> f64 {
-    0.0
 }
 
 fn percentile(values: &[f64], p: f64) -> f64 {

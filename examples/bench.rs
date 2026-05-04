@@ -1,5 +1,4 @@
-use sifs::SifsIndex;
-use sifs::types::SearchMode;
+use sifs::{SearchMode, SearchOptions, SifsIndex, metrics::peak_rss_mb};
 use std::time::Instant;
 
 fn main() -> anyhow::Result<()> {
@@ -17,10 +16,11 @@ fn main() -> anyhow::Result<()> {
     let index_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     let mut times = Vec::with_capacity(runs);
-    std::hint::black_box(index.search(&query, 10, SearchMode::Hybrid, None, None, None));
+    let options = SearchOptions::new(10).with_mode(SearchMode::Hybrid);
+    std::hint::black_box(index.search_with(&query, &options));
     for _ in 0..runs {
         let start = Instant::now();
-        let results = index.search(&query, 10, SearchMode::Hybrid, None, None, None);
+        let results = index.search_with(&query, &options);
         std::hint::black_box(results);
         times.push(start.elapsed().as_secs_f64() * 1000.0);
     }
@@ -35,33 +35,4 @@ fn main() -> anyhow::Result<()> {
         index.chunks.len()
     );
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn peak_rss_mb() -> f64 {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if rc == 0 {
-        let usage = unsafe { usage.assume_init() };
-        usage.ru_maxrss as f64 / (1024.0 * 1024.0)
-    } else {
-        0.0
-    }
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn peak_rss_mb() -> f64 {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if rc == 0 {
-        let usage = unsafe { usage.assume_init() };
-        usage.ru_maxrss as f64 / 1024.0
-    } else {
-        0.0
-    }
-}
-
-#[cfg(not(unix))]
-fn peak_rss_mb() -> f64 {
-    0.0
 }

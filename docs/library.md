@@ -10,7 +10,7 @@ The crate re-exports the main index and result types from `src/lib.rs`. These
 types are the stable surface to use from downstream Rust code.
 
 ```rust
-use sifs::{Chunk, IndexStats, SearchMode, SearchResult, SifsIndex};
+use sifs::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult, SifsIndex};
 ```
 
 The core types are:
@@ -28,17 +28,13 @@ default embedding model, walks supported code files, chunks them, and builds
 both sparse and dense indexes.
 
 ```rust
-use sifs::{SearchMode, SifsIndex};
+use sifs::{SearchMode, SearchOptions, SifsIndex};
 
 fn main() -> anyhow::Result<()> {
     let index = SifsIndex::from_path("/path/to/project")?;
-    let results = index.search(
+    let results = index.search_with(
         "where is authentication handled",
-        5,
-        SearchMode::Hybrid,
-        None,
-        None,
-        None,
+        &SearchOptions::new(5).with_mode(SearchMode::Hybrid),
     );
 
     for result in results {
@@ -131,18 +127,15 @@ chunk content for dense search.
 
 ## Search an index
 
-Use `SifsIndex::search` for all ranking modes. The `alpha` parameter is only
-used by hybrid search. When `alpha` is `None`, SIFS selects a weight from the
-query shape.
+Use `SifsIndex::search_with` for all ranking modes. `SearchOptions` keeps
+ranking, result count, hybrid alpha, and filters self-describing. The `alpha`
+field is only used by hybrid search. When `alpha` is `None`, SIFS selects a
+weight from the query shape.
 
 ```rust
-let results = index.search(
+let results = index.search_with(
     "parse oauth callback",
-    10,
-    SearchMode::Hybrid,
-    None,
-    None,
-    None,
+    &SearchOptions::new(10).with_mode(SearchMode::Hybrid),
 );
 ```
 
@@ -150,16 +143,13 @@ Use language or path filters to search a subset of the index. Filters are exact
 matches against chunk language strings and repository-relative file paths.
 
 ```rust
-let languages = vec!["rust".to_owned()];
-let paths = vec!["src/auth.rs".to_owned()];
-
-let results = index.search(
+let results = index.search_with(
     "session expiry",
-    5,
-    SearchMode::Hybrid,
-    Some(0.5),
-    Some(&languages),
-    Some(&paths),
+    &SearchOptions::new(5)
+        .with_mode(SearchMode::Hybrid)
+        .with_alpha(0.5)
+        .with_languages(["rust".to_owned()])
+        .with_paths(["src/auth.rs".to_owned()]),
 );
 ```
 

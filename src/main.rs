@@ -1,8 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use sifs::SifsIndex;
-use sifs::types::SearchMode;
-use sifs::utils::{format_results, is_git_url, resolve_chunk};
+use sifs::{SearchMode, SearchOptions, SifsIndex, format_results, is_git_url, resolve_chunk};
 use std::fs;
 use std::path::PathBuf;
 
@@ -73,7 +71,7 @@ fn main() -> Result<()> {
         }) => {
             let index = build_index(&path)?;
             let mode = SearchMode::from(mode);
-            let results = index.search(&query, top_k, mode, None, None, None);
+            let results = index.search_with(&query, &SearchOptions::new(top_k).with_mode(mode));
             if results.is_empty() {
                 println!("No results found.");
             } else {

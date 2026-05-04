@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use sifs::model2vec::load_model;
+use sifs::load_model;
 
 #[derive(Parser)]
 #[command(about = "Encode text with the SIFS embedding model and print JSON.")]

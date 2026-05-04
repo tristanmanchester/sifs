@@ -62,3 +62,29 @@ pub fn tokenize(text: &str) -> Vec<String> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{split_identifier, tokenize};
+
+    #[test]
+    fn tokenization_matches_identifier_expansion() {
+        assert_eq!(
+            split_identifier("HandlerStack"),
+            vec!["handlerstack", "handler", "stack"]
+        );
+        assert_eq!(split_identifier("my_func"), vec!["my_func", "my", "func"]);
+        assert_eq!(
+            tokenize("getHTTPResponse my_func"),
+            vec![
+                "gethttpresponse",
+                "get",
+                "http",
+                "response",
+                "my_func",
+                "my",
+                "func"
+            ]
+        );
+    }
+}

@@ -73,6 +73,20 @@ pub fn resolve_alpha(query: &str, alpha: Option<f32>) -> f32 {
     })
 }
 
+pub(crate) fn truncate_top_k(scores: &mut Vec<(usize, f32)>, k: usize) {
+    if scores.len() <= k {
+        scores.sort_unstable_by(desc_score);
+        return;
+    }
+    scores.select_nth_unstable_by(k, desc_score);
+    scores.truncate(k);
+    scores.sort_unstable_by(desc_score);
+}
+
+fn desc_score(a: &(usize, f32), b: &(usize, f32)) -> Ordering {
+    b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal)
+}
+
 pub fn is_symbol_query(query: &str) -> bool {
     SYMBOL_QUERY_RE.is_match(query.trim())
 }
@@ -394,4 +408,50 @@ fn file_path_penalty(file_path: &str) -> f32 {
         penalty *= 0.7;
     }
     penalty
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_query_boost, rerank_topk, resolve_alpha};
+    use crate::types::Chunk;
+    use std::collections::HashMap;
+
+    fn chunk(content: &str, file_path: &str) -> Chunk {
+        Chunk {
+            content: content.to_owned(),
+            file_path: file_path.to_owned(),
+            start_line: 1,
+            end_line: 1,
+            language: Some("python".to_owned()),
+        }
+    }
+
+    #[test]
+    fn boosts_definitions_and_penalizes_tests() {
+        let defining = chunk("class MyService:\n    pass", "src/my_service.py");
+        let other = chunk("x = MyService()", "src/utils.py");
+        let chunks = vec![defining, other];
+        let mut scores = HashMap::new();
+        scores.insert(1usize, 0.4);
+        let boosted = apply_query_boost(&scores, "MyService", &chunks);
+        assert!(boosted[&0] > boosted[&1]);
+
+        let regular = chunk("def impl(): pass", "src/regular.py");
+        let test = chunk("def impl(): pass", "tests/test_auth.py");
+        let chunks = vec![regular, test];
+        let scores = HashMap::from([(0usize, 1.0), (1usize, 1.0)]);
+        let ranked = rerank_topk(&scores, &chunks, 2, true);
+        assert_eq!(ranked[0].0, 0);
+    }
+
+    #[test]
+    fn alpha_detection_matches_symbol_vs_natural_language() {
+        assert_eq!(resolve_alpha("MyService", None), 0.3);
+        assert_eq!(resolve_alpha("how does routing work", None), 0.55);
+        assert_eq!(
+            resolve_alpha("request validation and error handling", None),
+            0.3
+        );
+        assert_eq!(resolve_alpha("MyService", Some(0.7)), 0.7);
+    }
 }

@@ -97,3 +97,90 @@ fn rrf_scores(scores: &HashMap<usize, f32>) -> HashMap<usize, f32> {
         .map(|(rank, (id, _))| (id, 1.0 / (RRF_K + rank as f32 + 1.0)))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{rrf_scores, search_bm25, search_hybrid, search_semantic};
+    use crate::dense::DenseIndex;
+    use crate::model2vec::Encoder;
+    use crate::sparse::Bm25Index;
+    use crate::types::{Chunk, SearchMode};
+    use ndarray::{Array2, s};
+    use std::collections::HashMap;
+
+    struct TestEncoder;
+
+    impl Encoder for TestEncoder {
+        fn dim(&self) -> usize {
+            2
+        }
+
+        fn encode(&self, texts: &[String]) -> Array2<f32> {
+            let mut values = Array2::zeros((texts.len(), 2));
+            for (idx, text) in texts.iter().enumerate() {
+                if text.contains("parse") || text.contains("session") {
+                    values
+                        .slice_mut(s![idx, ..])
+                        .assign(&ndarray::array![1.0, 0.0]);
+                } else {
+                    values
+                        .slice_mut(s![idx, ..])
+                        .assign(&ndarray::array![0.0, 1.0]);
+                }
+            }
+            values
+        }
+    }
+
+    fn chunk(content: &str, file_path: &str) -> Chunk {
+        Chunk {
+            content: content.to_owned(),
+            file_path: file_path.to_owned(),
+            start_line: 1,
+            end_line: 1,
+            language: Some("rust".to_owned()),
+        }
+    }
+
+    #[test]
+    fn search_helpers_report_their_source_modes() {
+        let chunks = vec![
+            chunk("fn parse_session_token() {}", "src/auth.rs"),
+            chunk("fn draw_chart() {}", "src/chart.rs"),
+        ];
+        let model = TestEncoder;
+        let vectors = model.encode(
+            &chunks
+                .iter()
+                .map(|chunk| chunk.content.clone())
+                .collect::<Vec<_>>(),
+        );
+        let dense = DenseIndex::new(vectors);
+        let sparse = Bm25Index::build_from_chunks(&chunks);
+
+        let semantic = search_semantic("parse session", &model, &dense, &chunks, 1, None);
+        let bm25 = search_bm25("parse_session_token", &sparse, &chunks, 1, None);
+        let hybrid = search_hybrid(
+            "parse session",
+            &model,
+            &dense,
+            &sparse,
+            &chunks,
+            1,
+            None,
+            None,
+        );
+
+        assert_eq!(semantic[0].source, SearchMode::Semantic);
+        assert_eq!(bm25[0].source, SearchMode::Bm25);
+        assert_eq!(hybrid[0].source, SearchMode::Hybrid);
+    }
+
+    #[test]
+    fn rrf_scores_prioritize_higher_ranked_items() {
+        let scores = HashMap::from([(1, 0.9), (2, 0.1)]);
+        let normalized = rrf_scores(&scores);
+
+        assert!(normalized[&1] > normalized[&2]);
+    }
+}

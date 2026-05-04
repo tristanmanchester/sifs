@@ -4,10 +4,10 @@ use crate::file_walker::{filter_extensions, language_for_path, walk_files};
 use crate::model2vec::{Encoder, load_model};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::sparse::Bm25Index;
-use crate::types::{Chunk, IndexStats, SearchMode, SearchResult};
+use crate::types::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult};
 use anyhow::{Context, Result, bail};
 use ndarray::{Array2, s};
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -185,14 +185,28 @@ impl SifsIndex {
         filter_languages: Option<&[String]>,
         filter_paths: Option<&[String]>,
     ) -> Vec<SearchResult> {
+        let mut options = SearchOptions::new(top_k).with_mode(mode);
+        options.alpha = alpha;
+        if let Some(languages) = filter_languages {
+            options.filter_languages = languages.to_vec();
+        }
+        if let Some(paths) = filter_paths {
+            options.filter_paths = paths.to_vec();
+        }
+        self.search_with(query, &options)
+    }
+
+    pub fn search_with(&self, query: &str, options: &SearchOptions) -> Vec<SearchResult> {
         if self.chunks.is_empty() || query.trim().is_empty() {
             return Vec::new();
         }
+        let filter_languages = empty_to_none(&options.filter_languages);
+        let filter_paths = empty_to_none(&options.filter_paths);
         let cache_key = SearchCacheKey {
             query: query.to_owned(),
-            top_k,
-            mode,
-            alpha_bits: alpha.map(f32::to_bits),
+            top_k: options.top_k,
+            mode: options.mode,
+            alpha_bits: options.alpha.map(f32::to_bits),
             filter_languages: filter_languages.map(<[String]>::to_vec),
             filter_paths: filter_paths.map(<[String]>::to_vec),
         };
@@ -206,16 +220,20 @@ impl SifsIndex {
         }
         let selector = self.selector(filter_languages, filter_paths);
         let selector_ref = selector.as_deref();
-        let results = match mode {
-            SearchMode::Bm25 => {
-                search_bm25(query, &self.bm25_index, &self.chunks, top_k, selector_ref)
-            }
+        let results = match options.mode {
+            SearchMode::Bm25 => search_bm25(
+                query,
+                &self.bm25_index,
+                &self.chunks,
+                options.top_k,
+                selector_ref,
+            ),
             SearchMode::Semantic => search_semantic(
                 query,
                 self.model.as_ref(),
                 &self.semantic_index,
                 &self.chunks,
-                top_k,
+                options.top_k,
                 selector_ref,
             ),
             SearchMode::Hybrid => search_hybrid(
@@ -224,8 +242,8 @@ impl SifsIndex {
                 &self.semantic_index,
                 &self.bm25_index,
                 &self.chunks,
-                top_k,
-                alpha,
+                options.top_k,
+                options.alpha,
                 selector_ref,
             ),
         };
@@ -354,6 +372,14 @@ fn encode_chunks_batched(model: &dyn Encoder, chunks: &[Chunk]) -> Array2<f32> {
     embeddings
 }
 
+fn empty_to_none(values: &[String]) -> Option<&[String]> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
+}
+
 pub fn create_chunks_from_path(
     path: &Path,
     extensions: Option<HashSet<String>>,
@@ -363,22 +389,21 @@ pub fn create_chunks_from_path(
 ) -> Result<Vec<Chunk>> {
     let extensions = filter_extensions(extensions, include_text_files);
     let files = walk_files(path, &extensions, ignore);
-    let chunks: Vec<Chunk> = files
+    let chunks_by_file: Vec<Vec<Chunk>> = files
         .par_iter()
         .map(|file_path| {
-            let Ok(source) = fs::read_to_string(file_path) else {
-                return Vec::new();
-            };
+            let source = fs::read_to_string(file_path)
+                .with_context(|| format!("read indexed file {}", file_path.display()))?;
             let rel_path: PathBuf = file_path
                 .strip_prefix(display_root)
                 .unwrap_or(file_path)
                 .to_path_buf();
             let chunk_path = rel_path.to_string_lossy().to_string();
             let language = language_for_path(file_path).map(str::to_owned);
-            chunk_source(&source, &chunk_path, language)
+            Ok(chunk_source(&source, &chunk_path, language))
         })
-        .flatten()
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
+    let chunks: Vec<Chunk> = chunks_by_file.into_iter().flatten().collect();
     if chunks.is_empty() {
         bail!("No supported files found under {}.", path.display());
     }

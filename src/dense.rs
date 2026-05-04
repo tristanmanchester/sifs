@@ -1,7 +1,8 @@
 use ndarray::{Array1, Array2, Axis};
-use rayon::prelude::*;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+
+use crate::ranking::truncate_top_k;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DenseIndex {
@@ -56,16 +57,17 @@ impl DenseIndex {
     }
 }
 
-pub(crate) fn truncate_top_k(scores: &mut Vec<(usize, f32)>, k: usize) {
-    if scores.len() <= k {
-        scores.sort_unstable_by(desc_score);
-        return;
-    }
-    scores.select_nth_unstable_by(k, desc_score);
-    scores.truncate(k);
-    scores.sort_unstable_by(desc_score);
-}
+#[cfg(test)]
+mod tests {
+    use super::DenseIndex;
+    use ndarray::array;
 
-fn desc_score(a: &(usize, f32), b: &(usize, f32)) -> Ordering {
-    b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal)
+    #[test]
+    fn query_respects_selector_and_top_k_order() {
+        let index = DenseIndex::new(array![[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]]);
+        let results = index.query(&array![1.0, 0.0], 1, Some(&[1, 2]));
+
+        assert_eq!(results, vec![(1, results[0].1)]);
+        assert!(results[0].1 > 0.9);
+    }
 }

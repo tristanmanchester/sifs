@@ -363,3 +363,37 @@ impl RootGitignore {
             .is_ignore()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{filter_extensions, walk_files};
+    use std::collections::HashSet;
+    use std::fs;
+
+    #[test]
+    fn filter_extensions_can_include_document_files() {
+        let code_only = filter_extensions(None, false);
+        let with_docs = filter_extensions(None, true);
+
+        assert!(code_only.contains(".rs"));
+        assert!(!code_only.contains(".md"));
+        assert!(with_docs.contains(".md"));
+        assert!(with_docs.contains(".json"));
+    }
+
+    #[test]
+    fn walk_files_applies_explicit_ignored_directory_names() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::create_dir_all(dir.path().join("generated")).unwrap();
+        fs::write(dir.path().join("src/lib.rs"), "fn main() {}\n").unwrap();
+        fs::write(dir.path().join("generated/lib.rs"), "fn generated() {}\n").unwrap();
+        let extensions = HashSet::from([".rs".to_owned()]);
+        let ignored = HashSet::from(["generated".to_owned()]);
+
+        let files = walk_files(dir.path(), &extensions, Some(&ignored));
+
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("src/lib.rs"));
+    }
+}

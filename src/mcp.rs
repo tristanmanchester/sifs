@@ -1,5 +1,5 @@
 use crate::SifsIndex;
-use crate::types::SearchMode;
+use crate::types::{SearchMode, SearchOptions};
 use crate::utils::{format_results, is_git_url, resolve_chunk};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
@@ -9,9 +9,6 @@ use std::path::Path;
 
 pub fn serve(default_source: Option<String>, ref_name: Option<String>) -> Result<()> {
     let mut cache = IndexCache::default();
-    if let Some(source) = &default_source {
-        let _ = cache.get(source, ref_name.as_deref());
-    }
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
     let mut stdout = io::stdout();
@@ -92,12 +89,37 @@ fn handle_tool_call(
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let text = match name {
+    let tool_result = match name {
         "search" => tool_search(args, cache, default_source, ref_name),
         "find_related" => tool_find_related(args, cache, default_source, ref_name),
-        _ => format!("Unknown tool: {name}"),
+        _ => ToolText::error(format!("Unknown tool: {name}")),
     };
-    json!({"content": [{"type": "text", "text": text}]})
+    let mut result = json!({"content": [{"type": "text", "text": tool_result.text}]});
+    if tool_result.is_error {
+        result["isError"] = json!(true);
+    }
+    result
+}
+
+struct ToolText {
+    text: String,
+    is_error: bool,
+}
+
+impl ToolText {
+    fn ok(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            is_error: false,
+        }
+    }
+
+    fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            is_error: true,
+        }
+    }
 }
 
 fn tool_search(
@@ -105,14 +127,19 @@ fn tool_search(
     cache: &mut IndexCache,
     default_source: Option<&str>,
     ref_name: Option<&str>,
-) -> String {
+) -> ToolText {
     let query = args
         .get("query")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let source = args.get("repo").and_then(Value::as_str).or(default_source);
-    let Some(source) = source else {
-        return "No repo specified and no default index. Pass a git URL (https://github.com/...) or local path as `repo`.".to_owned();
+    let source = match selected_source(&args, default_source) {
+        Ok(Some(source)) => source,
+        Ok(None) => {
+            return ToolText::error(
+                "No repo specified and no default index. Pass a git URL (https://github.com/...) or local path as `repo`.",
+            );
+        }
+        Err(message) => return ToolText::error(message),
     };
     let mode = args
         .get("mode")
@@ -122,17 +149,17 @@ fn tool_search(
     let top_k = args.get("top_k").and_then(Value::as_u64).unwrap_or(5) as usize;
     match cache.get(source, ref_name) {
         Ok(index) => {
-            let results = index.search(query, top_k, mode, None, None, None);
+            let results = index.search_with(query, &SearchOptions::new(top_k).with_mode(mode));
             if results.is_empty() {
-                "No results found.".to_owned()
+                ToolText::ok("No results found.")
             } else {
-                format_results(
+                ToolText::ok(format_results(
                     &format!("Search results for: {query:?} (mode={mode})"),
                     &results,
-                )
+                ))
             }
         }
-        Err(err) => format!("Failed to index {source:?}: {err}"),
+        Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
     }
 }
 
@@ -141,33 +168,59 @@ fn tool_find_related(
     cache: &mut IndexCache,
     default_source: Option<&str>,
     ref_name: Option<&str>,
-) -> String {
+) -> ToolText {
     let file_path = args
         .get("file_path")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let line = args.get("line").and_then(Value::as_u64).unwrap_or(0) as usize;
-    let source = args.get("repo").and_then(Value::as_str).or(default_source);
-    let Some(source) = source else {
-        return "No repo specified and no default index. Pass a git URL (https://github.com/...) or local path as `repo`.".to_owned();
+    let source = match selected_source(&args, default_source) {
+        Ok(Some(source)) => source,
+        Ok(None) => {
+            return ToolText::error(
+                "No repo specified and no default index. Pass a git URL (https://github.com/...) or local path as `repo`.",
+            );
+        }
+        Err(message) => return ToolText::error(message),
     };
     let top_k = args.get("top_k").and_then(Value::as_u64).unwrap_or(5) as usize;
     match cache.get(source, ref_name) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
-                return format!(
+                return ToolText::ok(format!(
                     "No chunk found at {file_path}:{line}. Make sure the file is indexed and the line number is within a known chunk."
-                );
+                ));
             };
             let results = index.find_related(&chunk, top_k);
             if results.is_empty() {
-                format!("No related chunks found for {file_path}:{line}.")
+                ToolText::ok(format!("No related chunks found for {file_path}:{line}."))
             } else {
-                format_results(&format!("Chunks related to {file_path}:{line}"), &results)
+                ToolText::ok(format_results(
+                    &format!("Chunks related to {file_path}:{line}"),
+                    &results,
+                ))
             }
         }
-        Err(err) => format!("Failed to index {source:?}: {err}"),
+        Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
     }
+}
+
+fn selected_source<'a>(
+    args: &'a Value,
+    default_source: Option<&'a str>,
+) -> std::result::Result<Option<&'a str>, String> {
+    let requested = args.get("repo").and_then(Value::as_str);
+    if let Some(default_source) = default_source {
+        if let Some(requested) = requested
+            && requested != default_source
+        {
+            return Err(format!(
+                "This MCP server is scoped to {default_source:?}; refusing repo override {requested:?}."
+            ));
+        }
+        return Ok(Some(default_source));
+    }
+    Ok(requested)
 }
 
 fn tool_schemas() -> Vec<Value> {
@@ -237,4 +290,59 @@ fn write_message(writer: &mut impl Write, message: &Value) -> Result<()> {
     writer.write_all(&body)?;
     writer.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IndexCache, handle_tool_call, selected_source};
+    use serde_json::json;
+
+    #[test]
+    fn default_source_rejects_repo_override() {
+        let args = json!({"repo": "/other/repo"});
+        let err = selected_source(&args, Some("/default/repo")).unwrap_err();
+
+        assert!(err.contains("refusing repo override"));
+        assert!(err.contains("/default/repo"));
+        assert!(err.contains("/other/repo"));
+    }
+
+    #[test]
+    fn default_source_allows_omitted_or_matching_repo() {
+        assert_eq!(
+            selected_source(&json!({}), Some("/default/repo")).unwrap(),
+            Some("/default/repo")
+        );
+        assert_eq!(
+            selected_source(&json!({"repo": "/default/repo"}), Some("/default/repo")).unwrap(),
+            Some("/default/repo")
+        );
+    }
+
+    #[test]
+    fn missing_default_uses_requested_repo() {
+        assert_eq!(
+            selected_source(&json!({"repo": "/requested/repo"}), None).unwrap(),
+            Some("/requested/repo")
+        );
+        assert_eq!(selected_source(&json!({}), None).unwrap(), None);
+    }
+
+    #[test]
+    fn unknown_tool_result_is_marked_as_error() {
+        let response = handle_tool_call(
+            &json!({"params": {"name": "missing_tool", "arguments": {}}}),
+            &mut IndexCache::default(),
+            None,
+            None,
+        );
+
+        assert_eq!(response["isError"], true);
+        assert!(
+            response["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown tool")
+        );
+    }
 }
