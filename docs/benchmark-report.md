@@ -1,4 +1,4 @@
-# SIFS Benchmark Report
+# SIFS benchmark report
 
 These measurements were collected on May 4, 2026, on this development machine.
 They are intended to make local tradeoffs visible, not to define a
@@ -21,10 +21,10 @@ NDCG@10 for ranking quality and repeated-query p50 latency for warm search.
 | probe | 0.3872 | 0.0000 ms | 207.1 ms |
 | ripgrep | 0.1257 | 0.0000 ms | 8.8 ms |
 
-The main result is that SIFS lands close to the strongest semantic/hybrid
-baselines while keeping indexing and warm-query latency very low. In this run,
-SIFS was 0.0100 NDCG@10 behind Semble and 0.0173 behind CodeRankEmbed Hybrid,
-with lower reported warm-query latency than every baseline in the comparison.
+SIFS lands close to the strongest semantic/hybrid baselines while keeping
+indexing and warm-query latency low. In this run, SIFS was 0.0100 NDCG@10
+behind Semble and 0.0173 behind CodeRankEmbed Hybrid, with lower reported
+warm-query latency than every baseline in the comparison.
 
 ## Figures
 
@@ -76,7 +76,7 @@ The full SIFS payload is checked in at
 contains per-repository NDCG, latency, index time, memory, file count, chunk
 count, and category-level scores.
 
-## SIFS By Language
+## SIFS by language
 
 | Language | Repos | Tasks | NDCG@10 | Query p50 |
 |---|---:|---:|---:|---:|
@@ -100,7 +100,7 @@ count, and category-level scores.
 | typescript | 3 | 60 | 0.7219 | 0.0017 ms |
 | zig | 3 | 60 | 0.9050 | 0.0016 ms |
 
-## SIFS By Query Category
+## SIFS by query category
 
 | Category | Repos | NDCG@10 |
 |---|---:|---:|
@@ -108,11 +108,10 @@ count, and category-level scores.
 | semantic | 63 | 0.8262 |
 | symbol | 50 | 0.9566 |
 
-Symbol lookup is the strongest category, which matches SIFS's hybrid design:
-BM25 and query-aware boosts help exact identifiers while semantic retrieval
-keeps natural-language discovery competitive.
+Symbol lookup is the strongest category. BM25 and query-aware boosts help exact
+identifiers while semantic retrieval handles natural-language discovery.
 
-## Large Repository Smoke Test
+## Large repository smoke test
 
 A separate smoke benchmark was run against a shallow clone of
 `https://github.com/facebook/react`. This is not an annotated relevance test; it
@@ -138,7 +137,7 @@ index_ms=8289.240 query_p50_ms=0.002 query_p90_ms=0.003 peak_rss_mb=362.8 files=
 The captured output is checked in at
 [benchmarks/results/react-smoke.txt](../benchmarks/results/react-smoke.txt).
 
-## Reproducing The Graphs
+## Reproducing the graphs
 
 The plotting script used for these graphs is checked in at
 [benchmarks/plot_sifs_comparison.py](../benchmarks/plot_sifs_comparison.py). It
@@ -155,9 +154,9 @@ The generated PNGs are written into [assets/images](../assets/images), and a
 compact generated table is written to
 [benchmarks/README.generated.md](../benchmarks/README.generated.md).
 
-## Interpretation Notes
+## Interpretation notes
 
-- SIFS reports very low repeated-query latency because the benchmark measures
+- SIFS reports low repeated-query latency because the benchmark measures
   repeated searches against an already built in-process index, and repeated
   identical searches hit the SIFS query cache.
 - Index timing is averaged across the annotated benchmark repositories. It is

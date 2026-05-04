@@ -1,14 +1,14 @@
 # Command-line usage
 
-SIFS includes a command-line interface for one-shot searches, related-code
-lookups, agent-file generation, and MCP server startup. Build the release
+SIFS includes a command-line interface for one-shot searches, related code
+lookups, agent file generation, and MCP server startup. Build the release
 binary before running these examples from the repository root.
 
 ```bash
 cargo build --release
 ```
 
-## Search command
+## search command
 
 The `search` command builds an index for the target path or Git URL, runs a
 query, and prints ranked chunks with file locations and scores. The default path
@@ -20,7 +20,7 @@ target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--m
 ```
 
 Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
-`bm25` for exact identifiers or file-local terminology.
+`bm25` for exact identifiers or file local terminology.
 
 ```bash
 target/release/sifs search "where is the login redirect handled" .
@@ -45,7 +45,7 @@ Linux. Use `--cache-dir` to choose another cache root, `--no-cache` to disable
 persistent caches, or `--project-cache` to opt into a repository-local `.sifs/`
 cache.
 
-## Find-related command
+## find-related command
 
 The `find-related` command resolves a file and line into the indexed chunk that
 contains that line. It then searches for semantically related chunks in the same
@@ -66,7 +66,7 @@ If SIFS can't resolve the location, it exits with an error that names the file
 and line. Check that the file extension is indexed and that the line falls
 inside a non-empty chunk.
 
-## Model command
+## model command
 
 Semantic, hybrid, `find-related`, and `sifs-embed` need a Model2Vec-compatible
 embedding model. BM25 search does not.
@@ -84,7 +84,7 @@ target/release/sifs model pull --model minishlab/potion-code-16M
 `model status` checks local files only and never downloads. `model pull`
 downloads or validates the model through the normal Hugging Face cache.
 
-## Cache command
+## cache command
 
 SIFS stores persistent sparse and semantic index caches outside searched
 repositories by default. Use `cache status` to inspect the cache and
@@ -102,7 +102,7 @@ target/release/sifs cache clean --cache-dir /tmp/sifs-cache
 search for or remove project-local `.sifs/` directories unless you explicitly
 point `--cache-dir` at one.
 
-## Init command
+## init command
 
 The `init` command writes a ready-to-use agent description for clients that
 support local agent files. It creates `.claude/agents/sifs-search.md`.
@@ -117,7 +117,7 @@ Use `--force` to overwrite an existing file at that path.
 target/release/sifs init --force
 ```
 
-## Capabilities command
+## capabilities command
 
 The `capabilities` command prints the main CLI and MCP capabilities in one
 place. Use it when onboarding a user or checking what an agent can discover
@@ -166,13 +166,8 @@ long-lived process so the index stays in memory.
 Git URL indexing uses a shallow clone into a temporary directory. Local path
 indexing canonicalizes the path and respects the root `.gitignore` file.
 
-BM25 mode is the safest network-free smoke path for package managers:
+BM25 mode is the safest network-free smoke path for package-manager checks:
 
 ```bash
 target/release/sifs search --mode bm25 --offline "SessionToken" /path/to/project
 ```
-
-## Next steps
-
-Read [MCP server usage](mcp.md) to wire SIFS into an agent client, or read
-[Benchmarking](benchmarks.md) to measure latency and search quality.

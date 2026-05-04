@@ -1,8 +1,8 @@
-# SIFS Benchmark Report
+# SIFS benchmark report
 
 Source SIFS result: `benchmarks/results/sifs-full.json`
 
-## Main Results
+## Main results
 
 | Method | NDCG@10 | Index time | Query p50 |
 |---|---:|---:|---:|
@@ -22,7 +22,7 @@ Source SIFS result: `benchmarks/results/sifs-full.json`
 - Cold latency is index time plus first query latency. Warm latency is query p50 with an existing index.
 - Existing Semble baseline files include some methods with precomputed summary-only timing fields; the report preserves those values.
 
-## Generated Figures
+## Generated figures
 
 - `assets/images/speed_vs_quality_combined.png`
 - `assets/images/speed_vs_quality_cold.png`

@@ -1,8 +1,8 @@
 # MCP server usage
 
 SIFS can run as a Model Context Protocol server over standard input and output.
-This mode keeps indexes cached inside one process, which makes repeated agent
-searches much faster than rebuilding the index for each direct CLI command.
+This keeps indexes cached inside one process, so repeated agent searches do not
+rebuild the index for each direct CLI command.
 
 ## Start the server
 
@@ -103,7 +103,7 @@ Search responses include text content for agent context injection and
 structured result includes `file_path`, `start_line`, `end_line`, `language`,
 `score`, `source`, and `content`.
 
-## Find-related tool
+## find-related tool
 
 Use the `find_related` tool to locate chunks similar to a known file and line.
 The file path must match an indexed chunk path or resolve to one.
@@ -134,7 +134,7 @@ chunk.
 ## Index inspection tools
 
 Use `index_status` to inspect the selected repository before or after searching.
-It returns the source, optional Git ref, memory-cache state, indexed file count,
+It returns the source, optional Git ref, memory cache state, indexed file count,
 chunk count, language distribution, and available MCP tools.
 
 ```json
@@ -225,8 +225,3 @@ Common errors include:
 - A semantic or hybrid search when the requested model is unavailable under
   `--offline` or `--no-download`.
 - A file and line that don't map to an indexed chunk.
-
-## Next steps
-
-Read [Command-line usage](cli.md) for direct terminal commands, or read
-[Architecture](architecture.md) to understand what the server caches.

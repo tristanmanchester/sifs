@@ -7,9 +7,9 @@ needs it.
 
 ## Pipeline overview
 
-The index pipeline is intentionally small and direct. `SifsIndex` owns all data
-needed for BM25 search after construction, so CLI commands and MCP tools can run
-model-free lexical searches without reading files again.
+The index pipeline is small. `SifsIndex` owns all data needed for BM25 search
+after construction, so CLI commands and MCP tools can run model-free lexical
+searches without reading files again.
 
 The pipeline stages are:
 
@@ -112,8 +112,8 @@ Related-code lookup starts from a known chunk. SIFS semantically searches using
 the chunk content as the query, filters to the same language when possible, and
 removes the source chunk from the result set.
 
-This makes `find_related` useful for finding alternate implementations,
-call-site patterns, duplicated logic, or conceptually similar modules.
+This makes `find_related` useful for finding alternate implementations, call
+site patterns, duplicated logic, or similar modules.
 
 ## MCP caching
 
@@ -146,9 +146,9 @@ vectors are not reused after a model changes.
 
 ## Limitations
 
-SIFS keeps live indexes in memory after construction. Persistent caches are
-best-effort: if a cache entry is missing or invalid, SIFS rebuilds from source
-and writes a fresh entry when persistent caching is enabled.
+SIFS keeps live indexes in memory after construction. Persistent caches are best
+effort: if a cache entry is missing or invalid, SIFS rebuilds from source and
+writes a fresh entry when persistent caching is enabled.
 
 Other current limits are:
 
@@ -156,8 +156,3 @@ Other current limits are:
 - Only the root `.gitignore` file is loaded.
 - Git indexing uses shallow clones.
 - Document-like files require explicit library options.
-
-## Next steps
-
-Read [Rust library usage](library.md) to use these components from Rust, or
-read [Benchmarking](benchmarks.md) to measure changes to the pipeline.

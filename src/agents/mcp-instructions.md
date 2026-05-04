@@ -1,4 +1,4 @@
-SIFS Is Fast Search: instant code search for local and Git repositories.
+SIFS Is Fast Search: fast code search for local and Git repositories.
 
 Use `search` for natural-language, symbol, or code queries. Use `find_related`
 when you already have a file and line from a result and want similar code. Use

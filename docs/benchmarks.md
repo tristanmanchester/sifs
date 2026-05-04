@@ -1,14 +1,14 @@
 # Benchmarking
 
 SIFS includes benchmark utilities for search quality, indexing speed, query
-latency, and embedding parity checks. Use these tools when changing file
-walking, chunking, model loading, sparse search, dense search, or reranking.
+latency, and embedding parity checks. Use them when changing file walking,
+chunking, model loading, sparse search, dense search, or reranking.
 
 ## Quality and latency benchmark
 
 The `sifs-benchmark` binary runs annotated search tasks over one or more pinned
 repositories. It reports NDCG quality metrics, query latency percentiles, index
-time, indexed files, chunks, and category-level scores.
+time, indexed files, chunks, and category scores.
 
 ```bash
 target/release/sifs-benchmark \
@@ -124,8 +124,7 @@ investigating indexing, memory, file selection, or chunking changes.
 ## Local smoke benchmark
 
 The `examples/bench.rs` example measures one path, one query, and repeated
-query latency. It is useful for quick checks outside the annotated benchmark
-suite.
+query latency. Use it for quick checks outside the annotated benchmark suite.
 
 ```bash
 cargo build --release --example bench
@@ -212,8 +211,3 @@ When a delta appears, compare these values in order:
 2. Compare the sorted indexed file lists.
 3. Compare chunk counts per file.
 4. Compare query quality and latency after file coverage matches.
-
-## Next steps
-
-Read [Architecture](architecture.md) for the pipeline that benchmarks exercise,
-or read [Rust library usage](library.md) to build custom measurement harnesses.
