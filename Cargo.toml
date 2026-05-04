@@ -2,7 +2,19 @@
 name = "sifs"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "SIFS Is Fast Search: instant local code search for agents"
+license = "MIT"
+repository = "https://github.com/tristanmanchester/sifs"
+homepage = "https://github.com/tristanmanchester/sifs"
+documentation = "https://docs.rs/sifs"
+readme = "README.md"
+keywords = ["code-search", "search", "bm25", "semantic", "agents"]
+categories = ["command-line-utilities", "development-tools"]
+
+[features]
+default = []
+diagnostics = []
 
 [dependencies]
 anyhow = "1.0"
@@ -32,7 +44,9 @@ path = "src/main.rs"
 [[bin]]
 name = "sifs-benchmark"
 path = "src/bin/sifs-benchmark.rs"
+required-features = ["diagnostics"]
 
 [[bin]]
 name = "sifs-embed"
 path = "src/bin/sifs-embed.rs"
+required-features = ["diagnostics"]
