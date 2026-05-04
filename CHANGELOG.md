@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.1.1 - 2026-05-04
+
 ### Added
 
 - Added a changelog and local agent instructions so release notes are maintained
