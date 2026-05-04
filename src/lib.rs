@@ -20,5 +20,7 @@ pub use model2vec::{
     encoder_fingerprint, load_encoder, load_model, load_model_with_options, model_fingerprint,
     model_status,
 };
-pub use types::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult};
+pub use types::{
+    CacheMode, Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult,
+};
 pub use utils::{format_results, is_git_url, resolve_chunk};

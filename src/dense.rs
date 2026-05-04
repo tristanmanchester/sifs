@@ -24,6 +24,10 @@ impl DenseIndex {
         self.vectors.shape()[0]
     }
 
+    pub fn dim(&self) -> usize {
+        self.vectors.shape()[1]
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -35,6 +39,9 @@ impl DenseIndex {
         selector: Option<&[usize]>,
     ) -> Vec<(usize, f32)> {
         if k == 0 || self.is_empty() {
+            return Vec::new();
+        }
+        if selector.is_some_and(|s| s.is_empty()) {
             return Vec::new();
         }
         let candidates: Vec<usize> = selector
@@ -69,5 +76,13 @@ mod tests {
 
         assert_eq!(results, vec![(1, results[0].1)]);
         assert!(results[0].1 > 0.9);
+    }
+
+    #[test]
+    fn query_with_empty_selector_returns_no_candidates() {
+        let index = DenseIndex::new(array![[1.0, 0.0], [0.0, 1.0]]);
+        let results = index.query(&array![1.0, 0.0], 10, Some(&[]));
+
+        assert!(results.is_empty());
     }
 }

@@ -46,6 +46,7 @@ pub fn search_bm25(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn search_hybrid(
     query: &str,
     model: &dyn Encoder,

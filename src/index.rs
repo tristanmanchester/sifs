@@ -4,7 +4,7 @@ use crate::file_walker::{filter_extensions, language_for_path, walk_files};
 use crate::model2vec::{Encoder, EncoderSpec, ModelOptions, encoder_fingerprint, load_encoder};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::sparse::Bm25Index;
-use crate::types::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult};
+use crate::types::{Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult};
 use anyhow::{Context, Result, bail};
 use ndarray::{Array2, s};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -29,6 +29,7 @@ pub struct SifsIndex {
     cache_entry: Option<CacheEntry>,
     signatures: Option<Vec<FileSignature>>,
     cache_context: Option<CacheContext>,
+    warnings: Vec<IndexWarning>,
 }
 
 struct SemanticState {
@@ -413,6 +414,7 @@ impl SifsIndex {
             cache_entry: None,
             signatures: None,
             cache_context: None,
+            warnings: Vec::new(),
         })
     }
 
@@ -455,6 +457,7 @@ impl SifsIndex {
             cache_entry,
             signatures: Some(signatures),
             cache_context: context,
+            warnings: Vec::new(),
         })
     }
 
@@ -476,6 +479,10 @@ impl SifsIndex {
         let mut files: Vec<_> = self.file_mapping.keys().cloned().collect();
         files.sort();
         files
+    }
+
+    pub fn warnings(&self) -> &[IndexWarning] {
+        &self.warnings
     }
 
     pub fn chunks_for_file(&self, file_path: &str) -> Vec<&Chunk> {

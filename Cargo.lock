@@ -1971,7 +1971,6 @@ dependencies = [
  "tokenizers",
  "tree-sitter",
  "tree-sitter-language-pack",
- "walkdir",
 ]
 
 [[package]]

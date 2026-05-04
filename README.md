@@ -152,8 +152,10 @@ large-repository smoke result are in [docs/benchmark-report.md](docs/benchmark-r
 ## File coverage
 
 By default, SIFS indexes code files and skips common generated, dependency, and
-cache directories. It respects the root `.gitignore` file and supports text-like
-documents such as Markdown, YAML, TOML, and JSON through the library options.
+cache directories. It uses the `ignore` crate, so nested `.gitignore` files,
+Git excludes, global Git ignores, and hidden files behave like familiar
+developer search tools. Text-like documents such as Markdown, YAML, TOML, and
+JSON are available through the library options.
 
 The file walker currently recognizes Python, JavaScript, TypeScript, Go, Rust,
 Java, Kotlin, Ruby, PHP, C, C++, C#, Swift, Scala, Elixir, Dart, Lua, SQL,

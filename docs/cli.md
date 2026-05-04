@@ -199,7 +199,14 @@ against the same repository, use MCP server mode or call the Rust library from a
 long-lived process so the index stays in memory.
 
 Git URL indexing uses a shallow clone into a temporary directory. Local path
-indexing canonicalizes the path and respects the root `.gitignore` file.
+indexing canonicalizes the path and uses the `ignore` crate for nested
+`.gitignore`, Git excludes, global Git ignores, and hidden-file behavior.
+
+Direct CLI searches use the platform cache by default, such as
+`~/Library/Caches/sifs` on macOS, so searching a repository does not create
+repo-local files. Use `--cache local` to opt into `.sifs/`, `--cache off` to
+disable persistent cache reuse, and `sifs clean .` to remove the selected
+persistent cache for a local directory.
 
 BM25 mode is the safest network-free smoke path for package managers:
 
