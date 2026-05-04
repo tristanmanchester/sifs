@@ -601,27 +601,39 @@ impl SifsIndex {
         filter_languages: Option<&[String]>,
         filter_paths: Option<&[String]>,
     ) -> Option<Vec<usize>> {
-        let mut ids = Vec::new();
+        let mut language_ids = Vec::new();
         if let Some(languages) = filter_languages {
             for language in languages {
                 if let Some(values) = self.language_mapping.get(language) {
-                    ids.extend(values);
+                    language_ids.extend(values);
                 }
             }
         }
+        language_ids.sort_unstable();
+        language_ids.dedup();
+
+        let mut path_ids = Vec::new();
         if let Some(paths) = filter_paths {
             for path in paths {
                 if let Some(values) = self.file_mapping.get(path) {
-                    ids.extend(values);
+                    path_ids.extend(values);
                 }
             }
         }
-        if ids.is_empty() {
-            None
-        } else {
-            ids.sort_unstable();
-            ids.dedup();
-            Some(ids)
+        path_ids.sort_unstable();
+        path_ids.dedup();
+
+        match (filter_languages, filter_paths) {
+            (Some(_), Some(_)) => {
+                let ids = language_ids
+                    .into_iter()
+                    .filter(|id| path_ids.binary_search(id).is_ok())
+                    .collect::<Vec<_>>();
+                Some(ids)
+            }
+            (Some(_), None) => Some(language_ids),
+            (None, Some(_)) => Some(path_ids),
+            (None, None) => None,
         }
     }
 }

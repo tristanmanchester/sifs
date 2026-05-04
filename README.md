@@ -65,12 +65,13 @@ elsewhere in the same index.
 target/release/sifs find-related src/auth/session.rs 42 /path/to/project -k 8
 ```
 
-Start the MCP server by running `sifs` without a subcommand. Passing a path
-pre-indexes that source and lets MCP clients call `search` and `find_related`
-without including a `repo` argument on every tool call.
+Running `sifs` without a subcommand prints help. Start the MCP server with the
+explicit `mcp` subcommand. Passing a path pre-indexes that source and lets MCP
+clients call `search` and `find_related` without including a `repo` argument on
+every tool call.
 
 ```bash
-target/release/sifs /path/to/project
+target/release/sifs mcp /path/to/project
 ```
 
 ## Documentation
