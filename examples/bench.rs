@@ -17,10 +17,10 @@ fn main() -> anyhow::Result<()> {
 
     let mut times = Vec::with_capacity(runs);
     let options = SearchOptions::new(10).with_mode(SearchMode::Hybrid);
-    std::hint::black_box(index.search_with(&query, &options));
+    std::hint::black_box(index.search_with(&query, &options)?);
     for _ in 0..runs {
         let start = Instant::now();
-        let results = index.search_with(&query, &options);
+        let results = index.search_with(&query, &options)?;
         std::hint::black_box(results);
         times.push(start.elapsed().as_secs_f64() * 1000.0);
     }

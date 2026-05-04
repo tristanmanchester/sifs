@@ -15,7 +15,7 @@ use sifs::{Chunk, IndexStats, SearchMode, SearchOptions, SearchResult, SifsIndex
 
 The core types are:
 
-- `SifsIndex`: Owns chunks, BM25 data, embeddings, and lookup maps.
+- `SifsIndex`: Owns chunks, BM25 data, lazy semantic state, and lookup maps.
 - `Chunk`: Stores content, file path, line range, and optional language.
 - `SearchMode`: Selects `Hybrid`, `Semantic`, or `Bm25` ranking.
 - `SearchResult`: Returns a `Chunk`, score, and source mode.
@@ -23,9 +23,10 @@ The core types are:
 
 ## Index a local path
 
-Use `SifsIndex::from_path` for the default local indexing behavior. It loads the
-default embedding model, walks supported code files, chunks them, and builds
-both sparse and dense indexes.
+Use `SifsIndex::from_path` for the default local indexing behavior. It walks
+supported code files, chunks them, and builds a sparse BM25 index. It does not
+load the embedding model until semantic, hybrid, or related-code search needs
+the dense index.
 
 ```rust
 use sifs::{SearchMode, SearchOptions, SifsIndex};
@@ -35,7 +36,7 @@ fn main() -> anyhow::Result<()> {
     let results = index.search_with(
         "where is authentication handled",
         &SearchOptions::new(5).with_mode(SearchMode::Hybrid),
-    );
+    )?;
 
     for result in results {
         println!("{} {}", result.chunk.location(), result.score);
@@ -46,13 +47,16 @@ fn main() -> anyhow::Result<()> {
 ```
 
 `from_path` returns an error when the path doesn't exist, isn't a directory, or
-contains no supported non-empty files.
+contains no supported non-empty files. Model-loading errors are returned later
+from semantic or hybrid search.
 
 ## Customize indexing
 
 Use `SifsIndex::from_path_with_options` when you need a custom model path,
-extension set, ignored directory names, or document-file inclusion. The
-extension set must use leading-dot values such as `.rs` or `.ts`.
+extension set, ignored directory names, or document-file inclusion. Use
+`SifsIndex::from_path_with_model_options` when you also need explicit model
+download policy. The extension set must use leading-dot values such as `.rs` or
+`.ts`.
 
 ```rust
 use sifs::SifsIndex;
@@ -73,6 +77,18 @@ fn main() -> anyhow::Result<()> {
     println!("{:?}", index.stats());
     Ok(())
 }
+```
+
+```rust
+use sifs::{ModelLoadPolicy, ModelOptions, SifsIndex};
+
+let index = SifsIndex::from_path_with_model_options(
+    "/path/to/project",
+    ModelOptions::new(None, ModelLoadPolicy::NoDownload),
+    None,
+    None,
+    false,
+)?;
 ```
 
 The `include_text_files` flag controls whether default document-like extensions
@@ -122,21 +138,24 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-`from_chunks` builds BM25 documents from enriched chunk text and embeds the raw
-chunk content for dense search.
+`from_chunks` preserves compatibility for callers that already have an encoder:
+it builds BM25 data and preloads semantic state. Use
+`from_chunks_with_model_options` to build a sparse-only index from chunks.
 
 ## Search an index
 
-Use `SifsIndex::search_with` for all ranking modes. `SearchOptions` keeps
-ranking, result count, hybrid alpha, and filters self-describing. The `alpha`
-field is only used by hybrid search. When `alpha` is `None`, SIFS selects a
-weight from the query shape.
+Use `SifsIndex::search_with` for all ranking modes. It returns
+`Result<Vec<SearchResult>>` because semantic and hybrid search may need to load
+or download a model. BM25 mode does not touch the model path. `SearchOptions`
+keeps ranking, result count, hybrid alpha, and filters self-describing. The
+`alpha` field is only used by hybrid search. When `alpha` is `None`, SIFS
+selects a weight from the query shape.
 
 ```rust
 let results = index.search_with(
     "parse oauth callback",
     &SearchOptions::new(10).with_mode(SearchMode::Hybrid),
-);
+)?;
 ```
 
 Use language or path filters to search a subset of the index. Filters are exact
@@ -150,7 +169,7 @@ let results = index.search_with(
         .with_alpha(0.5)
         .with_languages(["rust".to_owned()])
         .with_paths(["src/auth.rs".to_owned()]),
-);
+)?;
 ```
 
 If both filters are present, SIFS searches chunks that match either filter set.
@@ -164,7 +183,7 @@ filter when the source chunk has language metadata.
 
 ```rust
 let source = &index.chunks[0];
-let related = index.find_related(source, 5);
+let related = index.find_related(source, 5)?;
 ```
 
 The source chunk itself is removed from the returned results.

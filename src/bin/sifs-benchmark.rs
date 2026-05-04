@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use sifs::{SearchMode, SearchOptions, SifsIndex, metrics::peak_rss_mb};
+use sifs::{
+    ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex, metrics::peak_rss_mb,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,6 +33,12 @@ struct Args {
     include_tasks: bool,
     #[arg(long)]
     alpha: Option<f32>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    offline: bool,
+    #[arg(long = "no-download")]
+    no_download: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,7 +167,16 @@ fn main() -> Result<()> {
             tasks.len()
         );
         let start = Instant::now();
-        let index = SifsIndex::from_path(&root)?;
+        let index = SifsIndex::from_path_with_model_options(
+            &root,
+            ModelOptions::new(
+                args.model.as_deref(),
+                model_policy(args.offline, args.no_download),
+            ),
+            None,
+            None,
+            false,
+        )?;
         let index_ms = elapsed_ms(start);
 
         let mut latencies = Vec::new();
@@ -178,10 +195,10 @@ fn main() -> Result<()> {
             let mut last_results = Vec::new();
             let mut search_options = SearchOptions::new(args.top_k).with_mode(SearchMode::Hybrid);
             search_options.alpha = args.alpha;
-            std::hint::black_box(index.search_with(&task.query, &search_options));
+            std::hint::black_box(index.search_with(&task.query, &search_options)?);
             for _ in 0..args.latency_runs.max(1) {
                 let start = Instant::now();
-                last_results = index.search_with(&task.query, &search_options);
+                last_results = index.search_with(&task.query, &search_options)?;
                 latencies.push(elapsed_ms(start));
             }
             let ranks: Vec<usize> = task
@@ -263,6 +280,16 @@ fn main() -> Result<()> {
         print!("{json}");
     }
     Ok(())
+}
+
+fn model_policy(offline: bool, no_download: bool) -> ModelLoadPolicy {
+    if offline {
+        ModelLoadPolicy::Offline
+    } else if no_download {
+        ModelLoadPolicy::NoDownload
+    } else {
+        ModelLoadPolicy::AllowDownload
+    }
 }
 
 fn load_specs(args: &Args) -> Result<BTreeMap<String, RepoSpec>> {

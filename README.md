@@ -27,6 +27,7 @@ Protocol server for agent clients.
 - Find chunks related to a specific file and line.
 - Index local directories or shallow-cloned Git repositories.
 - Use hybrid, semantic-only, or BM25-only ranking.
+- Run BM25 search fully offline without loading or downloading a model.
 - Run quality and latency benchmarks over annotated repositories.
 
 ## Build SIFS
@@ -52,7 +53,7 @@ current directory and the default mode is `hybrid`.
 
 ```bash
 target/release/sifs search "authentication flow" /path/to/project
-target/release/sifs search "parse JWT claims" /path/to/project --mode bm25 -k 10
+target/release/sifs search "parse JWT claims" /path/to/project --mode bm25 --offline -k 10
 ```
 
 Use `sifs find-related` when you already have a location and want similar code
@@ -93,6 +94,8 @@ how you plan to use SIFS.
 SIFS uses `minishlab/potion-code-16M` by default through a local Model2Vec
 loader. The loader reads the model tensors and tokenizer files directly, so the
 query path stays inside the Rust process after the model is available locally.
+BM25 mode does not use the model at all, so it is safe for network-free package
+manager smoke tests and first-run checks.
 
 Hybrid search combines semantic and BM25 rankings. It over-fetches candidates,
 normalizes each ranking with reciprocal rank fusion, applies query-aware boosts,

@@ -143,10 +143,12 @@ and prints the vector as JSON. Use it for model-loader checks and parity tests.
 ```bash
 target/release/sifs-embed "parse oauth callback"
 target/release/sifs-embed "parse oauth callback" --model /path/to/model
+target/release/sifs-embed "parse oauth callback" --no-download
 ```
 
 The `--model` value can point to a local Model2Vec model path. Without it, SIFS
-loads the default code-search model.
+uses `SIFS_MODEL` or the default code-search model. Use `--no-download` or
+`--offline` to require an already-local model.
 
 ## Recent local measurements
 

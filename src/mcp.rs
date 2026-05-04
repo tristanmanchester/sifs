@@ -1,4 +1,5 @@
 use crate::SifsIndex;
+use crate::model2vec::ModelOptions;
 use crate::types::{SearchMode, SearchOptions};
 use crate::utils::{format_results, is_git_url, resolve_chunk};
 use anyhow::{Context, Result};
@@ -16,7 +17,16 @@ const NO_RESULTS_MESSAGE: &str = include_str!("agents/messages/no-results.md");
 const NO_REPO_MESSAGE: &str = include_str!("agents/messages/no-repo.md");
 
 pub fn serve(default_source: Option<String>, ref_name: Option<String>) -> Result<()> {
-    let mut cache = IndexCache::default();
+    serve_with_options(default_source, ref_name, ModelOptions::default(), false)
+}
+
+pub fn serve_with_options(
+    default_source: Option<String>,
+    ref_name: Option<String>,
+    model_options: ModelOptions,
+    offline: bool,
+) -> Result<()> {
+    let mut cache = IndexCache::new(model_options, offline);
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
     let mut stdout = io::stdout();
@@ -60,12 +70,27 @@ pub fn serve(default_source: Option<String>, ref_name: Option<String>) -> Result
     Ok(())
 }
 
-#[derive(Default)]
 struct IndexCache {
     indexes: HashMap<String, SifsIndex>,
+    model_options: ModelOptions,
+    offline: bool,
+}
+
+impl Default for IndexCache {
+    fn default() -> Self {
+        Self::new(ModelOptions::default(), false)
+    }
 }
 
 impl IndexCache {
+    fn new(model_options: ModelOptions, offline: bool) -> Self {
+        Self {
+            indexes: HashMap::new(),
+            model_options,
+            offline,
+        }
+    }
+
     fn key_for(source: &str, ref_name: Option<&str>) -> Result<String> {
         if is_git_url(source) {
             Ok(ref_name
@@ -83,9 +108,22 @@ impl IndexCache {
         let key = Self::key_for(source, ref_name)?;
         if !self.indexes.contains_key(&key) {
             let index = if is_git_url(source) {
-                SifsIndex::from_git(source, ref_name)?
+                if self.offline {
+                    anyhow::bail!("--offline does not allow remote Git sources");
+                }
+                SifsIndex::from_git_with_model_options(
+                    source,
+                    ref_name,
+                    self.model_options.clone(),
+                )?
             } else {
-                SifsIndex::from_path(&key)?
+                SifsIndex::from_path_with_model_options(
+                    &key,
+                    self.model_options.clone(),
+                    None,
+                    None,
+                    false,
+                )?
             };
             self.indexes.insert(key.clone(), index);
         }
@@ -95,9 +133,18 @@ impl IndexCache {
     fn refresh(&mut self, source: &str, ref_name: Option<&str>) -> Result<&SifsIndex> {
         let key = Self::key_for(source, ref_name)?;
         let index = if is_git_url(source) {
-            SifsIndex::from_git(source, ref_name)?
+            if self.offline {
+                anyhow::bail!("--offline does not allow remote Git sources");
+            }
+            SifsIndex::from_git_with_model_options(source, ref_name, self.model_options.clone())?
         } else {
-            SifsIndex::from_path(&key)?
+            SifsIndex::from_path_with_model_options(
+                &key,
+                self.model_options.clone(),
+                None,
+                None,
+                false,
+            )?
         };
         self.indexes.insert(key.clone(), index);
         Ok(self.indexes.get(&key).unwrap())
@@ -213,7 +260,10 @@ fn tool_search(
     match cache.get(source, ref_name) {
         Ok(index) => {
             let options = search_options_from_args(&args, top_k, mode);
-            let results = index.search_with(query, &options);
+            let results = match index.search_with(query, &options) {
+                Ok(results) => results,
+                Err(err) => return ToolText::error(format!("Search failed: {err}")),
+            };
             let structured = json!({
                 "source": source,
                 "mode": mode.to_string(),
@@ -264,7 +314,10 @@ fn tool_find_related(
                     "No chunk found at {file_path}:{line}. Make sure the file is indexed and the line number is within a known chunk."
                 ));
             };
-            let results = index.find_related(&chunk, top_k);
+            let results = match index.find_related(&chunk, top_k) {
+                Ok(results) => results,
+                Err(err) => return ToolText::error(format!("find_related failed: {err}")),
+            };
             let structured = json!({
                 "source": source,
                 "file_path": file_path,
@@ -313,15 +366,21 @@ fn tool_index_status(
                 "ref": ref_name,
                 "memory_cached": was_cached,
                 "stats": stats,
+                "semantic_loaded": index.semantic_loaded(),
                 "tools": tool_names(),
             });
             ToolText::ok_structured(
                 format!(
-                    "Index status for {source:?}: {} files, {} chunks, languages: {}. Memory cache: {}.",
+                    "Index status for {source:?}: {} files, {} chunks, languages: {}. Memory cache: {}. Semantic index: {}.",
                     stats.indexed_files,
                     stats.total_chunks,
                     format_languages(&stats.languages),
-                    if was_cached { "hit" } else { "built or loaded" }
+                    if was_cached { "hit" } else { "built or loaded" },
+                    if index.semantic_loaded() {
+                        "loaded"
+                    } else {
+                        "not loaded"
+                    }
                 ),
                 structured,
             )

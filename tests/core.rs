@@ -1,5 +1,6 @@
 use sifs::{
-    Chunk, HashingEncoder, SearchMode, SearchOptions, SearchResult, SifsIndex, format_results,
+    Chunk, HashingEncoder, ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SearchResult,
+    SifsIndex, format_results,
 };
 use std::fs;
 
@@ -31,6 +32,7 @@ fn index_search_modes_and_filters_work() {
                 "authenticate token",
                 &SearchOptions::new(3).with_mode(SearchMode::Bm25)
             )
+            .unwrap()
             .is_empty()
     );
     assert!(
@@ -39,6 +41,7 @@ fn index_search_modes_and_filters_work() {
                 "authentication",
                 &SearchOptions::new(3).with_mode(SearchMode::Semantic)
             )
+            .unwrap()
             .is_empty()
     );
     assert!(
@@ -47,16 +50,20 @@ fn index_search_modes_and_filters_work() {
                 "UserService",
                 &SearchOptions::new(3).with_mode(SearchMode::Hybrid)
             )
+            .unwrap()
             .is_empty()
     );
     assert!(
         index
             .search("   ", 3, SearchMode::Hybrid, None, None, None)
+            .unwrap()
             .is_empty()
     );
 
     let paths = vec!["utils.py".to_owned()];
-    let filtered = index.search_with("format", &SearchOptions::new(3).with_paths(paths));
+    let filtered = index
+        .search_with("format", &SearchOptions::new(3).with_paths(paths))
+        .unwrap();
     assert!(filtered.iter().all(|r| r.chunk.file_path == "utils.py"));
 }
 
@@ -96,4 +103,119 @@ fn from_path_respects_markdown_option() {
     )
     .unwrap();
     assert!(index.chunks.iter().any(|c| c.file_path.ends_with(".md")));
+}
+
+#[test]
+fn bm25_path_search_is_model_free_with_no_download() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate_token(token):\n    return token == 'secret'\n",
+    )
+    .unwrap();
+    let index = SifsIndex::from_path_with_model_options(
+        dir.path(),
+        ModelOptions::new(
+            Some("__missing_model_for_bm25_test__"),
+            ModelLoadPolicy::NoDownload,
+        ),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let results = index
+        .search_with(
+            "authenticate_token",
+            &SearchOptions::new(3).with_mode(SearchMode::Bm25),
+        )
+        .unwrap();
+
+    assert!(!results.is_empty());
+    assert!(!index.semantic_loaded());
+}
+
+#[test]
+fn semantic_search_reports_missing_model_with_no_download() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    pass\n",
+    )
+    .unwrap();
+    let index = SifsIndex::from_path_with_model_options(
+        dir.path(),
+        ModelOptions::new(
+            Some("__missing_model_for_semantic_test__"),
+            ModelLoadPolicy::NoDownload,
+        ),
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+
+    let err = index
+        .search_with(
+            "authentication",
+            &SearchOptions::new(3).with_mode(SearchMode::Semantic),
+        )
+        .unwrap_err();
+
+    assert!(err.to_string().contains("not available locally"));
+}
+
+#[test]
+fn semantic_search_writes_and_reuses_dense_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    return True\n",
+    )
+    .unwrap();
+    let options = ModelOptions::new(
+        Some("__force_hashing_fallback__"),
+        ModelLoadPolicy::NoDownload,
+    );
+
+    let index =
+        SifsIndex::from_path_with_model_options(dir.path(), options.clone(), None, None, false)
+            .unwrap();
+    assert!(!index.semantic_loaded());
+    let first_results = index
+        .search_with(
+            "authentication",
+            &SearchOptions::new(3).with_mode(SearchMode::Semantic),
+        )
+        .unwrap();
+    assert!(!first_results.is_empty());
+    assert!(index.semantic_loaded());
+
+    let cache_files: Vec<_> = fs::read_dir(dir.path().join(".sifs"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        cache_files
+            .iter()
+            .any(|name| name.starts_with("semantic-v2-"))
+    );
+
+    let index =
+        SifsIndex::from_path_with_model_options(dir.path(), options, None, None, false).unwrap();
+    assert!(!index.semantic_loaded());
+    let second_results = index
+        .search_with(
+            "authentication",
+            &SearchOptions::new(3).with_mode(SearchMode::Semantic),
+        )
+        .unwrap();
+
+    assert_eq!(first_results.len(), second_results.len());
+    assert_eq!(
+        first_results[0].chunk.file_path,
+        second_results[0].chunk.file_path
+    );
+    assert!(index.semantic_loaded());
 }

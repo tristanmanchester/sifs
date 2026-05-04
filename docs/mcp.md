@@ -19,6 +19,9 @@ When the default source is a Git URL, use `--ref` to choose a branch or tag.
 target/release/sifs https://github.com/owner/project --ref main
 ```
 
+Use `--model`, `--no-download`, or `--offline` to control semantic model
+loading for server mode. `--offline` also rejects Git URL sources.
+
 When you pass a default source, MCP tool calls are scoped to that source and can
 omit `repo`. Calls that pass a different `repo` are rejected. If you don't pass
 a default source, MCP tool calls must include `repo` with a local path or Git
@@ -196,8 +199,9 @@ The MCP server caches indexes for the lifetime of the process. Local sources
 are keyed by canonical path. Git sources are keyed by URL and optional ref.
 
 The first call for a source pays the indexing cost. Later calls reuse the
-in-memory `SifsIndex`, including the loaded model, BM25 index, dense vectors,
-and chunk mappings.
+in-memory `SifsIndex`, including the BM25 index and chunk mappings. Semantic
+model state and dense vectors are loaded lazily only after semantic, hybrid, or
+`find_related` calls. BM25 tool calls stay model-free.
 
 If files change while the MCP server keeps running, call `refresh_index` before
 trusting search results for the changed source. Git URL mode indexes a temporary
@@ -213,6 +217,8 @@ Common errors include:
 - Missing `repo` when the server has no default source.
 - A local path that doesn't exist or isn't a directory.
 - A Git clone failure.
+- A semantic or hybrid search when the requested model is unavailable under
+  `--offline` or `--no-download`.
 - A file and line that don't map to an indexed chunk.
 
 ## Next steps

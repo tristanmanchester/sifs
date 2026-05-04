@@ -1,4 +1,5 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
+use hf_hub::{Cache, Repo};
 use ndarray::{Array1, Array2};
 use safetensors::{SafeTensors, tensor::Dtype};
 use serde_json::Value;
@@ -16,12 +17,105 @@ pub trait Encoder: Send + Sync {
 pub const DEFAULT_MODEL_NAME: &str = "minishlab/potion-code-16M";
 pub const DEFAULT_DIM: usize = 256;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelLoadPolicy {
+    AllowDownload,
+    NoDownload,
+    Offline,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelOptions {
+    pub model: String,
+    pub policy: ModelLoadPolicy,
+}
+
+impl Default for ModelOptions {
+    fn default() -> Self {
+        Self {
+            model: default_model_name(),
+            policy: ModelLoadPolicy::AllowDownload,
+        }
+    }
+}
+
+impl ModelOptions {
+    pub fn new(model: Option<&str>, policy: ModelLoadPolicy) -> Self {
+        Self {
+            model: model
+                .map(str::to_owned)
+                .or_else(|| std::env::var("SIFS_MODEL").ok())
+                .unwrap_or_else(default_model_name),
+            policy,
+        }
+    }
+
+    pub fn cache_key(&self) -> String {
+        self.model
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect()
+    }
+}
+
+pub fn default_model_name() -> String {
+    std::env::var("SIFS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL_NAME.to_owned())
+}
+
 pub fn load_model(model_path: Option<&str>) -> Result<Box<dyn Encoder>> {
-    let model_path = model_path.unwrap_or(DEFAULT_MODEL_NAME);
-    if model_path == "__force_hashing_fallback__" {
+    load_model_with_options(&ModelOptions::new(
+        model_path,
+        ModelLoadPolicy::AllowDownload,
+    ))
+}
+
+pub fn load_model_with_options(options: &ModelOptions) -> Result<Box<dyn Encoder>> {
+    if options.model == "__force_hashing_fallback__" {
         return Ok(Box::new(HashingEncoder::new(DEFAULT_DIM)));
     }
-    Ok(Box::new(Model2VecEncoder::from_pretrained(model_path)?))
+    Ok(Box::new(Model2VecEncoder::from_pretrained_with_options(
+        options,
+    )?))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelStatus {
+    pub model: String,
+    pub tokenizer: Option<PathBuf>,
+    pub safetensors: Option<PathBuf>,
+    pub config: Option<PathBuf>,
+}
+
+impl ModelStatus {
+    pub fn available(&self) -> bool {
+        self.tokenizer.is_some() && self.safetensors.is_some() && self.config.is_some()
+    }
+}
+
+pub fn model_status(model: Option<&str>) -> ModelStatus {
+    let model = model
+        .map(str::to_owned)
+        .or_else(|| std::env::var("SIFS_MODEL").ok())
+        .unwrap_or_else(default_model_name);
+    let path = Path::new(&model);
+    if path.exists() {
+        let tokenizer = existing_file(path.join("tokenizer.json"));
+        let safetensors = existing_file(path.join("model.safetensors"));
+        let config = existing_file(path.join("config.json"));
+        return ModelStatus {
+            model,
+            tokenizer,
+            safetensors,
+            config,
+        };
+    }
+    let cache = Cache::from_env().repo(Repo::model(model.clone()));
+    ModelStatus {
+        model,
+        tokenizer: cache.get("tokenizer.json"),
+        safetensors: cache.get("model.safetensors"),
+        config: cache.get("config.json"),
+    }
 }
 
 pub struct Model2VecEncoder {
@@ -36,7 +130,14 @@ pub struct Model2VecEncoder {
 
 impl Model2VecEncoder {
     pub fn from_pretrained(model_path: &str) -> Result<Self> {
-        let (tokenizer_path, model_path, config_path) = model_files(model_path)?;
+        Self::from_pretrained_with_options(&ModelOptions::new(
+            Some(model_path),
+            ModelLoadPolicy::AllowDownload,
+        ))
+    }
+
+    pub fn from_pretrained_with_options(options: &ModelOptions) -> Result<Self> {
+        let (tokenizer_path, model_path, config_path) = model_files(options)?;
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|err| anyhow!("failed to load tokenizer: {err}"))?;
         let mut lens: Vec<usize> = tokenizer
@@ -153,8 +254,8 @@ impl Encoder for Model2VecEncoder {
     }
 }
 
-fn model_files(model: &str) -> Result<(PathBuf, PathBuf, PathBuf)> {
-    let path = Path::new(model);
+fn model_files(options: &ModelOptions) -> Result<(PathBuf, PathBuf, PathBuf)> {
+    let path = Path::new(&options.model);
     if path.exists() {
         return Ok((
             path.join("tokenizer.json"),
@@ -162,13 +263,30 @@ fn model_files(model: &str) -> Result<(PathBuf, PathBuf, PathBuf)> {
             path.join("config.json"),
         ));
     }
+    if options.policy != ModelLoadPolicy::AllowDownload {
+        let status = model_status(Some(&options.model));
+        if let (Some(tokenizer), Some(model), Some(config)) =
+            (status.tokenizer, status.safetensors, status.config)
+        {
+            return Ok((tokenizer, model, config));
+        }
+        bail!(
+            "model {:?} is not available locally. Run `sifs model pull --model {}` or omit --offline/--no-download to allow download.",
+            options.model,
+            options.model
+        );
+    }
     let api = hf_hub::api::sync::Api::new()?;
-    let repo = api.model(model.to_owned());
+    let repo = api.model(options.model.clone());
     Ok((
         repo.get("tokenizer.json")?,
         repo.get("model.safetensors")?,
         repo.get("config.json")?,
     ))
+}
+
+fn existing_file(path: PathBuf) -> Option<PathBuf> {
+    path.exists().then_some(path)
 }
 
 fn read_matrix(tensors: &SafeTensors<'_>, name: &str) -> Result<Array2<f32>> {

@@ -1,6 +1,9 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use sifs::{SearchMode, SearchOptions, SifsIndex, format_results, is_git_url, resolve_chunk};
+use sifs::{
+    ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex, format_results,
+    is_git_url, load_model_with_options, model_status, resolve_chunk,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -16,6 +19,15 @@ struct Cli {
     path: Option<String>,
     #[arg(long = "ref", help = "Branch or tag to check out in MCP server mode.")]
     ref_name: Option<String>,
+    #[arg(
+        long,
+        help = "Model path or Hugging Face model id for MCP server mode."
+    )]
+    model: Option<String>,
+    #[arg(long, help = "Disable model downloads and remote Git sources.")]
+    offline: bool,
+    #[arg(long = "no-download", help = "Disable model downloads.")]
+    no_download: bool,
 }
 
 #[derive(Subcommand)]
@@ -38,6 +50,12 @@ enum Command {
         top_k: usize,
         #[arg(short = 'm', long = "mode", value_enum, default_value_t = ModeArg::Hybrid, help = "Ranking mode: hybrid for most searches, bm25 for exact symbols, semantic for conceptual queries.")]
         mode: ModeArg,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
     },
     #[command(about = "Find chunks related to a known file and one-based line number.")]
     FindRelated {
@@ -57,6 +75,17 @@ enum Command {
             help = "Maximum number of related chunks to print."
         )]
         top_k: usize,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+    },
+    #[command(about = "Manage the SIFS embedding model cache.")]
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
     },
     #[command(about = "Create the Claude agent file at .claude/agents/sifs-search.md.")]
     Init {
@@ -65,6 +94,22 @@ enum Command {
     },
     #[command(about = "Print SIFS agent, CLI, and MCP capabilities.")]
     Capabilities,
+}
+
+#[derive(Subcommand)]
+enum ModelCommand {
+    #[command(about = "Download or validate the embedding model in the Hugging Face cache.")]
+    Pull {
+        #[arg(long)]
+        model: Option<String>,
+    },
+    #[command(about = "Report whether the embedding model is available locally.")]
+    Status {
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -92,10 +137,14 @@ fn main() -> Result<()> {
             path,
             top_k,
             mode,
+            model,
+            offline,
+            no_download,
         }) => {
-            let index = build_index(&path)?;
             let mode = SearchMode::from(mode);
-            let results = index.search_with(&query, &SearchOptions::new(top_k).with_mode(mode));
+            let policy = model_policy(offline, no_download);
+            let index = build_index(&path, ModelOptions::new(model.as_deref(), policy), offline)?;
+            let results = index.search_with(&query, &SearchOptions::new(top_k).with_mode(mode))?;
             if results.is_empty() {
                 println!("No results found.");
             } else {
@@ -113,13 +162,17 @@ fn main() -> Result<()> {
             line,
             path,
             top_k,
+            model,
+            offline,
+            no_download,
         }) => {
-            let index = build_index(&path)?;
+            let policy = model_policy(offline, no_download);
+            let index = build_index(&path, ModelOptions::new(model.as_deref(), policy), offline)?;
             let Some(chunk) = resolve_chunk(&index.chunks, &file_path, line) else {
                 eprintln!("No chunk found at {file_path}:{line}.");
                 std::process::exit(1);
             };
-            let results = index.find_related(&chunk, top_k);
+            let results = index.find_related(&chunk, top_k)?;
             if results.is_empty() {
                 println!("No related chunks found for {file_path}:{line}.");
             } else {
@@ -129,21 +182,77 @@ fn main() -> Result<()> {
                 );
             }
         }
+        Some(Command::Model { command }) => run_model(command)?,
         Some(Command::Init { force }) => run_init(force)?,
         Some(Command::Capabilities) => print_capabilities(),
         None => {
-            sifs::mcp::serve(cli.path, cli.ref_name)?;
+            let policy = model_policy(cli.offline, cli.no_download);
+            if cli.offline
+                && let Some(path) = &cli.path
+                && is_git_url(path)
+            {
+                bail!("--offline does not allow remote Git sources");
+            }
+            sifs::mcp::serve_with_options(
+                cli.path,
+                cli.ref_name,
+                ModelOptions::new(cli.model.as_deref(), policy),
+                cli.offline,
+            )?;
         }
     }
     Ok(())
 }
 
-fn build_index(path: &str) -> Result<SifsIndex> {
+fn build_index(path: &str, model_options: ModelOptions, offline: bool) -> Result<SifsIndex> {
     if is_git_url(path) {
-        SifsIndex::from_git(path, None)
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        SifsIndex::from_git_with_model_options(path, None, model_options)
     } else {
-        SifsIndex::from_path(path)
+        SifsIndex::from_path_with_model_options(path, model_options, None, None, false)
     }
+}
+
+fn model_policy(offline: bool, no_download: bool) -> ModelLoadPolicy {
+    if offline {
+        ModelLoadPolicy::Offline
+    } else if no_download {
+        ModelLoadPolicy::NoDownload
+    } else {
+        ModelLoadPolicy::AllowDownload
+    }
+}
+
+fn run_model(command: ModelCommand) -> Result<()> {
+    match command {
+        ModelCommand::Pull { model } => {
+            let options = ModelOptions::new(model.as_deref(), ModelLoadPolicy::AllowDownload);
+            load_model_with_options(&options)?;
+            println!("Model is available: {}", options.model);
+        }
+        ModelCommand::Status { model, json } => {
+            let status = model_status(model.as_deref());
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "model": status.model,
+                        "available": status.available(),
+                        "tokenizer": status.tokenizer,
+                        "safetensors": status.safetensors,
+                        "config": status.config,
+                    }))?
+                );
+            } else if status.available() {
+                println!("Model is available locally: {}", status.model);
+            } else {
+                println!("Model is not available locally: {}", status.model);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn run_init(force: bool) -> Result<()> {
@@ -171,6 +280,8 @@ fn print_capabilities() {
             "- Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.",
             "- Find related code from a known file and one-based line.",
             "- Run as an MCP server with search, find_related, index_status, refresh_index, clear_index, list_indexed_files, get_chunk, and init_agent tools.",
+            "- Run BM25 search without loading or downloading an embedding model.",
+            "- Manage embedding models with `sifs model pull` and `sifs model status`.",
             "- Generate a Claude agent file with `sifs init`.",
             "- Use `sifs-benchmark` for quality and latency benchmarks.",
             "- Use `sifs-embed` for embedding diagnostics.",

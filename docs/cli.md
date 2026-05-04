@@ -16,7 +16,7 @@ is the current directory, the default result count is `5`, and the default mode
 is `hybrid`.
 
 ```bash
-target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>]
+target/release/sifs search <query> [path] [--top-k <count>] [--mode <mode>] [--model <model>] [--offline] [--no-download]
 ```
 
 Use `hybrid` for general code search, `semantic` for meaning-heavy queries, and
@@ -32,7 +32,12 @@ The mode values are:
 
 - `hybrid`: Combine semantic and BM25 rankings with query-aware reranking.
 - `semantic`: Rank by embedding similarity only.
-- `bm25`: Rank by sparse lexical matching only.
+- `bm25`: Rank by sparse lexical matching only. This mode is model-free and
+  never loads tokenizers, safetensors, or Hugging Face model files.
+
+Use `--offline` to prevent all network access by SIFS, including remote Git
+clones and model downloads. Use `--no-download` to prevent model downloads while
+still allowing local path indexing and remote Git sources.
 
 ## Find-related command
 
@@ -41,7 +46,7 @@ contains that line. It then searches for semantically related chunks in the same
 language when language metadata is available.
 
 ```bash
-target/release/sifs find-related <file-path> <line> [path] [--top-k <count>]
+target/release/sifs find-related <file-path> <line> [path] [--top-k <count>] [--model <model>] [--offline] [--no-download]
 ```
 
 Pass the file path as it appears in search results or as a path relative to the
@@ -54,6 +59,24 @@ target/release/sifs find-related src/auth/session.rs 42 /path/to/project -k 8
 If SIFS can't resolve the location, it exits with an error that names the file
 and line. Check that the file extension is indexed and that the line falls
 inside a non-empty chunk.
+
+## Model command
+
+Semantic, hybrid, `find-related`, and `sifs-embed` need a Model2Vec-compatible
+embedding model. BM25 search does not.
+
+By default SIFS uses `SIFS_MODEL` when set, otherwise
+`minishlab/potion-code-16M`. Use `--model` to override that per command.
+
+```bash
+target/release/sifs model status
+target/release/sifs model status --json
+target/release/sifs model pull
+target/release/sifs model pull --model minishlab/potion-code-16M
+```
+
+`model status` checks local files only and never downloads. `model pull`
+downloads or validates the model through the normal Hugging Face cache.
 
 ## Init command
 
@@ -87,7 +110,7 @@ local path or Git URL as the default source. The optional `--ref` value selects
 a branch or tag when the default source is a Git URL.
 
 ```bash
-target/release/sifs [path-or-git-url] [--ref <branch-or-tag>]
+target/release/sifs [path-or-git-url] [--ref <branch-or-tag>] [--model <model>] [--offline] [--no-download]
 ```
 
 These examples start MCP server mode with different default sources.
@@ -118,6 +141,12 @@ long-lived process so the index stays in memory.
 
 Git URL indexing uses a shallow clone into a temporary directory. Local path
 indexing canonicalizes the path and respects the root `.gitignore` file.
+
+BM25 mode is the safest network-free smoke path for package managers:
+
+```bash
+target/release/sifs search --mode bm25 --offline "SessionToken" /path/to/project
+```
 
 ## Next steps
 

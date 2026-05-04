@@ -1,15 +1,15 @@
 # Architecture
 
 SIFS is a single-process Rust search engine for code repositories. The pipeline
-walks supported files, builds syntax-aware chunks when possible, embeds chunk
-content, builds a BM25 index, and combines sparse and dense signals at query
-time.
+walks supported files, builds syntax-aware chunks when possible, builds a BM25
+index, and lazily attaches semantic model state only when dense or hybrid search
+needs it.
 
 ## Pipeline overview
 
 The index pipeline is intentionally small and direct. `SifsIndex` owns all data
-needed for search after construction, so CLI commands and MCP tools query
-in-memory structures rather than reading files again.
+needed for BM25 search after construction, so CLI commands and MCP tools can run
+model-free lexical searches without reading files again.
 
 The pipeline stages are:
 
@@ -18,8 +18,9 @@ The pipeline stages are:
 3. Chunk source with a Tree-sitter parser when one is available.
 4. Fall back to overlapping line chunks when syntax-aware chunking fails.
 5. Build enriched BM25 documents from chunks.
-6. Embed raw chunk content with the Model2Vec loader.
-7. Store file and language mappings for filters and related-code lookup.
+6. Store file and language mappings for filters and chunk lookup.
+7. Lazily load the Model2Vec model and embed chunks when semantic, hybrid, or
+   related-code search first needs dense vectors.
 
 ## File walking
 
@@ -58,12 +59,18 @@ line chunks with a default maximum of `50` lines and `5` overlapping lines.
 
 SIFS loads a Model2Vec-compatible model through `src/model2vec.rs`. The default
 model is `minishlab/potion-code-16M`, and callers can pass a custom model path
-through `from_path_with_options` or `sifs-embed --model`.
+through `from_path_with_options`, `from_path_with_model_options`,
+`sifs search --model`, or `sifs-embed --model`.
 
 The loader reads tokenizer and tensor files directly. It supports embedding
 matrices, optional weights, optional token mappings, truncation settings, and
 normalization metadata. Query and chunk embeddings stay in process after the
 model loads.
+
+Model loading is lazy. BM25-only construction and BM25-only search do not load
+tokenizers, read safetensors, or call Hugging Face. `--no-download` prevents
+model downloads while allowing local indexing. `--offline` also rejects remote
+Git sources.
 
 ## Sparse index
 
@@ -76,8 +83,9 @@ names, file-local terms, or error strings.
 
 ## Dense index
 
-The dense index stores normalized embedding vectors for every chunk. Semantic
-mode embeds the query, normalizes it, and ranks chunks by vector similarity.
+The dense index stores normalized embedding vectors for every chunk. It is built
+on first semantic, hybrid, or related-code use. Semantic mode embeds the query,
+normalizes it, and ranks chunks by vector similarity.
 
 Semantic mode is useful when the query describes behavior rather than exact
 symbols, such as "where user sessions expire" or "how upload retries work."
@@ -113,7 +121,7 @@ The MCP server stores `SifsIndex` instances in an in-memory cache for the life
 of the server process. Local indexes are keyed by canonical path. Git indexes
 are keyed by URL plus optional ref.
 
-The cache includes chunks, sparse data, dense vectors, model state, and lookup
+The cache includes chunks, sparse data, optional semantic state, and lookup
 maps. Restarting the server clears the cache.
 
 ## Persistent local indexes
@@ -122,12 +130,11 @@ Default local path indexing also writes a persistent cache under `.sifs/` in the
 indexed repository. SIFS validates that cache against the current sorted file
 signature list before loading it.
 
-The persistent cache stores:
+The sparse persistent cache stores:
 
 - File signatures for cache validation.
 - Chunks and line locations.
 - The BM25 index.
-- Dense vectors.
 
 SIFS doesn't use the persistent cache for custom model paths, custom extension
 sets, custom ignore sets, document-file inclusion, or Git temporary checkouts.
