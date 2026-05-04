@@ -244,8 +244,8 @@ indexing canonicalizes the path and uses the `ignore` crate for nested
 Direct CLI searches use the platform cache by default, such as
 `~/Library/Caches/sifs` on macOS, so searching a repository does not create
 repo-local files. Use `--project-cache` to opt into `.sifs/`, `--no-cache` to
-disable persistent cache reuse, and `sifs clean .` to remove a local `.sifs`
-cache for a directory.
+disable persistent cache reuse, and `sifs cache clean --cache-dir .sifs` to
+remove a project-local `.sifs/` cache.
 
 BM25 mode is the safest network-free smoke path for package-manager checks:
 
