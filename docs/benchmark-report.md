@@ -38,7 +38,7 @@ repeat path.
 
 ## Figures
 
-![SIFS context efficiency: recall versus retrieved context tokens](../assets/images/sifs_context_efficiency.png)
+![SIFS context efficiency: recall versus retrieved context tokens](../assets/images/context_efficiency_comparison.png)
 
 ![SIFS search quality versus warm uncached query latency](../assets/images/quality_vs_warm_latency.png)
 
@@ -50,7 +50,7 @@ repeat path.
 
 ![SIFS by language](../assets/images/sifs_by_language.png)
 
-![SIFS by query type](../assets/images/sifs_by_query_type.png)
+![SIFS by query type and search mode](../assets/images/query_type_quality_by_mode.png)
 
 ## Methodology
 
@@ -179,5 +179,14 @@ compact generated table is written to
 
 The context-efficiency figure is generated from
 [benchmarks/results/sifs-context-curves.json](../benchmarks/results/sifs-context-curves.json),
-a compact summary of context-mode benchmark runs for SIFS hybrid, BM25, and
-semantic search.
+a compact summary of context-mode benchmark runs for SIFS hybrid, BM25,
+semantic search, and `ripgrep + read`. The ripgrep curve is generated from
+[benchmarks/ripgrep_context_curve.py](../benchmarks/ripgrep_context_curve.py).
+That helper writes the ignored raw payload `benchmarks/results/ripgrep-context.json`,
+then the plotting script compacts the curve into
+`benchmarks/results/sifs-context-curves.json`. It splits each query into
+keywords, drops stopwords and short words, runs fixed-string ripgrep per
+keyword, ranks files by distinct keyword coverage, and charges the prompt
+budget for reading the full matched files in rank order. Token counts for the
+ripgrep curve use the `cl100k_base` tokenizer when regenerated with
+`uv run --with tiktoken`.

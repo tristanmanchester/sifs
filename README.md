@@ -204,9 +204,10 @@ same process.
 
 SIFS gets relevant code into an agent's context quickly. The context-efficiency
 curve below measures how many annotated relevant target files are found as
-retrieved result chunks are added to the prompt budget.
+retrieved SIFS chunks, or whole files from keyword-based `ripgrep + read`, are
+added to the prompt budget.
 
-![SIFS context efficiency: recall versus retrieved context tokens](assets/images/sifs_context_efficiency.png)
+![SIFS context efficiency: recall versus retrieved context tokens](assets/images/context_efficiency_comparison.png)
 
 The comparison table is regenerated from benchmark JSON by
 [benchmarks/plot_sifs_comparison.py](benchmarks/plot_sifs_comparison.py). The
@@ -235,7 +236,7 @@ semantic and architecture questions.
 | semantic | 0.8264 |
 | architecture | 0.8063 |
 
-![SIFS quality by query type](assets/images/sifs_by_query_type.png)
+![SIFS quality by query type and search mode](assets/images/query_type_quality_by_mode.png)
 
 The benchmark artifacts live in [benchmarks/results](benchmarks/results), and
 the full methodology, per-language breakdown, additional figures, and React

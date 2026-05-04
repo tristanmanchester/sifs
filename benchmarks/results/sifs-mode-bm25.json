@@ -1,0 +1,1260 @@
+{
+  "method": "sifs-bm25",
+  "results": [
+    {
+      "repo": "abseil-cpp",
+      "language": "cpp",
+      "chunks": 3348,
+      "files": 385,
+      "tasks": 20,
+      "ndcg5": 0.8187503349954186,
+      "ndcg10": 0.8391885747542673,
+      "cold_index_ms": 26.679708,
+      "warm_uncached_query_ms": 0.140458,
+      "warm_uncached_query_p90_ms": 0.158792,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.0022500000000000003,
+      "peak_rss_mb": 26.640625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.8101894494342593,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "aeson",
+      "language": "haskell",
+      "chunks": 396,
+      "files": 31,
+      "tasks": 20,
+      "ndcg5": 0.8030803155822426,
+      "ndcg10": 0.8175335568981371,
+      "cold_index_ms": 2.823833,
+      "warm_uncached_query_ms": 0.023208,
+      "warm_uncached_query_p90_ms": 0.026125000000000002,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001542,
+      "peak_rss_mb": 26.78125,
+      "by_category": {
+        "architecture": 0.6578129652635776,
+        "semantic": 0.8707737541096567
+      }
+    },
+    {
+      "repo": "aiohttp",
+      "language": "python",
+      "chunks": 751,
+      "files": 54,
+      "tasks": 21,
+      "ndcg5": 0.5160765933241726,
+      "ndcg10": 0.5446494086189678,
+      "cold_index_ms": 3.267959,
+      "warm_uncached_query_ms": 0.023125,
+      "warm_uncached_query_p90_ms": 0.034458,
+      "warm_cached_repeat_query_ms": 0.001333,
+      "warm_cached_repeat_query_p90_ms": 0.0015,
+      "peak_rss_mb": 26.8125,
+      "by_category": {
+        "architecture": 0.551842334782678,
+        "semantic": 0.47236393541464555,
+        "symbol": 0.6646931637575532
+      }
+    },
+    {
+      "repo": "alamofire",
+      "language": "swift",
+      "chunks": 655,
+      "files": 43,
+      "tasks": 20,
+      "ndcg5": 0.7192265582238557,
+      "ndcg10": 0.7640985348678049,
+      "cold_index_ms": 2.9295,
+      "warm_uncached_query_ms": 0.028333,
+      "warm_uncached_query_p90_ms": 0.041458,
+      "warm_cached_repeat_query_ms": 0.001333,
+      "warm_cached_repeat_query_p90_ms": 0.0015,
+      "peak_rss_mb": 26.828125,
+      "by_category": {
+        "architecture": 0.8149006074496935,
+        "semantic": 0.7124789886370015,
+        "symbol": 0.8333333333333334
+      }
+    },
+    {
+      "repo": "axios",
+      "language": "javascript",
+      "chunks": 175,
+      "files": 63,
+      "tasks": 20,
+      "ndcg5": 0.5941130715208459,
+      "ndcg10": 0.6478458313954201,
+      "cold_index_ms": 3.147208,
+      "warm_uncached_query_ms": 0.006417,
+      "warm_uncached_query_p90_ms": 0.012791,
+      "warm_cached_repeat_query_ms": 0.001291,
+      "warm_cached_repeat_query_p90_ms": 0.00175,
+      "peak_rss_mb": 26.859375,
+      "by_category": {
+        "architecture": 0.45603968978715625,
+        "semantic": 0.6367026165128259,
+        "symbol": 0.8243991050595311
+      }
+    },
+    {
+      "repo": "axum",
+      "language": "rust",
+      "chunks": 511,
+      "files": 58,
+      "tasks": 20,
+      "ndcg5": 0.6380929753571458,
+      "ndcg10": 0.6892366680458802,
+      "cold_index_ms": 3.702125,
+      "warm_uncached_query_ms": 0.020832999999999997,
+      "warm_uncached_query_p90_ms": 0.028083,
+      "warm_cached_repeat_query_ms": 0.001333,
+      "warm_cached_repeat_query_p90_ms": 0.001459,
+      "peak_rss_mb": 26.859375,
+      "by_category": {
+        "architecture": 0.5666666666666667,
+        "semantic": 0.7470219239087325,
+        "symbol": 0.6623789802264932
+      }
+    },
+    {
+      "repo": "bash-it",
+      "language": "bash",
+      "chunks": 739,
+      "files": 341,
+      "tasks": 20,
+      "ndcg5": 0.6375696397737991,
+      "ndcg10": 0.6577187964536857,
+      "cold_index_ms": 12.565792,
+      "warm_uncached_query_ms": 0.027458,
+      "warm_uncached_query_p90_ms": 0.03725,
+      "warm_cached_repeat_query_ms": 0.001458,
+      "warm_cached_repeat_query_p90_ms": 0.001584,
+      "peak_rss_mb": 26.921875,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.5941307208461784,
+        "symbol": 0.6861353116146786
+      }
+    },
+    {
+      "repo": "bats-core",
+      "language": "bash",
+      "chunks": 49,
+      "files": 8,
+      "tasks": 20,
+      "ndcg5": 0.8946394630357186,
+      "ndcg10": 0.9124498223911198,
+      "cold_index_ms": 12.41825,
+      "warm_uncached_query_ms": 0.006958,
+      "warm_uncached_query_p90_ms": 0.009875,
+      "warm_cached_repeat_query_ms": 0.001333,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 26.921875,
+      "by_category": {
+        "architecture": 0.8945513581632737,
+        "semantic": 0.9220874569753447
+      }
+    },
+    {
+      "repo": "cats",
+      "language": "scala",
+      "chunks": 1279,
+      "files": 206,
+      "tasks": 20,
+      "ndcg5": 0.6047839505134932,
+      "ndcg10": 0.6047839505134932,
+      "cold_index_ms": 7.604083999999999,
+      "warm_uncached_query_ms": 0.030957999999999996,
+      "warm_uncached_query_p90_ms": 0.071917,
+      "warm_cached_repeat_query_ms": 0.001583,
+      "warm_cached_repeat_query_p90_ms": 0.001792,
+      "peak_rss_mb": 27.21875,
+      "by_category": {
+        "architecture": 0.25703406128629547,
+        "semantic": 0.6005936453479832,
+        "symbol": 0.8436010519408085
+      }
+    },
+    {
+      "repo": "chi",
+      "language": "go",
+      "chunks": 271,
+      "files": 74,
+      "tasks": 18,
+      "ndcg5": 0.8578287045608461,
+      "ndcg10": 0.8578287045608461,
+      "cold_index_ms": 3.779916,
+      "warm_uncached_query_ms": 0.010625,
+      "warm_uncached_query_p90_ms": 0.016667,
+      "warm_cached_repeat_query_ms": 0.001291,
+      "warm_cached_repeat_query_p90_ms": 0.0014169999999999999,
+      "peak_rss_mb": 27.234375,
+      "by_category": {
+        "architecture": 0.6349978214206287,
+        "semantic": 0.9589921948412731,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "circe",
+      "language": "scala",
+      "chunks": 199,
+      "files": 26,
+      "tasks": 19,
+      "ndcg5": 0.7021709673470402,
+      "ndcg10": 0.7375221286046061,
+      "cold_index_ms": 2.713583,
+      "warm_uncached_query_ms": 0.012125,
+      "warm_uncached_query_p90_ms": 0.016209,
+      "warm_cached_repeat_query_ms": 0.001333,
+      "warm_cached_repeat_query_p90_ms": 0.0015,
+      "peak_rss_mb": 27.234375,
+      "by_category": {
+        "architecture": 0.5974273881358959,
+        "semantic": 0.7296166820734578,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "click",
+      "language": "python",
+      "chunks": 318,
+      "files": 17,
+      "tasks": 20,
+      "ndcg5": 0.889389356842921,
+      "ndcg10": 0.9003097286838292,
+      "cold_index_ms": 2.1433329999999997,
+      "warm_uncached_query_ms": 0.0155,
+      "warm_uncached_query_p90_ms": 0.020166999999999997,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.0022919999999999998,
+      "peak_rss_mb": 27.28125,
+      "by_category": {
+        "architecture": 0.9137459265651259,
+        "semantic": 0.8892789260714373,
+        "symbol": 0.9077324383928644
+      }
+    },
+    {
+      "repo": "cobra",
+      "language": "go",
+      "chunks": 401,
+      "files": 36,
+      "tasks": 20,
+      "ndcg5": 0.7420179020596402,
+      "ndcg10": 0.7564711433755347,
+      "cold_index_ms": 3.0638750000000003,
+      "warm_uncached_query_ms": 0.01575,
+      "warm_uncached_query_p90_ms": 0.02175,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 27.453125,
+      "by_category": {
+        "architecture": 0.7584873889101339,
+        "semantic": 0.7225062527707663,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "commons-lang",
+      "language": "java",
+      "chunks": 3158,
+      "files": 259,
+      "tasks": 21,
+      "ndcg5": 0.6532231865165808,
+      "ndcg10": 0.6532231865165808,
+      "cold_index_ms": 9.492875,
+      "warm_uncached_query_ms": 0.091042,
+      "warm_uncached_query_p90_ms": 0.12283300000000001,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.001792,
+      "peak_rss_mb": 28.59375,
+      "by_category": {
+        "architecture": 0.677622660637882,
+        "semantic": 0.5752777986687924,
+        "symbol": 0.9077324383928644
+      }
+    },
+    {
+      "repo": "curl",
+      "language": "c",
+      "chunks": 4678,
+      "files": 362,
+      "tasks": 20,
+      "ndcg5": 0.5316124015300085,
+      "ndcg10": 0.5605188841617974,
+      "cold_index_ms": 11.730584,
+      "warm_uncached_query_ms": 0.170042,
+      "warm_uncached_query_p90_ms": 0.473958,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001792,
+      "peak_rss_mb": 39.125,
+      "by_category": {
+        "architecture": 0.5399673939192453,
+        "semantic": 0.5773337398147944
+      }
+    },
+    {
+      "repo": "dapper",
+      "language": "csharp",
+      "chunks": 441,
+      "files": 51,
+      "tasks": 20,
+      "ndcg5": 0.8477197786179612,
+      "ndcg10": 0.8621730199338555,
+      "cold_index_ms": 3.465333,
+      "warm_uncached_query_ms": 0.020041,
+      "warm_uncached_query_p90_ms": 0.029625,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.0025830000000000002,
+      "peak_rss_mb": 39.140625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.8163485111619734,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "ecto",
+      "language": "elixir",
+      "chunks": 759,
+      "files": 50,
+      "tasks": 19,
+      "ndcg5": 0.8959852112782016,
+      "ndcg10": 0.8959852112782016,
+      "cold_index_ms": 3.810708,
+      "warm_uncached_query_ms": 0.032916,
+      "warm_uncached_query_p90_ms": 0.041833999999999996,
+      "warm_cached_repeat_query_ms": 0.00175,
+      "warm_cached_repeat_query_p90_ms": 0.003208,
+      "peak_rss_mb": 39.625,
+      "by_category": {
+        "architecture": 0.7539531690476383,
+        "semantic": 0.9331484425824198,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "exposed",
+      "language": "kotlin",
+      "chunks": 757,
+      "files": 100,
+      "tasks": 20,
+      "ndcg5": 0.4974229559439697,
+      "ndcg10": 0.5237609427914999,
+      "cold_index_ms": 4.795625,
+      "warm_uncached_query_ms": 0.03325,
+      "warm_uncached_query_p90_ms": 0.043791000000000004,
+      "warm_cached_repeat_query_ms": 0.001458,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 39.640625,
+      "by_category": {
+        "architecture": 0.1111111111111111,
+        "semantic": 0.6222292117445194,
+        "symbol": 0.47689218602446437
+      }
+    },
+    {
+      "repo": "express",
+      "language": "javascript",
+      "chunks": 52,
+      "files": 6,
+      "tasks": 20,
+      "ndcg5": 0.8340318758101658,
+      "ndcg10": 0.8340318758101658,
+      "cold_index_ms": 1.357792,
+      "warm_uncached_query_ms": 0.007666999999999999,
+      "warm_uncached_query_p90_ms": 0.014166,
+      "warm_cached_repeat_query_ms": 0.002334,
+      "warm_cached_repeat_query_p90_ms": 0.00275,
+      "peak_rss_mb": 39.640625,
+      "by_category": {
+        "architecture": 0.8268354650698487,
+        "semantic": 0.8761859507142915,
+        "symbol": 0.7103099178571526
+      }
+    },
+    {
+      "repo": "fastapi",
+      "language": "python",
+      "chunks": 603,
+      "files": 46,
+      "tasks": 20,
+      "ndcg5": 0.6023146757014677,
+      "ndcg10": 0.6323161317610025,
+      "cold_index_ms": 3.455708,
+      "warm_uncached_query_ms": 0.014083,
+      "warm_uncached_query_p90_ms": 0.033,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001792,
+      "peak_rss_mb": 39.640625,
+      "by_category": {
+        "architecture": 0.5218248150162729,
+        "semantic": 0.6406776829706734,
+        "symbol": 0.7736254932681508
+      }
+    },
+    {
+      "repo": "flask",
+      "language": "python",
+      "chunks": 294,
+      "files": 24,
+      "tasks": 21,
+      "ndcg5": 0.5433364598573347,
+      "ndcg10": 0.5801768800477657,
+      "cold_index_ms": 2.2661249999999997,
+      "warm_uncached_query_ms": 0.006209,
+      "warm_uncached_query_p90_ms": 0.022542,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 39.640625,
+      "by_category": {
+        "architecture": 0.48777671422190627,
+        "semantic": 0.6424472021694697,
+        "symbol": 0.5674527525285225
+      }
+    },
+    {
+      "repo": "fmtlib",
+      "language": "cpp",
+      "chunks": 486,
+      "files": 15,
+      "tasks": 20,
+      "ndcg5": 0.7017782560806,
+      "ndcg10": 0.7504133590584866,
+      "cold_index_ms": 2.5353749999999997,
+      "warm_uncached_query_ms": 0.022583,
+      "warm_uncached_query_p90_ms": 0.037167,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001375,
+      "peak_rss_mb": 39.640625,
+      "by_category": {
+        "architecture": 0.8333333333333334,
+        "semantic": 0.7251471424329792,
+        "symbol": 0.785402395702674
+      }
+    },
+    {
+      "repo": "gin",
+      "language": "go",
+      "chunks": 582,
+      "files": 99,
+      "tasks": 20,
+      "ndcg5": 0.5696092856063784,
+      "ndcg10": 0.577011333380525,
+      "cold_index_ms": 4.565874999999999,
+      "warm_uncached_query_ms": 0.015667,
+      "warm_uncached_query_p90_ms": 0.023208,
+      "warm_cached_repeat_query_ms": 0.001291,
+      "warm_cached_repeat_query_p90_ms": 0.001792,
+      "peak_rss_mb": 39.640625,
+      "by_category": {
+        "architecture": 0.443515165109619,
+        "semantic": 0.5680187203073934,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "gson",
+      "language": "java",
+      "chunks": 1481,
+      "files": 210,
+      "tasks": 20,
+      "ndcg5": 0.42112089644232703,
+      "ndcg10": 0.48088864974405576,
+      "cold_index_ms": 7.563083,
+      "warm_uncached_query_ms": 0.053208000000000005,
+      "warm_uncached_query_p90_ms": 0.073375,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 42.0,
+      "by_category": {
+        "architecture": 0.4779584601088588,
+        "semantic": 0.4557226840068223,
+        "symbol": 0.5247853857295762
+      }
+    },
+    {
+      "repo": "guzzle",
+      "language": "php",
+      "chunks": 208,
+      "files": 41,
+      "tasks": 20,
+      "ndcg5": 0.6966901155768763,
+      "ndcg10": 0.7372702463659444,
+      "cold_index_ms": 2.205375,
+      "warm_uncached_query_ms": 0.008291000000000001,
+      "warm_uncached_query_p90_ms": 0.014124999999999999,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.0015,
+      "peak_rss_mb": 42.0,
+      "by_category": {
+        "architecture": 0.9301288265165021,
+        "semantic": 0.6403145149383018,
+        "symbol": 0.9077324383928644
+      }
+    },
+    {
+      "repo": "http4s",
+      "language": "scala",
+      "chunks": 971,
+      "files": 197,
+      "tasks": 20,
+      "ndcg5": 0.7252968226739915,
+      "ndcg10": 0.7739319256518782,
+      "cold_index_ms": 5.334042,
+      "warm_uncached_query_ms": 0.031792,
+      "warm_uncached_query_p90_ms": 0.073625,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001584,
+      "peak_rss_mb": 42.0,
+      "by_category": {
+        "architecture": 0.8710490642551528,
+        "semantic": 0.7310401119071892,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "httpx",
+      "language": "python",
+      "chunks": 251,
+      "files": 23,
+      "tasks": 21,
+      "ndcg5": 0.6484172382613267,
+      "ndcg10": 0.716312575842045,
+      "cold_index_ms": 1.8253329999999999,
+      "warm_uncached_query_ms": 0.00775,
+      "warm_uncached_query_p90_ms": 0.012875,
+      "warm_cached_repeat_query_ms": 0.00125,
+      "warm_cached_repeat_query_p90_ms": 0.0014169999999999999,
+      "peak_rss_mb": 42.0,
+      "by_category": {
+        "architecture": 0.6605780566095202,
+        "semantic": 0.7250809373002142,
+        "symbol": 0.7785578521428747
+      }
+    },
+    {
+      "repo": "jackson-databind",
+      "language": "java",
+      "chunks": 4641,
+      "files": 572,
+      "tasks": 20,
+      "ndcg5": 0.37584461112025186,
+      "ndcg10": 0.45563605451351935,
+      "cold_index_ms": 14.932208000000001,
+      "warm_uncached_query_ms": 0.128334,
+      "warm_uncached_query_p90_ms": 0.252583,
+      "warm_cached_repeat_query_ms": 0.001458,
+      "warm_cached_repeat_query_p90_ms": 0.0018750000000000001,
+      "peak_rss_mb": 49.59375,
+      "by_category": {
+        "architecture": 0.47779161887361077,
+        "semantic": 0.34167229794720844,
+        "symbol": 0.6081187190629095
+      }
+    },
+    {
+      "repo": "kotlinx-coroutines",
+      "language": "kotlin",
+      "chunks": 891,
+      "files": 111,
+      "tasks": 20,
+      "ndcg5": 0.7048585716628424,
+      "ndcg10": 0.7048585716628424,
+      "cold_index_ms": 4.5765839999999995,
+      "warm_uncached_query_ms": 0.036834,
+      "warm_uncached_query_p90_ms": 0.042834,
+      "warm_cached_repeat_query_ms": 0.001667,
+      "warm_cached_repeat_query_p90_ms": 0.003459,
+      "peak_rss_mb": 49.828125,
+      "by_category": {
+        "architecture": 0.8769765845238192,
+        "semantic": 0.676160119977528,
+        "symbol": 0.6666666666666666
+      }
+    },
+    {
+      "repo": "ktor",
+      "language": "kotlin",
+      "chunks": 429,
+      "files": 89,
+      "tasks": 20,
+      "ndcg5": 0.41137801104364013,
+      "ndcg10": 0.45495047725880083,
+      "cold_index_ms": 4.954917,
+      "warm_uncached_query_ms": 0.0205,
+      "warm_uncached_query_p90_ms": 0.031625,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.00325,
+      "peak_rss_mb": 49.90625,
+      "by_category": {
+        "architecture": 0.2745390585069806,
+        "semantic": 0.23960516223245035,
+        "symbol": 0.9166666666666666
+      }
+    },
+    {
+      "repo": "laravel-framework",
+      "language": "php",
+      "chunks": 6221,
+      "files": 1605,
+      "tasks": 20,
+      "ndcg5": 0.4986778764412228,
+      "ndcg10": 0.5515331691342901,
+      "cold_index_ms": 39.742375,
+      "warm_uncached_query_ms": 0.08224999999999999,
+      "warm_uncached_query_p90_ms": 0.203125,
+      "warm_cached_repeat_query_ms": 0.001458,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 61.640625,
+      "by_category": {
+        "architecture": 0.6812939970768299,
+        "semantic": 0.4650729812942987,
+        "symbol": 0.5189871428748258
+      }
+    },
+    {
+      "repo": "lazy.nvim",
+      "language": "lua",
+      "chunks": 309,
+      "files": 54,
+      "tasks": 20,
+      "ndcg5": 0.5207682274660324,
+      "ndcg10": 0.5552452534881002,
+      "cold_index_ms": 3.2832500000000002,
+      "warm_uncached_query_ms": 0.018625,
+      "warm_uncached_query_p90_ms": 0.035417000000000004,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.002458,
+      "peak_rss_mb": 61.640625,
+      "by_category": {
+        "architecture": 0.6065289290590833,
+        "semantic": 0.5132858825663867
+      }
+    },
+    {
+      "repo": "libuv",
+      "language": "c",
+      "chunks": 1371,
+      "files": 104,
+      "tasks": 20,
+      "ndcg5": 0.509295965063093,
+      "ndcg10": 0.5202163369040012,
+      "cold_index_ms": 4.6870829999999994,
+      "warm_uncached_query_ms": 0.027458,
+      "warm_uncached_query_p90_ms": 0.055416,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001458,
+      "peak_rss_mb": 61.703125,
+      "by_category": {
+        "architecture": 0.43067655807339306,
+        "semantic": 0.5325998540428939,
+        "symbol": 0.38685280723454163
+      }
+    },
+    {
+      "repo": "messagepack-csharp",
+      "language": "csharp",
+      "chunks": 1195,
+      "files": 115,
+      "tasks": 20,
+      "ndcg5": 0.6551986892188654,
+      "ndcg10": 0.6860095011200614,
+      "cold_index_ms": 5.8205,
+      "warm_uncached_query_ms": 0.03825,
+      "warm_uncached_query_p90_ms": 0.064125,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 61.953125,
+      "by_category": {
+        "architecture": 0.3733578883404926,
+        "semantic": 0.7551202123295406,
+        "symbol": 0.7758109368676276
+      }
+    },
+    {
+      "repo": "mini.nvim",
+      "language": "lua",
+      "chunks": 2156,
+      "files": 45,
+      "tasks": 20,
+      "ndcg5": 0.7758000942002037,
+      "ndcg10": 0.7758000942002037,
+      "cold_index_ms": 5.7976659999999995,
+      "warm_uncached_query_ms": 0.09912499999999999,
+      "warm_uncached_query_p90_ms": 0.114375,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 62.0,
+      "by_category": {
+        "architecture": 0.8154648767857288,
+        "semantic": 0.7658838985538226
+      }
+    },
+    {
+      "repo": "model2vec",
+      "language": "python",
+      "chunks": 110,
+      "files": 24,
+      "tasks": 20,
+      "ndcg5": 0.5335526232996824,
+      "ndcg10": 0.5704653588593014,
+      "cold_index_ms": 2.2287079999999997,
+      "warm_uncached_query_ms": 0.007,
+      "warm_uncached_query_p90_ms": 0.010125,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001584,
+      "peak_rss_mb": 62.0,
+      "by_category": {
+        "architecture": 0.6266191963419556,
+        "semantic": 0.5445648418863693,
+        "symbol": 0.5257747946428813
+      }
+    },
+    {
+      "repo": "monolog",
+      "language": "php",
+      "chunks": 422,
+      "files": 121,
+      "tasks": 20,
+      "ndcg5": 0.7003601144410859,
+      "ndcg10": 0.715411614224285,
+      "cold_index_ms": 3.711125,
+      "warm_uncached_query_ms": 0.020832999999999997,
+      "warm_uncached_query_p90_ms": 0.024541,
+      "warm_cached_repeat_query_ms": 0.0013340000000000001,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 62.0,
+      "by_category": {
+        "architecture": 0.5002531670683774,
+        "semantic": 0.7875006699908373,
+        "symbol": 0.7863919498470878
+      }
+    },
+    {
+      "repo": "newtonsoft-json",
+      "language": "csharp",
+      "chunks": 2304,
+      "files": 240,
+      "tasks": 20,
+      "ndcg5": 0.6161732909393883,
+      "ndcg10": 0.6737869088948992,
+      "cold_index_ms": 6.528499999999999,
+      "warm_uncached_query_ms": 0.107542,
+      "warm_uncached_query_p90_ms": 0.14341700000000002,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 62.140625,
+      "by_category": {
+        "architecture": 0.5803620195029487,
+        "semantic": 0.669330573391712,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "nlohmann-json",
+      "language": "cpp",
+      "chunks": 813,
+      "files": 47,
+      "tasks": 20,
+      "ndcg5": 0.6946612938142909,
+      "ndcg10": 0.7260199054140477,
+      "cold_index_ms": 4.098333,
+      "warm_uncached_query_ms": 0.034584,
+      "warm_uncached_query_p90_ms": 0.045042,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001709,
+      "peak_rss_mb": 62.15625,
+      "by_category": {
+        "architecture": 0.7324624524360687,
+        "semantic": 0.6393160941228473,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "nvm",
+      "language": "bash",
+      "chunks": 155,
+      "files": 6,
+      "tasks": 20,
+      "ndcg5": 0.8708254137500102,
+      "ndcg10": 0.8708254137500102,
+      "cold_index_ms": 6.543834,
+      "warm_uncached_query_ms": 0.013958,
+      "warm_uncached_query_p90_ms": 0.017541,
+      "warm_cached_repeat_query_ms": 0.00125,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 62.15625,
+      "by_category": {
+        "architecture": 0.6309297535714575,
+        "semantic": 0.8974804871031827
+      }
+    },
+    {
+      "repo": "pandoc",
+      "language": "haskell",
+      "chunks": 3111,
+      "files": 237,
+      "tasks": 20,
+      "ndcg5": 0.40269445906815465,
+      "ndcg10": 0.4707550882849101,
+      "cold_index_ms": 10.757582999999999,
+      "warm_uncached_query_ms": 0.113583,
+      "warm_uncached_query_p90_ms": 0.1665,
+      "warm_cached_repeat_query_ms": 0.0015,
+      "warm_cached_repeat_query_p90_ms": 0.001917,
+      "peak_rss_mb": 62.203125,
+      "by_category": {
+        "architecture": 0.36760348554240513,
+        "semantic": 0.53952282344658
+      }
+    },
+    {
+      "repo": "phoenix",
+      "language": "elixir",
+      "chunks": 554,
+      "files": 74,
+      "tasks": 19,
+      "ndcg5": 0.571644187148918,
+      "ndcg10": 0.6407360688333432,
+      "cold_index_ms": 5.804708,
+      "warm_uncached_query_ms": 0.018125,
+      "warm_uncached_query_p90_ms": 0.040874999999999995,
+      "warm_cached_repeat_query_ms": 0.002,
+      "warm_cached_repeat_query_p90_ms": 0.002791,
+      "peak_rss_mb": 62.375,
+      "by_category": {
+        "architecture": 0.6869065320299474,
+        "semantic": 0.6800171379752313,
+        "symbol": 0.41056885124579146
+      }
+    },
+    {
+      "repo": "plug",
+      "language": "elixir",
+      "chunks": 251,
+      "files": 41,
+      "tasks": 20,
+      "ndcg5": 0.7955285910760186,
+      "ndcg10": 0.7955285910760186,
+      "cold_index_ms": 3.159416,
+      "warm_uncached_query_ms": 0.01275,
+      "warm_uncached_query_p90_ms": 0.02175,
+      "warm_cached_repeat_query_ms": 0.001542,
+      "warm_cached_repeat_query_p90_ms": 0.002041,
+      "peak_rss_mb": 62.375,
+      "by_category": {
+        "architecture": 0.8333333333333334,
+        "semantic": 0.7793265586800266,
+        "symbol": 0.8333333333333334
+      }
+    },
+    {
+      "repo": "pydantic",
+      "language": "python",
+      "chunks": 1534,
+      "files": 103,
+      "tasks": 20,
+      "ndcg5": 0.583960276835441,
+      "ndcg10": 0.5936315970163045,
+      "cold_index_ms": 5.371125,
+      "warm_uncached_query_ms": 0.057583,
+      "warm_uncached_query_p90_ms": 0.08541599999999999,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.00175,
+      "peak_rss_mb": 64.640625,
+      "by_category": {
+        "architecture": 0.44647376504938924,
+        "semantic": 0.5857136591669393,
+        "symbol": 0.8123212623289702
+      }
+    },
+    {
+      "repo": "rack",
+      "language": "ruby",
+      "chunks": 279,
+      "files": 48,
+      "tasks": 18,
+      "ndcg5": 0.7752441984644013,
+      "ndcg10": 0.8148227748097372,
+      "cold_index_ms": 2.6822920000000003,
+      "warm_uncached_query_ms": 0.00925,
+      "warm_uncached_query_p90_ms": 0.014375,
+      "warm_cached_repeat_query_ms": 0.0013340000000000001,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 64.640625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.7679673005895787,
+        "symbol": 0.797427388135896
+      }
+    },
+    {
+      "repo": "rails",
+      "language": "ruby",
+      "chunks": 529,
+      "files": 156,
+      "tasks": 20,
+      "ndcg5": 0.5366748337176318,
+      "ndcg10": 0.5832159242693422,
+      "cold_index_ms": 14.3955,
+      "warm_uncached_query_ms": 0.016333,
+      "warm_uncached_query_p90_ms": 0.021208,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.002,
+      "peak_rss_mb": 64.640625,
+      "by_category": {
+        "architecture": 0.5912193730665934,
+        "semantic": 0.6223153124440032,
+        "symbol": 0.4967842351698699
+      }
+    },
+    {
+      "repo": "redis",
+      "language": "c",
+      "chunks": 6361,
+      "files": 214,
+      "tasks": 20,
+      "ndcg5": 0.6442536065216309,
+      "ndcg10": 0.6798743252324332,
+      "cold_index_ms": 13.54,
+      "warm_uncached_query_ms": 0.20024999999999998,
+      "warm_uncached_query_p90_ms": 0.277833,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001708,
+      "peak_rss_mb": 76.671875,
+      "by_category": {
+        "architecture": 0.5979419810397724,
+        "semantic": 0.7618066694250938
+      }
+    },
+    {
+      "repo": "redux",
+      "language": "javascript",
+      "chunks": 54,
+      "files": 17,
+      "tasks": 20,
+      "ndcg5": 0.807049759204785,
+      "ndcg10": 0.807049759204785,
+      "cold_index_ms": 1.9663329999999999,
+      "warm_uncached_query_ms": 0.005334,
+      "warm_uncached_query_p90_ms": 0.007209,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001667,
+      "peak_rss_mb": 76.671875,
+      "by_category": {
+        "architecture": 0.7718216255952429,
+        "semantic": 0.78659876360565,
+        "symbol": 0.8861353116146786
+      }
+    },
+    {
+      "repo": "requests",
+      "language": "python",
+      "chunks": 172,
+      "files": 18,
+      "tasks": 20,
+      "ndcg5": 0.5797180366620576,
+      "ndcg10": 0.6408673863787289,
+      "cold_index_ms": 1.5699159999999999,
+      "warm_uncached_query_ms": 0.007333999999999999,
+      "warm_uncached_query_p90_ms": 0.01475,
+      "warm_cached_repeat_query_ms": 0.00125,
+      "warm_cached_repeat_query_p90_ms": 0.001583,
+      "peak_rss_mb": 76.671875,
+      "by_category": {
+        "architecture": 0.6706230759768799,
+        "semantic": 0.6240070552706198,
+        "symbol": 0.6261859507142915
+      }
+    },
+    {
+      "repo": "serde",
+      "language": "rust",
+      "chunks": 1172,
+      "files": 208,
+      "tasks": 20,
+      "ndcg5": 0.49552859107601865,
+      "ndcg10": 0.5279685015819717,
+      "cold_index_ms": 8.485167,
+      "warm_uncached_query_ms": 0.036792000000000005,
+      "warm_uncached_query_p90_ms": 0.07195800000000001,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001791,
+      "peak_rss_mb": 76.671875,
+      "by_category": {
+        "architecture": 0.6910571821520373,
+        "semantic": 0.5,
+        "symbol": 0.16219955252976553
+      }
+    },
+    {
+      "repo": "sinatra",
+      "language": "ruby",
+      "chunks": 72,
+      "files": 7,
+      "tasks": 20,
+      "ndcg5": 0.7737250154456123,
+      "ndcg10": 0.8061649259515654,
+      "cold_index_ms": 1.848709,
+      "warm_uncached_query_ms": 0.005667,
+      "warm_uncached_query_p90_ms": 0.009667,
+      "warm_cached_repeat_query_ms": 0.00125,
+      "warm_cached_repeat_query_p90_ms": 0.001583,
+      "peak_rss_mb": 76.6875,
+      "by_category": {
+        "architecture": 0.6857224139102375,
+        "semantic": 0.8071122101563029,
+        "symbol": 0.9051127596788988
+      }
+    },
+    {
+      "repo": "snapkit",
+      "language": "swift",
+      "chunks": 109,
+      "files": 37,
+      "tasks": 13,
+      "ndcg5": 0.7072114968362592,
+      "ndcg10": 0.7072114968362592,
+      "cold_index_ms": 1.7080000000000002,
+      "warm_uncached_query_ms": 0.010542,
+      "warm_uncached_query_p90_ms": 0.011916000000000001,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001666,
+      "peak_rss_mb": 76.6875,
+      "by_category": {
+        "architecture": 0.5145904363840085,
+        "semantic": 0.7357111642456206,
+        "symbol": 0.8333333333333334
+      }
+    },
+    {
+      "repo": "starlette",
+      "language": "python",
+      "chunks": 215,
+      "files": 34,
+      "tasks": 21,
+      "ndcg5": 0.7718517772221829,
+      "ndcg10": 0.7953138802493152,
+      "cold_index_ms": 1.8435000000000001,
+      "warm_uncached_query_ms": 0.006875,
+      "warm_uncached_query_p90_ms": 0.012583,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001625,
+      "peak_rss_mb": 76.6875,
+      "by_category": {
+        "architecture": 0.7927513076765981,
+        "semantic": 0.7962654201586077,
+        "symbol": 0.8
+      }
+    },
+    {
+      "repo": "telescope.nvim",
+      "language": "lua",
+      "chunks": 549,
+      "files": 55,
+      "tasks": 20,
+      "ndcg5": 0.6438136267625131,
+      "ndcg10": 0.6944858452565144,
+      "cold_index_ms": 3.481083,
+      "warm_uncached_query_ms": 0.024457999999999997,
+      "warm_uncached_query_p90_ms": 0.033125,
+      "warm_cached_repeat_query_ms": 0.001291,
+      "warm_cached_repeat_query_p90_ms": 0.001584,
+      "peak_rss_mb": 76.6875,
+      "by_category": {
+        "architecture": 0.6386600307450525,
+        "semantic": 0.7245458992242246
+      }
+    },
+    {
+      "repo": "tokio",
+      "language": "rust",
+      "chunks": 2771,
+      "files": 375,
+      "tasks": 20,
+      "ndcg5": 0.6827324383928645,
+      "ndcg10": 0.7196238819668922,
+      "cold_index_ms": 12.377875,
+      "warm_uncached_query_ms": 0.107208,
+      "warm_uncached_query_p90_ms": 0.150791,
+      "warm_cached_repeat_query_ms": 0.001375,
+      "warm_cached_repeat_query_p90_ms": 0.001583,
+      "peak_rss_mb": 76.90625,
+      "by_category": {
+        "architecture": 0.6962065477973413,
+        "semantic": 0.7621464572878575,
+        "symbol": 0.6863444490418229
+      }
+    },
+    {
+      "repo": "trpc",
+      "language": "typescript",
+      "chunks": 371,
+      "files": 107,
+      "tasks": 20,
+      "ndcg5": 0.5439266796183382,
+      "ndcg10": 0.5880097925152297,
+      "cold_index_ms": 4.717,
+      "warm_uncached_query_ms": 0.019958,
+      "warm_uncached_query_p90_ms": 0.024083,
+      "warm_cached_repeat_query_ms": 0.0015,
+      "warm_cached_repeat_query_p90_ms": 0.001708,
+      "peak_rss_mb": 76.90625,
+      "by_category": {
+        "architecture": 0.3194766815895134,
+        "semantic": 0.6006260567983552,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "vapor",
+      "language": "swift",
+      "chunks": 818,
+      "files": 218,
+      "tasks": 20,
+      "ndcg5": 0.474066355039652,
+      "ndcg10": 0.5520998916310071,
+      "cold_index_ms": 6.936125,
+      "warm_uncached_query_ms": 0.027792,
+      "warm_uncached_query_p90_ms": 0.038708,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.001542,
+      "peak_rss_mb": 76.90625,
+      "by_category": {
+        "architecture": 0.23480765705126103,
+        "semantic": 0.6851023876148025,
+        "symbol": 0.24871381161970726
+      }
+    },
+    {
+      "repo": "vitest",
+      "language": "typescript",
+      "chunks": 1113,
+      "files": 236,
+      "tasks": 20,
+      "ndcg5": 0.29463946303571864,
+      "ndcg10": 0.3775752822010154,
+      "cold_index_ms": 8.545708000000001,
+      "warm_uncached_query_ms": 0.036833,
+      "warm_uncached_query_p90_ms": 0.057584,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.00175,
+      "peak_rss_mb": 76.90625,
+      "by_category": {
+        "architecture": 0.2960336278328946,
+        "semantic": 0.40173606271953805,
+        "symbol": 0.4520690623693407
+      }
+    },
+    {
+      "repo": "xmonad",
+      "language": "haskell",
+      "chunks": 123,
+      "files": 7,
+      "tasks": 20,
+      "ndcg5": 0.5933644784813309,
+      "ndcg10": 0.6241892221038163,
+      "cold_index_ms": 1.8040420000000001,
+      "warm_uncached_query_ms": 0.0115,
+      "warm_uncached_query_p90_ms": 0.015833,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001542,
+      "peak_rss_mb": 76.90625,
+      "by_category": {
+        "architecture": 0.6306383677501122,
+        "semantic": 0.6198897916729524
+      }
+    },
+    {
+      "repo": "zig",
+      "language": "zig",
+      "chunks": 13201,
+      "files": 550,
+      "tasks": 20,
+      "ndcg5": 0.8161732909393884,
+      "ndcg10": 0.8472931989219493,
+      "cold_index_ms": 37.1,
+      "warm_uncached_query_ms": 0.394542,
+      "warm_uncached_query_p90_ms": 0.5299579999999999,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.001791,
+      "peak_rss_mb": 115.453125,
+      "by_category": {
+        "architecture": 0.4177759710742262,
+        "semantic": 0.92309035677743
+      }
+    },
+    {
+      "repo": "zig-clap",
+      "language": "zig",
+      "chunks": 103,
+      "files": 12,
+      "tasks": 20,
+      "ndcg5": 0.9,
+      "ndcg10": 0.9344770260220677,
+      "cold_index_ms": 1.9737909999999999,
+      "warm_uncached_query_ms": 0.010208,
+      "warm_uncached_query_p90_ms": 0.012333,
+      "warm_cached_repeat_query_ms": 0.0012920000000000002,
+      "warm_cached_repeat_query_p90_ms": 0.001709,
+      "peak_rss_mb": 115.453125,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.9271966955800752
+      }
+    },
+    {
+      "repo": "zls",
+      "language": "zig",
+      "chunks": 1311,
+      "files": 44,
+      "tasks": 20,
+      "ndcg5": 0.535812753975107,
+      "ndcg10": 0.5675309204249727,
+      "cold_index_ms": 3.9397089999999997,
+      "warm_uncached_query_ms": 0.03325,
+      "warm_uncached_query_p90_ms": 0.060291000000000004,
+      "warm_cached_repeat_query_ms": 0.001333,
+      "warm_cached_repeat_query_p90_ms": 0.001583,
+      "peak_rss_mb": 115.453125,
+      "by_category": {
+        "architecture": 0.5331009362481963,
+        "semantic": 0.586070142674006
+      }
+    },
+    {
+      "repo": "zod",
+      "language": "typescript",
+      "chunks": 1851,
+      "files": 277,
+      "tasks": 20,
+      "ndcg5": 0.38989568430065924,
+      "ndcg10": 0.4207204279231448,
+      "cold_index_ms": 7.872374999999999,
+      "warm_uncached_query_ms": 0.07675,
+      "warm_uncached_query_p90_ms": 0.138959,
+      "warm_cached_repeat_query_ms": 0.0014169999999999999,
+      "warm_cached_repeat_query_p90_ms": 0.001584,
+      "peak_rss_mb": 115.453125,
+      "by_category": {
+        "architecture": 0.5,
+        "semantic": 0.3578883885630753,
+        "symbol": 0.5872865023809717
+      }
+    }
+  ],
+  "summary": {
+    "repos": 63,
+    "tasks": 1251,
+    "avg_ndcg10": 0.6777544043792368,
+    "avg_cold_index_ms": 6.700277503597121,
+    "avg_warm_uncached_query_ms": 0.044003414068745,
+    "avg_warm_cached_repeat_query_ms": 0.0014009504396482813
+  }
+}

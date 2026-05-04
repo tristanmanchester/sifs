@@ -13,6 +13,22 @@
 *.profraw
 *.profdata
 
+# Large context-curve intermediates; keep benchmarks/results/sifs-context-curves.json instead
+/benchmarks/results/sifs-context-hybrid.json
+/benchmarks/results/sifs-context-bm25.json
+/benchmarks/results/sifs-context-semantic.json
+/benchmarks/results/ripgrep-context.json
+
+# Python helper script caches and local test output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
 # Local model and checkpoint artifacts
 /models/
 /checkpoints/

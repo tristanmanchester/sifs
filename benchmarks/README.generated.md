@@ -28,7 +28,7 @@ Source SIFS result: `benchmarks/results/sifs-full.json`
 - `assets/images/speed_vs_quality_cold.png`
 - `assets/images/speed_vs_quality_warm.png`
 - `assets/images/quality_vs_warm_latency.png`
-- `assets/images/sifs_context_efficiency.png`
-- `assets/images/sifs_by_query_type.png`
+- `assets/images/context_efficiency_comparison.png`
+- `assets/images/query_type_quality_by_mode.png`
 - `assets/images/sifs_by_language.png`
 - `assets/images/sifs_by_category.png`

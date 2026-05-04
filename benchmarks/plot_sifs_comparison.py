@@ -26,6 +26,7 @@ COLORS = {
     "SIFS hybrid": "#0f766e",
     "SIFS BM25": "#2563eb",
     "SIFS semantic": "#b45309",
+    "ripgrep + read": "#606060",
     "Semble": "#1a5fa8",
     "CodeRankEmbed Hybrid": "#922b21",
     "CodeRankEmbed": "#d9634f",
@@ -189,8 +190,8 @@ def write_markdown(rows: list[dict], sifs_path: Path, out_path: Path) -> None:
         "- `assets/images/speed_vs_quality_cold.png`",
         "- `assets/images/speed_vs_quality_warm.png`",
         "- `assets/images/quality_vs_warm_latency.png`",
-        "- `assets/images/sifs_context_efficiency.png`",
-        "- `assets/images/sifs_by_query_type.png`",
+        "- `assets/images/context_efficiency_comparison.png`",
+        "- `assets/images/query_type_quality_by_mode.png`",
         "- `assets/images/sifs_by_language.png`",
         "- `assets/images/sifs_by_category.png`",
     ]
@@ -318,7 +319,72 @@ def plot_sifs_breakdowns(sifs_path: Path, out_dir: Path) -> None:
     ax.set_title("SIFS quality by query type")
     fig.tight_layout()
     fig.savefig(out_dir / "sifs_by_category.png", dpi=180)
-    fig.savefig(out_dir / "sifs_by_query_type.png", dpi=180)
+    plt.close(fig)
+
+
+def mode_category_scores(mode_results: dict[str, Path]) -> dict[str, dict[str, float]]:
+    scores: dict[str, dict[str, list[tuple[float, int]]]] = {}
+    for label, path in mode_results.items():
+        if not path.exists():
+            continue
+        payload = load_json(path)
+        by_cat: dict[str, list[tuple[float, int]]] = {}
+        for row in payload["results"]:
+            for cat, score in row.get("by_category", {}).items():
+                by_cat.setdefault(cat, []).append((float(score), int(row["tasks"])))
+        scores[label] = {
+            cat: sum(score * tasks for score, tasks in values)
+            / sum(tasks for _, tasks in values)
+            for cat, values in by_cat.items()
+        }
+    return {label: values for label, values in scores.items() if values}
+
+
+def plot_query_type_by_mode(mode_results: dict[str, Path], out_dir: Path) -> None:
+    scores = mode_category_scores(mode_results)
+    if not scores:
+        return
+    preferred = ["symbol", "semantic", "architecture"]
+    categories = [
+        cat
+        for cat in preferred
+        if any(cat in values for values in scores.values())
+    ]
+    categories += sorted(
+        {
+            cat
+            for values in scores.values()
+            for cat in values
+            if cat not in categories
+        }
+    )
+    labels = [label for label in mode_results if label in scores]
+    x_positions = list(range(len(categories)))
+    width = min(0.24, 0.75 / max(len(labels), 1))
+
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    for idx, label in enumerate(labels):
+        offset = (idx - (len(labels) - 1) / 2) * width
+        values = [scores[label].get(cat, 0.0) for cat in categories]
+        bars = ax.bar(
+            [x + offset for x in x_positions],
+            values,
+            width=width,
+            label=label,
+            color=COLORS.get(label, "#444"),
+        )
+        ax.bar_label(bars, labels=[f"{value:.3f}" for value in values], padding=3, fontsize=7)
+
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(categories)
+    ax.set_ylim(0, 1.02)
+    ax.set_ylabel("NDCG@10")
+    ax.set_title("Search quality by query type")
+    ax.legend(loc="lower right")
+    ax.grid(True, axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(out_dir / "query_type_quality_by_mode.png", dpi=180, bbox_inches="tight")
+    fig.savefig(out_dir / "sifs_by_query_type.png", dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -329,6 +395,7 @@ def context_curve(result_path: Path, budgets: list[int]) -> tuple[str, list[floa
         "sifs-hybrid": "SIFS hybrid",
         "sifs-bm25": "SIFS BM25",
         "sifs-semantic": "SIFS semantic",
+        "ripgrep + read": "ripgrep + read",
     }.get(method, method)
     totals = [0.0 for _ in budgets]
     task_count = 0
@@ -359,15 +426,58 @@ def context_curve(result_path: Path, budgets: list[int]) -> tuple[str, list[floa
     return label, [value / task_count for value in totals]
 
 
+def resample_curve(old_budgets: list[int], old_recalls: list[float], new_budgets: list[int]) -> list[float]:
+    if len(old_budgets) < len(old_recalls):
+        return old_recalls
+    if len(old_budgets) > len(old_recalls):
+        old_budgets = old_budgets[: len(old_recalls)]
+    resampled = []
+    for budget in new_budgets:
+        recall_at_budget = 0.0
+        for old_budget, old_recall in zip(old_budgets, old_recalls):
+            if old_budget > budget:
+                break
+            recall_at_budget = float(old_recall)
+        resampled.append(recall_at_budget)
+    return resampled
+
+
 def context_curve_summary(context_results: list[Path], budgets: list[int], summary_path: Path) -> dict:
     raw_paths = [path for path in context_results if path.exists()]
-    if not raw_paths and summary_path.exists():
-        return load_json(summary_path)
-    curves = []
+    if summary_path.exists():
+        summary = load_json(summary_path)
+        old_budgets = [int(budget) for budget in summary.get("budgets", [])]
+        existing_curves = {
+            curve["label"]: {
+                **curve,
+                "recall": resample_curve(old_budgets, curve.get("recall", []), budgets),
+            }
+            for curve in summary.get("curves", [])
+            if curve.get("label") and curve.get("recall")
+        }
+    else:
+        existing_curves = {}
     for path in raw_paths:
         label, recalls = context_curve(path, budgets)
         source = str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else str(path)
-        curves.append({"label": label, "recall": recalls, "source": source})
+        existing_curves[label] = {"label": label, "recall": recalls, "source": source}
+    if not existing_curves:
+        return {
+            "budgets": budgets,
+            "metric": "file_recall_by_retrieved_chunk_tokens",
+            "curves": [],
+        }
+    order = ["SIFS hybrid", "SIFS BM25", "SIFS semantic", "ripgrep + read"]
+    curves = [
+        existing_curves[label]
+        for label in order
+        if label in existing_curves
+    ]
+    curves.extend(
+        curve
+        for label, curve in sorted(existing_curves.items())
+        if label not in order
+    )
     summary = {
         "budgets": budgets,
         "metric": "file_recall_by_retrieved_chunk_tokens",
@@ -378,7 +488,7 @@ def context_curve_summary(context_results: list[Path], budgets: list[int], summa
 
 
 def plot_context_efficiency(context_results: list[Path], out_path: Path, summary_path: Path) -> None:
-    budgets = [0, 100, 250, 500, 1000, 2000, 4000, 8000, 16000]
+    budgets = [0, 100, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000]
     summary = context_curve_summary(context_results, budgets, summary_path)
     budgets = summary["budgets"]
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -437,11 +547,30 @@ def main() -> None:
     plot_speed_quality(rows, assets / "speed_vs_quality_warm.png", warm=True)
     plot_speed_quality(rows, assets / "quality_vs_warm_latency.png", warm=True)
     plot_sifs_breakdowns(args.sifs_result, assets)
+    plot_query_type_by_mode(
+        {
+            "SIFS hybrid": REPO_ROOT / "benchmarks" / "results" / "sifs-mode-hybrid.json",
+            "SIFS BM25": REPO_ROOT / "benchmarks" / "results" / "sifs-mode-bm25.json",
+            "SIFS semantic": REPO_ROOT / "benchmarks" / "results" / "sifs-mode-semantic.json",
+        },
+        assets,
+    )
     plot_context_efficiency(
         [
             REPO_ROOT / "benchmarks" / "results" / "sifs-context-hybrid.json",
             REPO_ROOT / "benchmarks" / "results" / "sifs-context-bm25.json",
             REPO_ROOT / "benchmarks" / "results" / "sifs-context-semantic.json",
+            REPO_ROOT / "benchmarks" / "results" / "ripgrep-context.json",
+        ],
+        assets / "context_efficiency_comparison.png",
+        REPO_ROOT / "benchmarks" / "results" / "sifs-context-curves.json",
+    )
+    plot_context_efficiency(
+        [
+            REPO_ROOT / "benchmarks" / "results" / "sifs-context-hybrid.json",
+            REPO_ROOT / "benchmarks" / "results" / "sifs-context-bm25.json",
+            REPO_ROOT / "benchmarks" / "results" / "sifs-context-semantic.json",
+            REPO_ROOT / "benchmarks" / "results" / "ripgrep-context.json",
         ],
         assets / "sifs_context_efficiency.png",
         REPO_ROOT / "benchmarks" / "results" / "sifs-context-curves.json",
