@@ -1,4 +1,4 @@
-<p align="left">
+<p align="center">
   <img alt="SIFS Is Fast Search" src="assets/logo/sifs-logo.png" width="220">
 </p>
 
