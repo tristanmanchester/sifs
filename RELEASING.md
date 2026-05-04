@@ -68,7 +68,7 @@ formula lives in the tap repository at `Formula/sifs.rb`.
    ```bash
    brew uninstall --ignore-dependencies sifs || true
    brew install --build-from-source /tmp/homebrew-tap/Formula/sifs.rb
-   sifs --version
+   sifs --help
    sifs search authenticate_token /tmp/tiny-repo --mode bm25 --offline --no-cache
    ```
 

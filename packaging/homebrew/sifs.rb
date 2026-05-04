@@ -2,7 +2,7 @@ class Sifs < Formula
   desc "SIFS Is Fast Search: instant local code search for agents"
   homepage "https://github.com/tristanmanchester/sifs"
   url "https://github.com/tristanmanchester/sifs/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
+  sha256 "44a3ec93e1bb2fe2612723cf748045326909ff61225c1dd5e7f057b06a24a1ab"
   license "MIT"
   head "https://github.com/tristanmanchester/sifs.git", branch: "main"
 
