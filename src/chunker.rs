@@ -62,8 +62,8 @@ fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> 
             Some(Chunk {
                 content,
                 file_path: file_path.to_owned(),
-                start_line: source[..range.start].matches('\n').count() + 1,
-                end_line: source[..end_index].matches('\n').count() + 1,
+                start_line: line_number_at_byte(source, range.start),
+                end_line: line_number_at_byte(source, end_index),
                 language: Some(language.clone()),
             })
         })
@@ -197,6 +197,18 @@ fn token_count(source: &str, range: &Range<usize>) -> usize {
         .unwrap_or(0)
 }
 
+fn line_number_at_byte(source: &str, byte_index: usize) -> usize {
+    let index = previous_char_boundary(source, byte_index.min(source.len()));
+    source[..index].matches('\n').count() + 1
+}
+
+fn previous_char_boundary(source: &str, mut byte_index: usize) -> usize {
+    while byte_index > 0 && !source.is_char_boundary(byte_index) {
+        byte_index -= 1;
+    }
+    byte_index
+}
+
 #[cfg(test)]
 mod tests {
     use super::{chunk_lines, chunk_source};
@@ -228,5 +240,28 @@ mod tests {
         assert_eq!(chunks.first().unwrap().start_line, 1);
         assert!(chunks.windows(2).all(|w| w[0].end_line <= w[1].start_line));
         assert!(chunks.iter().all(|chunk| chunk.content.len() <= 1800));
+    }
+
+    #[test]
+    fn code_chunker_handles_multibyte_boundaries_in_line_numbers() {
+        let source = format!(
+            "{}\nconst marker = \"{}\";\n{}",
+            "export const alpha = 1;\n".repeat(100),
+            '\u{e007f}',
+            "export const beta = 2;\n".repeat(100)
+        );
+        let chunks = chunk_source(&source, "many.ts", Some("typescript".to_owned()));
+
+        assert!(!chunks.is_empty());
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.start_line <= chunk.end_line)
+        );
+        assert!(
+            chunks
+                .iter()
+                .any(|chunk| chunk.content.contains('\u{e007f}'))
+        );
     }
 }

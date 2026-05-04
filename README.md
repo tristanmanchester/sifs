@@ -1,3 +1,7 @@
+<p align="left">
+  <img alt="SIFS Is Fast Search" src="assets/logo/sifs-logo.png" width="220">
+</p>
+
 # SIFS
 
 SIFS means "SIFS Is Fast Search." It's a Rust-native code search tool and
@@ -87,6 +91,48 @@ Hybrid search combines semantic and BM25 rankings. It over-fetches candidates,
 normalizes each ranking with reciprocal rank fusion, applies query-aware boosts,
 and reranks the top results. Symbol-like queries lean more heavily on BM25,
 while natural-language queries keep more semantic weight.
+
+## Benchmarks
+
+The current full-corpus benchmark uses the Semble benchmark suite: 63 pinned
+open-source repositories, 19 languages, and 1,251 annotated search tasks. On
+this local run, SIFS reached `NDCG@10=0.8444` with `p50=0.0017ms` repeated-query
+latency after indexing.
+
+SIFS is third on raw NDCG@10 in this comparison, behind CodeRankEmbed Hybrid and
+Semble. The gap is small: SIFS is `0.0100` NDCG@10 behind Semble and `0.0173`
+behind CodeRankEmbed Hybrid, while reporting much lower warm-query latency and
+lower average index time than the embedding-heavy baselines. The intended
+positioning is near-top relevance with a local, agent-native interface and very
+fast interactive search.
+
+| Method | NDCG@10 | Index time | Query p50 |
+|---|---:|---:|---:|
+| CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms |
+| semble | 0.8544 | 439.4 ms | 1.3 ms |
+| **SIFS** | **0.8444** | **93.0 ms** | **0.0017 ms** |
+| CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms |
+| ColGREP | 0.6925 | 3.9 s | 979.3 ms |
+| grepai | 0.5606 | 35.0 s | 47.7 ms |
+| probe | 0.3872 | 0.0000 ms | 207.1 ms |
+| ripgrep | 0.1257 | 0.0000 ms | 8.8 ms |
+
+![SIFS speed and quality compared with code-search baselines](assets/images/speed_vs_quality_combined.png)
+
+SIFS is strongest on symbol-heavy queries while still performing well on
+semantic and architecture questions.
+
+| Query category | NDCG@10 |
+|---|---:|
+| symbol | 0.9566 |
+| semantic | 0.8262 |
+| architecture | 0.8070 |
+
+![SIFS quality by query category](assets/images/sifs_by_category.png)
+
+The benchmark artifacts live in [benchmarks/results](benchmarks/results), and
+the full methodology, per-language breakdown, additional figures, and React
+large-repository smoke result are in [docs/benchmark-report.md](docs/benchmark-report.md).
 
 ## File coverage
 

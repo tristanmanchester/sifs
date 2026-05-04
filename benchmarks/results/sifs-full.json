@@ -1,0 +1,1132 @@
+{
+  "method": "sifs-hybrid",
+  "results": [
+    {
+      "repo": "abseil-cpp",
+      "language": "cpp",
+      "chunks": 3348,
+      "files": 385,
+      "tasks": 20,
+      "ndcg5": 0.9591894455860388,
+      "ndcg10": 0.9591894455860388,
+      "p50_ms": 0.00175,
+      "p90_ms": 0.005791999999999999,
+      "index_ms": 163.140708,
+      "peak_rss_mb": 189.53125,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.9864624069657492,
+        "symbol": 0.7956176024115139
+      }
+    },
+    {
+      "repo": "aeson",
+      "language": "haskell",
+      "chunks": 396,
+      "files": 31,
+      "tasks": 20,
+      "ndcg5": 0.7735617676538717,
+      "ndcg10": 0.7832330878347353,
+      "p50_ms": 0.001709,
+      "p90_ms": 0.003209,
+      "index_ms": 95.29141700000001,
+      "peak_rss_mb": 189.53125,
+      "by_category": {
+        "architecture": 0.6896918237758785,
+        "semantic": 0.8144135091876876
+      }
+    },
+    {
+      "repo": "aiohttp",
+      "language": "python",
+      "chunks": 751,
+      "files": 54,
+      "tasks": 21,
+      "ndcg5": 0.781951744023337,
+      "ndcg10": 0.8355877151698934,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.0024159999999999997,
+      "index_ms": 80.76474999999999,
+      "peak_rss_mb": 190.5,
+      "by_category": {
+        "architecture": 0.8806982804167081,
+        "semantic": 0.709161561738978,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "alamofire",
+      "language": "swift",
+      "chunks": 655,
+      "files": 43,
+      "tasks": 20,
+      "ndcg5": 0.967519867361079,
+      "ndcg10": 0.967519867361079,
+      "p50_ms": 0.001666,
+      "p90_ms": 0.002208,
+      "index_ms": 81.08575,
+      "peak_rss_mb": 190.59375,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.94094521338378,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "axios",
+      "language": "javascript",
+      "chunks": 175,
+      "files": 63,
+      "tasks": 20,
+      "ndcg5": 0.7690200756147336,
+      "ndcg10": 0.7908608192965502,
+      "p50_ms": 0.001542,
+      "p90_ms": 0.002209,
+      "index_ms": 92.676917,
+      "peak_rss_mb": 190.671875,
+      "by_category": {
+        "architecture": 0.5348025172811248,
+        "semantic": 0.7936893110583751,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "axum",
+      "language": "rust",
+      "chunks": 511,
+      "files": 58,
+      "tasks": 20,
+      "ndcg5": 0.7092409467467277,
+      "ndcg10": 0.7236941880626221,
+      "p50_ms": 0.001667,
+      "p90_ms": 0.002542,
+      "index_ms": 88.589708,
+      "peak_rss_mb": 190.703125,
+      "by_category": {
+        "architecture": 0.5385072130432617,
+        "semantic": 0.7910235724765203,
+        "symbol": 0.7630216087726293
+      }
+    },
+    {
+      "repo": "bash-it",
+      "language": "bash",
+      "chunks": 739,
+      "files": 341,
+      "tasks": 20,
+      "ndcg5": 0.716101725721565,
+      "ndcg10": 0.716101725721565,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0022500000000000003,
+      "index_ms": 79.88000000000001,
+      "peak_rss_mb": 191.125,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.6738790925220346,
+        "symbol": 0.7123212623289701
+      }
+    },
+    {
+      "repo": "bats-core",
+      "language": "bash",
+      "chunks": 49,
+      "files": 8,
+      "tasks": 20,
+      "ndcg5": 0.8411732909393883,
+      "ndcg10": 0.8411732909393883,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002,
+      "index_ms": 75.20566600000001,
+      "peak_rss_mb": 191.140625,
+      "by_category": {
+        "architecture": 0.6703622950309012,
+        "semantic": 0.9331484425824198
+      }
+    },
+    {
+      "repo": "cats",
+      "language": "scala",
+      "chunks": 1279,
+      "files": 206,
+      "tasks": 20,
+      "ndcg5": 0.9113147192765458,
+      "ndcg10": 0.9113147192765458,
+      "p50_ms": 0.001833,
+      "p90_ms": 0.00275,
+      "index_ms": 84.416917,
+      "peak_rss_mb": 192.109375,
+      "by_category": {
+        "architecture": 0.8065735963827292,
+        "semantic": 0.9,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "chi",
+      "language": "go",
+      "chunks": 271,
+      "files": 74,
+      "tasks": 18,
+      "ndcg5": 0.8474494408430187,
+      "ndcg10": 0.8474494408430187,
+      "p50_ms": 0.001542,
+      "p90_ms": 0.002208,
+      "index_ms": 83.84454199999999,
+      "peak_rss_mb": 192.234375,
+      "by_category": {
+        "architecture": 0.7602589783263375,
+        "semantic": 0.8957340346272057,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "circe",
+      "language": "scala",
+      "chunks": 199,
+      "files": 26,
+      "tasks": 19,
+      "ndcg5": 0.8568232667341533,
+      "ndcg10": 0.8568232667341533,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002208,
+      "index_ms": 80.850875,
+      "peak_rss_mb": 192.296875,
+      "by_category": {
+        "architecture": 0.7261859507142916,
+        "semantic": 0.8771556649434052,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "click",
+      "language": "python",
+      "chunks": 318,
+      "files": 17,
+      "tasks": 20,
+      "ndcg5": 1.0,
+      "ndcg10": 1.0,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0028339999999999997,
+      "index_ms": 80.278583,
+      "peak_rss_mb": 192.3125,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 1.0,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "cobra",
+      "language": "go",
+      "chunks": 401,
+      "files": 36,
+      "tasks": 20,
+      "ndcg5": 0.9590790148145552,
+      "ndcg10": 0.9590790148145552,
+      "p50_ms": 0.002041,
+      "p90_ms": 0.005334,
+      "index_ms": 86.04595900000001,
+      "peak_rss_mb": 192.703125,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.9255982087537366,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "commons-lang",
+      "language": "java",
+      "chunks": 3158,
+      "files": 259,
+      "tasks": 21,
+      "ndcg5": 0.8574255454038016,
+      "ndcg10": 0.865865511441137,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002333,
+      "index_ms": 87.40579199999999,
+      "peak_rss_mb": 194.59375,
+      "by_category": {
+        "architecture": 0.5967954931831687,
+        "semantic": 0.8851992329081695,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "curl",
+      "language": "c",
+      "chunks": 4678,
+      "files": 362,
+      "tasks": 20,
+      "ndcg5": 0.693408995401379,
+      "ndcg10": 0.7208906749376437,
+      "p50_ms": 0.0015,
+      "p90_ms": 0.002208,
+      "index_ms": 77.46820799999999,
+      "peak_rss_mb": 213.859375,
+      "by_category": {
+        "architecture": 0.5951341319008914,
+        "semantic": 0.8237823919677137
+      }
+    },
+    {
+      "repo": "dapper",
+      "language": "csharp",
+      "chunks": 441,
+      "files": 51,
+      "tasks": 20,
+      "ndcg5": 0.9446394630357187,
+      "ndcg10": 0.9446394630357187,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002334,
+      "index_ms": 72.90458299999999,
+      "peak_rss_mb": 213.90625,
+      "by_category": {
+        "architecture": 0.9077324383928644,
+        "semantic": 0.9432199620879166,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "ecto",
+      "language": "elixir",
+      "chunks": 759,
+      "files": 50,
+      "tasks": 19,
+      "ndcg5": 0.8890941716165459,
+      "ndcg10": 0.9078419183064419,
+      "p50_ms": 0.002,
+      "p90_ms": 0.00325,
+      "index_ms": 74.29925,
+      "peak_rss_mb": 214.171875,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.8936974380193029,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "exposed",
+      "language": "kotlin",
+      "chunks": 757,
+      "files": 100,
+      "tasks": 20,
+      "ndcg5": 0.6836931583004674,
+      "ndcg10": 0.7392043170715574,
+      "p50_ms": 0.001666,
+      "p90_ms": 0.002542,
+      "index_ms": 79.394333,
+      "peak_rss_mb": 214.265625,
+      "by_category": {
+        "architecture": 0.5956279150604717,
+        "semantic": 0.7140858997321237,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "express",
+      "language": "javascript",
+      "chunks": 52,
+      "files": 6,
+      "tasks": 20,
+      "ndcg5": 0.9135032847341471,
+      "ndcg10": 0.9301699514008138,
+      "p50_ms": 0.001542,
+      "p90_ms": 0.002166,
+      "index_ms": 74.67241700000001,
+      "peak_rss_mb": 214.265625,
+      "by_category": {
+        "architecture": 0.9671522420975631,
+        "semantic": 0.8833333333333332,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "fastapi",
+      "language": "python",
+      "chunks": 603,
+      "files": 46,
+      "tasks": 20,
+      "ndcg5": 0.7742068779742652,
+      "ndcg10": 0.8297832939936765,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002208,
+      "index_ms": 75.145583,
+      "peak_rss_mb": 214.265625,
+      "by_category": {
+        "architecture": 0.7638428337318656,
+        "semantic": 0.781095755468809,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "flask",
+      "language": "python",
+      "chunks": 294,
+      "files": 24,
+      "tasks": 21,
+      "ndcg5": 0.8691742205151365,
+      "ndcg10": 0.8779635394094016,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002375,
+      "index_ms": 76.893541,
+      "peak_rss_mb": 214.265625,
+      "by_category": {
+        "architecture": 0.8620191167507905,
+        "semantic": 0.8548273191219913,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "fmtlib",
+      "language": "cpp",
+      "chunks": 486,
+      "files": 15,
+      "tasks": 20,
+      "ndcg5": 0.9161732909393884,
+      "ndcg10": 0.9161732909393884,
+      "p50_ms": 0.001542,
+      "p90_ms": 0.002,
+      "index_ms": 70.93816699999999,
+      "peak_rss_mb": 214.265625,
+      "by_category": {
+        "architecture": 0.8769765845238192,
+        "semantic": 0.9066097189440221,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "gin",
+      "language": "go",
+      "chunks": 582,
+      "files": 99,
+      "tasks": 20,
+      "ndcg5": 0.7777946131625244,
+      "ndcg10": 0.7880137330419487,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002375,
+      "index_ms": 73.706125,
+      "peak_rss_mb": 214.28125,
+      "by_category": {
+        "architecture": 0.8297373295767306,
+        "semantic": 0.7074409712162355,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "gson",
+      "language": "java",
+      "chunks": 1481,
+      "files": 210,
+      "tasks": 20,
+      "ndcg5": 0.8265962600912928,
+      "ndcg10": 0.8502782862461657,
+      "p50_ms": 0.00175,
+      "p90_ms": 0.003125,
+      "index_ms": 78.090666,
+      "peak_rss_mb": 215.984375,
+      "by_category": {
+        "architecture": 0.7386603478656275,
+        "semantic": 0.8050924333460804,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "guzzle",
+      "language": "php",
+      "chunks": 208,
+      "files": 41,
+      "tasks": 20,
+      "ndcg5": 0.8524853881315927,
+      "ndcg10": 0.8621567083124564,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002042,
+      "index_ms": 78.224542,
+      "peak_rss_mb": 215.984375,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.7879333974037791,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "http4s",
+      "language": "scala",
+      "chunks": 971,
+      "files": 197,
+      "tasks": 20,
+      "ndcg5": 0.9025325271359822,
+      "ndcg10": 0.9025325271359822,
+      "p50_ms": 0.001667,
+      "p90_ms": 0.0022919999999999998,
+      "index_ms": 74.693125,
+      "peak_rss_mb": 216.0,
+      "by_category": {
+        "architecture": 0.9732402630493958,
+        "semantic": 0.8664949823979613,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "httpx",
+      "language": "python",
+      "chunks": 251,
+      "files": 23,
+      "tasks": 21,
+      "ndcg5": 0.8520375838435416,
+      "ndcg10": 0.8617700789668028,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002334,
+      "index_ms": 71.66229200000001,
+      "peak_rss_mb": 216.015625,
+      "by_category": {
+        "architecture": 0.804418536224494,
+        "semantic": 0.8295824338590445,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "jackson-databind",
+      "language": "java",
+      "chunks": 4641,
+      "files": 572,
+      "tasks": 20,
+      "ndcg5": 0.6788948224731932,
+      "ndcg10": 0.703567183668512,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0025,
+      "index_ms": 72.551833,
+      "peak_rss_mb": 216.921875,
+      "by_category": {
+        "architecture": 0.6488153892673832,
+        "semantic": 0.5500057124105858,
+        "symbol": 0.9795358858896749
+      }
+    },
+    {
+      "repo": "kotlinx-coroutines",
+      "language": "kotlin",
+      "chunks": 891,
+      "files": 111,
+      "tasks": 20,
+      "ndcg5": 0.8705285910760185,
+      "ndcg10": 0.8705285910760185,
+      "p50_ms": 0.002417,
+      "p90_ms": 0.007125,
+      "index_ms": 86.88412500000001,
+      "peak_rss_mb": 217.15625,
+      "by_category": {
+        "architecture": 0.8333333333333334,
+        "semantic": 0.850755130108598,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "ktor",
+      "language": "kotlin",
+      "chunks": 429,
+      "files": 89,
+      "tasks": 20,
+      "ndcg5": 0.7234439454440423,
+      "ndcg10": 0.7726129163992003,
+      "p50_ms": 0.0018750000000000001,
+      "p90_ms": 0.003,
+      "index_ms": 96.325959,
+      "peak_rss_mb": 217.1875,
+      "by_category": {
+        "architecture": 0.7604622342516933,
+        "semantic": 0.589860384031736,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "laravel-framework",
+      "language": "php",
+      "chunks": 6221,
+      "files": 1605,
+      "tasks": 20,
+      "ndcg5": 0.7294871278395016,
+      "ndcg10": 0.7753269664297282,
+      "p50_ms": 0.0018750000000000001,
+      "p90_ms": 0.003333,
+      "index_ms": 97.78091699999999,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7269608328345271,
+        "semantic": 0.7686459443058747,
+        "symbol": 0.875
+      }
+    },
+    {
+      "repo": "lazy.nvim",
+      "language": "lua",
+      "chunks": 309,
+      "files": 54,
+      "tasks": 20,
+      "ndcg5": 0.691170668855047,
+      "ndcg10": 0.7247542720497345,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002458,
+      "index_ms": 93.62462500000001,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7542053617209935,
+        "semantic": 0.7006579259550682
+      }
+    },
+    {
+      "repo": "libuv",
+      "language": "c",
+      "chunks": 1371,
+      "files": 104,
+      "tasks": 20,
+      "ndcg5": 0.6766595518583873,
+      "ndcg10": 0.7021041158785373,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.0026249999999999997,
+      "index_ms": 89.199625,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.6690045731983747,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "messagepack-csharp",
+      "language": "csharp",
+      "chunks": 1195,
+      "files": 115,
+      "tasks": 20,
+      "ndcg5": 0.7957638439607346,
+      "ndcg10": 0.8134668144732652,
+      "p50_ms": 0.001666,
+      "p90_ms": 0.002666,
+      "index_ms": 87.07724999999999,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.593831484683912,
+        "semantic": 0.766001150081073,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "mini.nvim",
+      "language": "lua",
+      "chunks": 2156,
+      "files": 45,
+      "tasks": 20,
+      "ndcg5": 0.9815464876785729,
+      "ndcg10": 0.9815464876785729,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002333,
+      "index_ms": 84.722917,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.9769331095982161
+      }
+    },
+    {
+      "repo": "model2vec",
+      "language": "python",
+      "chunks": 110,
+      "files": 24,
+      "tasks": 20,
+      "ndcg5": 0.591756889007783,
+      "ndcg10": 0.6112047937261857,
+      "p50_ms": 0.001584,
+      "p90_ms": 0.002084,
+      "index_ms": 74.45741699999999,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.5731820387142755,
+        "semantic": 0.5824968796289245,
+        "symbol": 0.7956176024115139
+      }
+    },
+    {
+      "repo": "monolog",
+      "language": "php",
+      "chunks": 422,
+      "files": 121,
+      "tasks": 20,
+      "ndcg5": 0.8594421851871671,
+      "ndcg10": 0.8594421851871671,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002125,
+      "index_ms": 73.838417,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.6627674007669935,
+        "semantic": 0.8875006699908374,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "newtonsoft-json",
+      "language": "csharp",
+      "chunks": 2304,
+      "files": 240,
+      "tasks": 20,
+      "ndcg5": 0.8596713201808635,
+      "ndcg10": 0.8747228199640625,
+      "p50_ms": 0.001667,
+      "p90_ms": 0.002375,
+      "index_ms": 70.989333,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8655710672695451,
+        "semantic": 0.8455481814239983,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "nlohmann-json",
+      "language": "cpp",
+      "chunks": 813,
+      "files": 47,
+      "tasks": 20,
+      "ndcg5": 0.791688353072006,
+      "ndcg10": 0.791688353072006,
+      "p50_ms": 0.001584,
+      "p90_ms": 0.002125,
+      "index_ms": 71.061292,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7521905654163541,
+        "semantic": 0.8068433103525644,
+        "symbol": 0.8333333333333334
+      }
+    },
+    {
+      "repo": "nvm",
+      "language": "bash",
+      "chunks": 155,
+      "files": 6,
+      "tasks": 20,
+      "ndcg5": 1.0,
+      "ndcg10": 1.0,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002042,
+      "index_ms": 70.53175,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 1.0
+      }
+    },
+    {
+      "repo": "pandoc",
+      "language": "haskell",
+      "chunks": 3111,
+      "files": 237,
+      "tasks": 20,
+      "ndcg5": 0.7327324383928644,
+      "ndcg10": 0.749399105059531,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0022919999999999998,
+      "index_ms": 73.028792,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7202324383928644,
+        "semantic": 0.7688435495039755
+      }
+    },
+    {
+      "repo": "phoenix",
+      "language": "elixir",
+      "chunks": 554,
+      "files": 74,
+      "tasks": 19,
+      "ndcg5": 0.8789832175855693,
+      "ndcg10": 0.8789832175855693,
+      "p50_ms": 0.002,
+      "p90_ms": 0.0029579999999999997,
+      "index_ms": 73.332416,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8487860913867739,
+        "semantic": 0.8659437588064073,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "plug",
+      "language": "elixir",
+      "chunks": 251,
+      "files": 41,
+      "tasks": 20,
+      "ndcg5": 0.8911732909393884,
+      "ndcg10": 0.8911732909393884,
+      "p50_ms": 0.001958,
+      "p90_ms": 0.003083,
+      "index_ms": 79.245708,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.8445332727705548,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "pydantic",
+      "language": "python",
+      "chunks": 1534,
+      "files": 103,
+      "tasks": 20,
+      "ndcg5": 0.7752968226739916,
+      "ndcg10": 0.7958885146957633,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002792,
+      "index_ms": 82.737083,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7293228920075293,
+        "semantic": 0.7726975370363879,
+        "symbol": 0.9261859507142916
+      }
+    },
+    {
+      "repo": "rack",
+      "language": "ruby",
+      "chunks": 279,
+      "files": 48,
+      "tasks": 18,
+      "ndcg5": 0.8898768089336665,
+      "ndcg10": 0.8898768089336665,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002458,
+      "index_ms": 80.067083,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 1.0,
+        "semantic": 0.8017782560805999,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "rails",
+      "language": "ruby",
+      "chunks": 529,
+      "files": 156,
+      "tasks": 20,
+      "ndcg5": 0.8156918501917483,
+      "ndcg10": 0.85328454572726,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0029170000000000003,
+      "index_ms": 83.3825,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8105607475426484,
+        "semantic": 0.9080295981582889,
+        "symbol": 0.853609249888336
+      }
+    },
+    {
+      "repo": "redis",
+      "language": "c",
+      "chunks": 6361,
+      "files": 214,
+      "tasks": 20,
+      "ndcg5": 0.8596268032608154,
+      "ndcg10": 0.8774371626162166,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002334,
+      "index_ms": 88.973833,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.9061606311644852,
+        "semantic": 0.848713694067948
+      }
+    },
+    {
+      "repo": "redux",
+      "language": "javascript",
+      "chunks": 54,
+      "files": 17,
+      "tasks": 20,
+      "ndcg5": 0.8240663550396519,
+      "ndcg10": 0.8329283193788543,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002042,
+      "index_ms": 80.130834,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7879816382506154,
+        "semantic": 0.7700751731192659,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "requests",
+      "language": "python",
+      "chunks": 172,
+      "files": 18,
+      "tasks": 20,
+      "ndcg5": 0.9673793323602942,
+      "ndcg10": 0.9673793323602942,
+      "p50_ms": 0.001542,
+      "p90_ms": 0.002458,
+      "index_ms": 81.137291,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.9770630826137678,
+        "semantic": 0.9385181336136884,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "serde",
+      "language": "rust",
+      "chunks": 1172,
+      "files": 208,
+      "tasks": 20,
+      "ndcg5": 0.7693426403617271,
+      "ndcg10": 0.7693426403617271,
+      "p50_ms": 0.001666,
+      "p90_ms": 0.0025,
+      "index_ms": 141.71345799999997,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8,
+        "semantic": 0.5644754678724236,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "sinatra",
+      "language": "ruby",
+      "chunks": 72,
+      "files": 7,
+      "tasks": 20,
+      "ndcg5": 0.9346268032608155,
+      "ndcg10": 0.9346268032608155,
+      "p50_ms": 0.001666,
+      "p90_ms": 0.0026249999999999997,
+      "index_ms": 88.927834,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8123212623289702,
+        "semantic": 0.9589921948412731,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "snapkit",
+      "language": "swift",
+      "chunks": 109,
+      "files": 37,
+      "tasks": 13,
+      "ndcg5": 0.7575066651696833,
+      "ndcg10": 0.786583749815594,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002667,
+      "index_ms": 157.65575,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.6369566941034951,
+        "semantic": 0.7592455236131767,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "starlette",
+      "language": "python",
+      "chunks": 215,
+      "files": 34,
+      "tasks": 21,
+      "ndcg5": 0.9455821018620179,
+      "ndcg10": 0.9540220678993534,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0027080000000000003,
+      "index_ms": 91.196083,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.9122239478078565,
+        "semantic": 1.0,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "telescope.nvim",
+      "language": "lua",
+      "chunks": 549,
+      "files": 55,
+      "tasks": 20,
+      "ndcg5": 0.8341449286659909,
+      "ndcg10": 0.8341449286659909,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002208,
+      "index_ms": 114.493,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.9271946440147868,
+        "semantic": 0.7840412357858699
+      }
+    },
+    {
+      "repo": "tokio",
+      "language": "rust",
+      "chunks": 2771,
+      "files": 375,
+      "tasks": 20,
+      "ndcg5": 0.9113147192765458,
+      "ndcg10": 0.9324542109968783,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002334,
+      "index_ms": 88.351,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8029215983923241,
+        "semantic": 0.9789443286979528,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "trpc",
+      "language": "typescript",
+      "chunks": 371,
+      "files": 107,
+      "tasks": 20,
+      "ndcg5": 0.7778956975085942,
+      "ndcg10": 0.8256210822465337,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002208,
+      "index_ms": 76.977959,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7349471510698962,
+        "semantic": 0.8046920623387869,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "vapor",
+      "language": "swift",
+      "chunks": 818,
+      "files": 218,
+      "tasks": 20,
+      "ndcg5": 0.8109262406781166,
+      "ndcg10": 0.8308166807384045,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.0026249999999999997,
+      "index_ms": 74.129667,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.579065904256432,
+        "semantic": 0.8485097072856284,
+        "symbol": 1.0
+      }
+    },
+    {
+      "repo": "vitest",
+      "language": "typescript",
+      "chunks": 1113,
+      "files": 236,
+      "tasks": 20,
+      "ndcg5": 0.7142789260714373,
+      "ndcg10": 0.7467188365773904,
+      "p50_ms": 0.001625,
+      "p90_ms": 0.002375,
+      "index_ms": 151.218625,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.7013756895833502,
+        "semantic": 0.7359266218614772,
+        "symbol": 0.8769765845238192
+      }
+    },
+    {
+      "repo": "xmonad",
+      "language": "haskell",
+      "chunks": 123,
+      "files": 7,
+      "tasks": 20,
+      "ndcg5": 0.8402841628990885,
+      "ndcg10": 0.8505032827785126,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002208,
+      "index_ms": 75.46116699999999,
+      "peak_rss_mb": 233.5625,
+      "by_category": {
+        "architecture": 0.8435257685534172,
+        "semantic": 0.8551549589285763
+      }
+    },
+    {
+      "repo": "zig",
+      "language": "zig",
+      "chunks": 13201,
+      "files": 550,
+      "tasks": 20,
+      "ndcg5": 0.8911732909393884,
+      "ndcg10": 0.8911732909393884,
+      "p50_ms": 0.001667,
+      "p90_ms": 0.0025840000000000004,
+      "index_ms": 83.36345800000001,
+      "peak_rss_mb": 256.921875,
+      "by_category": {
+        "architecture": 0.643558852691131,
+        "semantic": 0.9348699565126102
+      }
+    },
+    {
+      "repo": "zig-clap",
+      "language": "zig",
+      "chunks": 103,
+      "files": 12,
+      "tasks": 20,
+      "ndcg5": 0.9261859507142916,
+      "ndcg10": 0.9261859507142916,
+      "p50_ms": 0.001542,
+      "p90_ms": 0.002208,
+      "index_ms": 80.567792,
+      "peak_rss_mb": 257.46875,
+      "by_category": {
+        "architecture": 0.8154648767857288,
+        "semantic": 0.9384882922619097
+      }
+    },
+    {
+      "repo": "zls",
+      "language": "zig",
+      "chunks": 1311,
+      "files": 44,
+      "tasks": 20,
+      "ndcg5": 0.8977197786179613,
+      "ndcg10": 0.8977197786179613,
+      "p50_ms": 0.001583,
+      "p90_ms": 0.002375,
+      "index_ms": 126.39133299999999,
+      "peak_rss_mb": 257.46875,
+      "by_category": {
+        "architecture": 0.9186680797247704,
+        "semantic": 0.8864399241758332
+      }
+    },
+    {
+      "repo": "zod",
+      "language": "typescript",
+      "chunks": 1851,
+      "files": 277,
+      "tasks": 20,
+      "ndcg5": 0.5645543447066197,
+      "ndcg10": 0.5932850759029289,
+      "p50_ms": 0.00175,
+      "p90_ms": 0.0024159999999999997,
+      "index_ms": 503.2232920000001,
+      "peak_rss_mb": 271.25,
+      "by_category": {
+        "architecture": 0.6403884674895062,
+        "semantic": 0.5618575113923501,
+        "symbol": 0.6666666666666666
+      }
+    }
+  ],
+  "summary": {
+    "repos": 63,
+    "tasks": 1251,
+    "avg_ndcg10": 0.8444183076002316,
+    "avg_p50_ms": 0.0016651087130295766
+  }
+}

@@ -154,6 +154,23 @@ These measurements were collected on May 4, 2026, on this development machine.
 They are useful as a reference point, but they aren't a hardware-independent
 performance contract.
 
+Full Semble corpus comparison:
+
+- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.8444183076002316`,
+  and `p50=0.0016651087130295766ms`.
+- The detailed report, graphs, baseline comparison table, and per-language
+  breakdown are in [Benchmark Report](benchmark-report.md).
+- The raw SIFS payload is in
+  [benchmarks/results/sifs-full.json](../benchmarks/results/sifs-full.json).
+
+React large-repository smoke benchmark:
+
+- Shallow clone of `facebook/react`: `index_ms=8289.240`,
+  `query_p50_ms=0.002`, `query_p90_ms=0.003`, `peak_rss_mb=362.8`,
+  `files=4373`, and `chunks=21117`.
+- Captured output is in
+  [benchmarks/results/react-smoke.txt](../benchmarks/results/react-smoke.txt).
+
 FastAPI annotated benchmark:
 
 - SIFS warm cache: `NDCG@5=0.7742068779742652`,
