@@ -4,6 +4,13 @@ SIFS includes benchmark utilities for search quality, indexing speed, query
 latency, and embedding parity checks. Use them when changing file walking,
 chunking, model loading, sparse search, dense search, or reranking.
 
+The `sifs-benchmark` and `sifs-embed` binaries are diagnostics. Build them with
+the explicit `diagnostics` feature.
+
+```bash
+cargo build --release --features diagnostics --bins
+```
+
 ## Quality and latency benchmark
 
 The `sifs-benchmark` binary runs annotated search tasks over one or more pinned
