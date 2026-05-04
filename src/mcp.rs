@@ -20,6 +20,8 @@ const FIND_RELATED_DESCRIPTION: &str = include_str!("agents/tools/find-related.m
 const INDEX_STATUS_DESCRIPTION: &str = include_str!("agents/tools/index-status.md");
 const NO_RESULTS_MESSAGE: &str = include_str!("agents/messages/no-results.md");
 const NO_REPO_MESSAGE: &str = include_str!("agents/messages/no-repo.md");
+const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[DEFAULT_PROTOCOL_VERSION];
 
 pub fn serve(default_source: Option<String>, ref_name: Option<String>) -> Result<()> {
     serve_with_options(
@@ -50,7 +52,8 @@ pub fn serve_with_options(
     let mut reader = BufReader::new(stdin.lock());
     let mut stdout = io::stdout();
 
-    while let Some(message) = read_message(&mut reader)? {
+    while let Some(incoming) = read_message(&mut reader)? {
+        let message = incoming.value;
         let Some(id) = message.get("id").cloned() else {
             continue;
         };
@@ -60,7 +63,7 @@ pub fn serve_with_options(
             .unwrap_or_default();
         let result = match method {
             "initialize" => json!({
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": negotiated_protocol_version(&message),
                 "capabilities": {"tools": {}, "resources": {}},
                 "serverInfo": {"name": "sifs", "version": env!("CARGO_PKG_VERSION")},
                 "instructions": build_instructions(default_source.as_deref(), ref_name.as_deref())
@@ -84,9 +87,25 @@ pub fn serve_with_options(
         write_message(
             &mut stdout,
             &json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            incoming.framing,
         )?;
     }
     Ok(())
+}
+
+fn negotiated_protocol_version(message: &Value) -> &'static str {
+    let requested = message
+        .get("params")
+        .and_then(|params| params.get("protocolVersion"))
+        .and_then(Value::as_str);
+    requested
+        .and_then(|version| {
+            SUPPORTED_PROTOCOL_VERSIONS
+                .iter()
+                .copied()
+                .find(|supported| *supported == version)
+        })
+        .unwrap_or(DEFAULT_PROTOCOL_VERSION)
 }
 
 struct IndexCache {
@@ -918,38 +937,84 @@ fn tool_schemas() -> Vec<Value> {
     ]
 }
 
-fn read_message(reader: &mut impl BufRead) -> Result<Option<Value>> {
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            return Ok(None);
-        }
-        let trimmed = line.trim_end();
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-            content_length = Some(
-                value
-                    .trim()
-                    .parse::<usize>()
-                    .context("parse Content-Length")?,
-            );
-        }
-    }
-    let Some(length) = content_length else {
-        return Ok(None);
-    };
-    let mut body = vec![0u8; length];
-    reader.read_exact(&mut body)?;
-    Ok(Some(serde_json::from_slice(&body)?))
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MessageFraming {
+    ContentLength,
+    LineDelimited,
 }
 
-fn write_message(writer: &mut impl Write, message: &Value) -> Result<()> {
+#[derive(Debug)]
+struct IncomingMessage {
+    value: Value,
+    framing: MessageFraming,
+}
+
+fn read_message(reader: &mut impl BufRead) -> Result<Option<IncomingMessage>> {
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    let trimmed = trim_line_end(&line);
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+        let mut content_length = Some(
+            value
+                .trim()
+                .parse::<usize>()
+                .context("parse Content-Length")?,
+        );
+        loop {
+            line.clear();
+            if reader.read_line(&mut line)? == 0 {
+                anyhow::bail!("unexpected EOF while reading MCP headers");
+            }
+            let trimmed = trim_line_end(&line);
+            if trimmed.is_empty() {
+                break;
+            }
+            if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+                content_length = Some(
+                    value
+                        .trim()
+                        .parse::<usize>()
+                        .context("parse Content-Length")?,
+                );
+            }
+        }
+        let length = content_length.context("missing Content-Length")?;
+        let mut body = vec![0u8; length];
+        reader.read_exact(&mut body)?;
+        return Ok(Some(IncomingMessage {
+            value: serde_json::from_slice(&body)?,
+            framing: MessageFraming::ContentLength,
+        }));
+    }
+
+    Ok(Some(IncomingMessage {
+        value: serde_json::from_str(trimmed)?,
+        framing: MessageFraming::LineDelimited,
+    }))
+}
+
+fn trim_line_end(line: &str) -> &str {
+    line.trim_end_matches(['\r', '\n'])
+}
+
+fn write_message(writer: &mut impl Write, message: &Value, framing: MessageFraming) -> Result<()> {
     let body = serde_json::to_vec(message)?;
-    write!(writer, "Content-Length: {}\r\n\r\n", body.len())?;
-    writer.write_all(&body)?;
+    match framing {
+        MessageFraming::ContentLength => {
+            write!(writer, "Content-Length: {}\r\n\r\n", body.len())?;
+            writer.write_all(&body)?;
+        }
+        MessageFraming::LineDelimited => {
+            writer.write_all(&body)?;
+            writer.write_all(b"\n")?;
+        }
+    }
     writer.flush()?;
     Ok(())
 }
@@ -957,10 +1022,11 @@ fn write_message(writer: &mut impl Write, message: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexCache, build_instructions, handle_resource_read, handle_tool_call, selected_source,
-        tool_schemas,
+        IndexCache, MessageFraming, build_instructions, handle_resource_read, handle_tool_call,
+        negotiated_protocol_version, read_message, selected_source, tool_schemas, write_message,
     };
     use serde_json::json;
+    use std::io::{BufReader, Cursor};
 
     #[test]
     fn default_source_allows_repo_override() {
@@ -978,6 +1044,81 @@ mod tests {
             selected_source(&json!({}), Some("/default/repo")).unwrap(),
             Some("/default/repo")
         );
+    }
+
+    #[test]
+    fn reads_content_length_framed_message() {
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#;
+        let input = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+        let mut reader = BufReader::new(Cursor::new(input));
+
+        let message = read_message(&mut reader).unwrap().unwrap();
+
+        assert_eq!(message.framing, MessageFraming::ContentLength);
+        assert_eq!(message.value["method"], "initialize");
+    }
+
+    #[test]
+    fn reads_line_delimited_message() {
+        let input = r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#.to_owned() + "\n";
+        let mut reader = BufReader::new(Cursor::new(input));
+
+        let message = read_message(&mut reader).unwrap().unwrap();
+
+        assert_eq!(message.framing, MessageFraming::LineDelimited);
+        assert_eq!(message.value["method"], "initialize");
+    }
+
+    #[test]
+    fn writes_content_length_framed_message() {
+        let mut output = Vec::new();
+
+        write_message(
+            &mut output,
+            &json!({"jsonrpc": "2.0", "id": 1}),
+            MessageFraming::ContentLength,
+        )
+        .unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.starts_with("Content-Length: "));
+        assert!(output.contains("\r\n\r\n"));
+        assert!(output.ends_with(r#"{"id":1,"jsonrpc":"2.0"}"#));
+    }
+
+    #[test]
+    fn writes_line_delimited_message() {
+        let mut output = Vec::new();
+
+        write_message(
+            &mut output,
+            &json!({"jsonrpc": "2.0", "id": 1}),
+            MessageFraming::LineDelimited,
+        )
+        .unwrap();
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "{\"id\":1,\"jsonrpc\":\"2.0\"}\n"
+        );
+    }
+
+    #[test]
+    fn negotiates_supported_protocol_version() {
+        let message = json!({
+            "params": {"protocolVersion": "2024-11-05"}
+        });
+
+        assert_eq!(negotiated_protocol_version(&message), "2024-11-05");
+    }
+
+    #[test]
+    fn unsupported_protocol_version_falls_back_to_default() {
+        let message = json!({
+            "params": {"protocolVersion": "2099-01-01"}
+        });
+
+        assert_eq!(negotiated_protocol_version(&message), "2024-11-05");
     }
 
     #[test]

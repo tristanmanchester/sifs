@@ -40,6 +40,8 @@ path to the release binary when the client doesn't run from the SIFS repository.
 [mcp_servers.sifs]
 command = "/absolute/path/to/sifs"
 args = ["mcp"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60
 ```
 
 For Git-backed search, pass the Git URL and optional ref as arguments.
@@ -48,6 +50,8 @@ For Git-backed search, pass the Git URL and optional ref as arguments.
 [mcp_servers.sifs]
 command = "/absolute/path/to/sifs"
 args = ["mcp", "https://github.com/owner/project", "--ref", "main"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60
 ```
 
 ## Install into Codex or Claude Code
@@ -106,11 +110,32 @@ The installer rejects `--offline` with Git URL sources, matching server mode.
 For local sources it canonicalizes the path before writing config.
 
 Use `sifs mcp doctor` to inspect readiness and print the exact server command
-that clients should launch.
+that clients should launch. Doctor also runs bounded MCP initialization probes
+for both newline-delimited and `Content-Length` stdio framing, then reports BM25
+search smoke separately so startup handshakes are not confused with indexing or
+search behavior.
 
 ```bash
 sifs mcp doctor /path/to/project --offline --no-cache
 ```
+
+Example doctor output includes:
+
+```text
+MCP handshake (newline): passed (... ms)
+MCP handshake (Content-Length): passed (... ms)
+BM25 smoke: passed
+```
+
+If Codex reports that `sifs` timed out during startup, check these in order:
+
+1. Run `sifs mcp doctor /path/to/project --offline --no-cache`.
+2. Confirm the configured server command with `codex mcp get sifs`.
+3. If the command or arguments are stale, rerun `sifs mcp install --client codex --force`.
+4. Confirm `startup_timeout_sec` and `tool_timeout_sec` are present in the
+   Codex config. Startup timeout covers the MCP server handshake; tool timeout
+   covers later search/index tool calls.
+5. Fully restart the MCP client after changing MCP configuration.
 
 Security note: SIFS runs as a local stdio process and can read local paths
 provided in tool calls. Project-scoped Claude Code `.mcp.json` files are shared
@@ -118,9 +143,16 @@ through the repository, so only add them to trusted repositories.
 
 ## Protocol surface
 
-The server uses JSON-RPC messages with `Content-Length` framing. It handles the
-standard MCP initialization and tool-list methods that clients call during
-startup.
+The server uses JSON-RPC over stdio. It accepts newline-delimited JSON-RPC
+messages, matching current MCP stdio transports, and also accepts
+`Content-Length` framed messages for clients that use that framing. Responses
+use the same framing style as the request so clients do not need to negotiate a
+separate transport mode.
+
+`initialize` is intentionally lightweight: it returns protocol metadata,
+capabilities, server information, and usage instructions without building or
+loading an index. Index work happens during tool calls such as `search` or
+`refresh_index`, not during MCP startup.
 
 Supported methods are:
 

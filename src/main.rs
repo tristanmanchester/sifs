@@ -11,9 +11,11 @@ use sifs::{
     load_model_with_options, model_status, platform_cache_root, resolve_chunk,
 };
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command as ProcessCommand;
-use std::time::Instant;
+use std::process::{Command as ProcessCommand, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(
@@ -1894,6 +1896,8 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
         "MCP command: {}",
         display_command(&mcp_server_command(&config))
     );
+    report_mcp_handshake(&config, HandshakeFraming::LineDelimited);
+    report_mcp_handshake(&config, HandshakeFraming::ContentLength);
 
     if let Some(source) = &config.source
         && !is_git_url(source)
@@ -1925,6 +1929,158 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum HandshakeFraming {
+    LineDelimited,
+    ContentLength,
+}
+
+impl HandshakeFraming {
+    fn label(self) -> &'static str {
+        match self {
+            HandshakeFraming::LineDelimited => "newline",
+            HandshakeFraming::ContentLength => "Content-Length",
+        }
+    }
+}
+
+fn report_mcp_handshake(config: &McpConfig, framing: HandshakeFraming) {
+    match mcp_handshake_smoke(config, framing) {
+        Ok(elapsed) => println!(
+            "MCP handshake ({}): passed ({} ms)",
+            framing.label(),
+            elapsed.as_millis()
+        ),
+        Err(error) => println!("MCP handshake ({}): failed ({error})", framing.label()),
+    }
+}
+
+fn mcp_handshake_smoke(config: &McpConfig, framing: HandshakeFraming) -> Result<Duration> {
+    let input = mcp_initialize_probe(framing)?;
+    let started = Instant::now();
+    let output = run_mcp_probe(config, &input, Duration::from_secs(5))?;
+    let elapsed = started.elapsed();
+    if !output.status.success() {
+        bail!(
+            "server exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    validate_mcp_initialize_response(framing, &output.stdout)?;
+    Ok(elapsed)
+}
+
+fn mcp_initialize_probe(framing: HandshakeFraming) -> Result<Vec<u8>> {
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "sifs-doctor", "version": env!("CARGO_PKG_VERSION")}
+        }
+    }))?;
+    Ok(match framing {
+        HandshakeFraming::LineDelimited => {
+            let mut input = body;
+            input.push(b'\n');
+            input
+        }
+        HandshakeFraming::ContentLength => {
+            let mut input = format!("Content-Length: {}\r\n\r\n", body.len()).into_bytes();
+            input.extend(body);
+            input
+        }
+    })
+}
+
+fn run_mcp_probe(config: &McpConfig, input: &[u8], timeout: Duration) -> Result<Output> {
+    let mut child = ProcessCommand::new(&config.sifs_path)
+        .args(mcp_args(config))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "launch MCP command {}",
+                display_command(&mcp_server_command(config))
+            )
+        })?;
+
+    child
+        .stdin
+        .as_mut()
+        .context("open MCP probe stdin")?
+        .write_all(input)
+        .context("write MCP initialize probe")?;
+    drop(child.stdin.take());
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(child.wait_with_output()?);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output()?;
+            bail!(
+                "timed out after {} ms; stderr: {}",
+                timeout.as_millis(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn validate_mcp_initialize_response(framing: HandshakeFraming, stdout: &[u8]) -> Result<()> {
+    let value = match framing {
+        HandshakeFraming::LineDelimited => {
+            let line = std::str::from_utf8(stdout)
+                .context("decode newline MCP response")?
+                .lines()
+                .next()
+                .context("missing newline MCP response")?;
+            serde_json::from_str::<Value>(line).context("parse newline MCP response")?
+        }
+        HandshakeFraming::ContentLength => parse_content_length_response(stdout)?,
+    };
+    if value.get("id").and_then(Value::as_i64) != Some(1) {
+        bail!("initialize response id mismatch: {value}");
+    }
+    if value
+        .pointer("/result/protocolVersion")
+        .and_then(Value::as_str)
+        .is_none()
+    {
+        bail!("initialize response missing protocolVersion: {value}");
+    }
+    Ok(())
+}
+
+fn parse_content_length_response(stdout: &[u8]) -> Result<Value> {
+    let separator = b"\r\n\r\n";
+    let header_end = stdout
+        .windows(separator.len())
+        .position(|window| window == separator)
+        .context("missing Content-Length response separator")?;
+    let header = std::str::from_utf8(&stdout[..header_end]).context("decode MCP headers")?;
+    let length = header
+        .strip_prefix("Content-Length: ")
+        .context("missing Content-Length response header")?
+        .parse::<usize>()
+        .context("parse response Content-Length")?;
+    let body_start = header_end + separator.len();
+    let body_end = body_start + length;
+    if stdout.len() < body_end {
+        bail!("short Content-Length response body");
+    }
+    serde_json::from_slice(&stdout[body_start..body_end]).context("parse Content-Length body")
 }
 
 fn install_codex(name: &str, config: &McpConfig, force: bool, dry_run: bool) -> Result<()> {

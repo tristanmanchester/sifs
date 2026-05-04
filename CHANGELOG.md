@@ -9,6 +9,19 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added an MCP hardening plan for stdio compatibility, Codex startup
+  diagnostics, and timeout troubleshooting.
+- Added MCP doctor handshake probes for newline-delimited and `Content-Length`
+  stdio framing so startup failures are reported separately from BM25 search
+  smoke.
+
+### Fixed
+
+- Made the MCP stdio server accept newline-delimited JSON-RPC messages while
+  preserving existing `Content-Length` framing compatibility.
+
 ## 0.2.0 - 2026-05-04
 
 ### Added

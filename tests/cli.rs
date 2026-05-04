@@ -327,6 +327,33 @@ fn mcp_install_offline_rejects_git_url() {
 }
 
 #[test]
+fn mcp_doctor_reports_handshake_smoke_separately_from_search() {
+    let dir = fixture();
+    let output = sifs()
+        .args([
+            "mcp",
+            "doctor",
+            dir.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("SIFS MCP doctor"));
+    assert!(stdout.contains("MCP command:"));
+    assert!(stdout.contains("MCP handshake (newline): passed"));
+    assert!(stdout.contains("MCP handshake (Content-Length): passed"));
+    assert!(stdout.contains("BM25 smoke: passed"));
+}
+
+#[test]
 fn search_json_is_structured() {
     let dir = fixture();
     let output = sifs()
