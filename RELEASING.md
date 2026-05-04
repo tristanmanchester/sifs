@@ -13,6 +13,7 @@ Homebrew releases are published from the tap repository at
 
 - [`Cargo.toml`](Cargo.toml) - crate version and release metadata
 - [`Cargo.lock`](Cargo.lock) - locked dependency graph used by Homebrew
+- [`CHANGELOG.md`](CHANGELOG.md) - release notes source of truth
 - [`README.md`](README.md) - user-facing install and usage documentation
 - [`packaging/homebrew/sifs.rb`](packaging/homebrew/sifs.rb) - formula used for release preparation
 - `tristanmanchester/homebrew-tap:Formula/sifs.rb` - published Homebrew formula
@@ -20,8 +21,11 @@ Homebrew releases are published from the tap repository at
 ## Normal release flow
 
 1. Make the changes you want to ship.
-2. Bump `version` in [`Cargo.toml`](Cargo.toml).
-3. Run local checks:
+2. Move the relevant [`CHANGELOG.md`](CHANGELOG.md) `Unreleased` entries into a
+   `## X.Y.Z - YYYY-MM-DD` section and leave a fresh `Unreleased` section at the
+   top.
+3. Bump `version` in [`Cargo.toml`](Cargo.toml).
+4. Run local checks:
 
    ```bash
    cargo fmt --all --check
@@ -33,14 +37,14 @@ Homebrew releases are published from the tap repository at
    ruby -c packaging/homebrew/sifs.rb
    ```
 
-4. Merge the release commit to `main`.
-5. Publish the crate:
+5. Merge the release commit to `main`.
+6. Publish the crate:
 
    ```bash
    cargo publish --locked
    ```
 
-6. Tag the same `main` commit and create the GitHub release:
+7. Tag the same `main` commit and create the GitHub release:
 
    ```bash
    git tag vX.Y.Z
@@ -48,13 +52,13 @@ Homebrew releases are published from the tap repository at
    gh release create vX.Y.Z --repo tristanmanchester/sifs --title "sifs vX.Y.Z" --generate-notes
    ```
 
-7. Compute the GitHub source tarball checksum:
+8. Compute the GitHub source tarball checksum:
 
    ```bash
    curl -L https://github.com/tristanmanchester/sifs/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256
    ```
 
-8. Update `tristanmanchester/homebrew-tap`:
+9. Update `tristanmanchester/homebrew-tap`:
 
    ```bash
    git clone https://github.com/tristanmanchester/homebrew-tap.git /tmp/homebrew-tap
@@ -64,7 +68,7 @@ Homebrew releases are published from the tap repository at
    Update the copied formula so `url` points at the new tag and `sha256` is the
    checksum from the previous step.
 
-9. Validate the tap formula:
+10. Validate the tap formula:
 
    ```bash
    brew uninstall --ignore-dependencies sifs || true
@@ -75,7 +79,7 @@ Homebrew releases are published from the tap repository at
    sifs mcp install --dry-run --client claude --scope local --source /tmp/tiny-repo --offline
    ```
 
-10. Commit and push the tap update.
+11. Commit and push the tap update.
 
 ## Current install surfaces
 
@@ -93,6 +97,8 @@ Homebrew releases are published from the tap repository at
 ## Notes
 
 - Release tags should be `vX.Y.Z` and should match the `Cargo.toml` version.
+- GitHub release notes should come from the matching `CHANGELOG.md` version
+  section.
 - Publish the Homebrew formula to the dedicated tap, not `homebrew/core`.
 - The Homebrew test must stay model-free and network-free after installation;
   use BM25 with `--offline --no-cache`.
