@@ -44,18 +44,13 @@ const PLATFORM_CACHE_DIR: &str = "sifs";
 const SPARSE_CACHE_FILE: &str = "index-v3-sparse.bin";
 const SEMANTIC_CACHE_PREFIX: &str = "semantic-v3";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {
+    #[default]
     Platform,
     Project,
     Custom(PathBuf),
     Disabled,
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self::Platform
-    }
 }
 
 #[derive(Clone, Debug)]

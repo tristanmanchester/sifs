@@ -82,34 +82,40 @@ cargo test
 ## MCP server
 
 SIFS can install itself as a local stdio MCP server for Codex and Claude Code.
-Install the binary first, then run the installer from any project you want
-agents to search.
+Install the binary once, start the shared daemon, then configure agent clients.
+
+```bash
+sifs daemon install-agent
+sifs mcp install --client all
+```
+
+This installs a reusable MCP server instead of pinning the config to one
+repository. Agent clients can ask SIFS to search the current project, and tool
+calls can pass `repo` when they need a specific local checkout or Git URL.
+
+You can still pin an MCP server to one source when you want that behavior.
 
 ```bash
 sifs mcp install --client all --source /path/to/project
-```
-
-Or configure clients one at a time.
-
-```bash
 sifs mcp install --client codex --source /path/to/project
 sifs mcp install --client claude --scope local --source /path/to/project
 ```
 
-You can also start the server directly. Passing a path pre-indexes that source,
-so MCP clients can call `search` and `find_related` without sending a `repo`
-argument on every tool call. Tool calls can still pass `repo` to search another
-local path or Git URL from the same MCP server.
+You can also start the server directly. Without a path it uses the server
+process working directory as the default source. Passing a path pre-indexes that
+source, so MCP clients can call `search` and `find_related` without sending a
+`repo` argument on every tool call.
 
 ```bash
+sifs mcp
 sifs mcp /path/to/project
 ```
 
 The installer uses the client CLIs when available.
 
 ```bash
-codex mcp add sifs -- /absolute/path/to/sifs mcp /path/to/project
-claude mcp add-json sifs '{"type":"stdio","command":"/absolute/path/to/sifs","args":["mcp","/path/to/project"],"env":{}}' --scope local
+codex mcp add sifs -- /absolute/path/to/sifs mcp
+claude mcp add-json sifs '{"type":"stdio","command":"/absolute/path/to/sifs","args":["mcp"],"env":{}}' --scope local
 ```
 
 If a client CLI is not available, `sifs mcp install --dry-run` prints fallback
@@ -120,7 +126,7 @@ Codex uses `~/.codex/config.toml`:
 ```toml
 [mcp_servers.sifs]
 command = "/absolute/path/to/sifs"
-args = ["mcp", "/path/to/project"]
+args = ["mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 ```
@@ -133,7 +139,7 @@ Claude Code project config uses `.mcp.json`:
     "sifs": {
       "type": "stdio",
       "command": "/absolute/path/to/sifs",
-      "args": ["mcp", "/path/to/project"],
+      "args": ["mcp"],
       "env": {}
     }
   }
@@ -142,6 +148,14 @@ Claude Code project config uses `.mcp.json`:
 
 This is a local process with read access to local paths provided in tool calls.
 Only check project-scoped Claude Code `.mcp.json` into repositories you trust.
+
+The daemon can also be run manually for debugging.
+
+```bash
+sifs daemon run --replace-existing-socket
+sifs daemon ping
+sifs daemon status --json
+```
 
 ## CLI
 

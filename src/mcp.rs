@@ -1,6 +1,10 @@
 use crate::SifsIndex;
+use crate::daemon::{
+    DaemonClient, DaemonRequest, DaemonResult, IndexRuntimeOptions, SearchOptionsWire, SourceSpec,
+    default_daemon_paths,
+};
 use crate::index::{CacheConfig, IndexOptions};
-use crate::model2vec::ModelOptions;
+use crate::model2vec::{EncoderSpec, ModelOptions};
 use crate::types::{SearchMode, SearchOptions};
 use crate::utils::{format_results, is_git_url, resolve_chunk};
 use anyhow::{Context, Result};
@@ -34,6 +38,13 @@ pub fn serve_with_options(
     cache_config: CacheConfig,
     offline: bool,
 ) -> Result<()> {
+    let default_source = match default_source {
+        Some(source) => Some(source),
+        None => std::env::current_dir()
+            .ok()
+            .filter(|path| path.is_dir())
+            .map(|path| path.to_string_lossy().into_owned()),
+    };
     let mut cache = IndexCache::new(model_options, cache_config, offline);
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
@@ -176,6 +187,36 @@ impl IndexCache {
         keys.sort();
         keys
     }
+
+    fn daemon_search(
+        &self,
+        source: &str,
+        ref_name: Option<&str>,
+        query: &str,
+        options: &SearchOptions,
+    ) -> Option<crate::daemon::protocol::SearchResultSet> {
+        let paths = default_daemon_paths().ok()?;
+        if !paths.socket.exists() {
+            return None;
+        }
+        let source = SourceSpec::resolve(source, ref_name.map(str::to_owned), self.offline).ok()?;
+        let runtime_options = match options.mode {
+            SearchMode::Bm25 => IndexRuntimeOptions::sparse(self.cache_config.clone()),
+            SearchMode::Semantic | SearchMode::Hybrid => IndexRuntimeOptions::with_encoder(
+                EncoderSpec::Model2Vec(self.model_options.clone()),
+                self.cache_config.clone(),
+            ),
+        };
+        match DaemonClient::new(paths).send(DaemonRequest::Search {
+            source,
+            options: runtime_options,
+            query: query.to_owned(),
+            search: SearchOptionsWire::from(options.clone()),
+        }) {
+            Ok(DaemonResult::Search(result)) => Some(result),
+            _ => None,
+        }
+    }
 }
 
 fn handle_tool_call(
@@ -267,37 +308,76 @@ fn tool_search(
         .and_then(|s| s.parse::<SearchMode>().ok())
         .unwrap_or(SearchMode::Hybrid);
     let top_k = args.get("top_k").and_then(Value::as_u64).unwrap_or(5) as usize;
+    let options = search_options_from_args(&args, top_k, mode);
+    if let Some(result) = cache.daemon_search(source, ref_name, query, &options) {
+        return mcp_search_result(McpSearchPresentation {
+            source,
+            query,
+            mode,
+            top_k,
+            options: &options,
+            stats: result.stats,
+            warnings: json!([]),
+            results: result.results,
+        });
+    }
     match cache.get(source, ref_name) {
         Ok(index) => {
-            let options = search_options_from_args(&args, top_k, mode);
             let results = match index.search_with(query, &options) {
                 Ok(results) => results,
                 Err(err) => return ToolText::error(format!("Search failed: {err}")),
             };
-            let structured = json!({
-                "source": source,
-                "mode": mode.to_string(),
-                "top_k": top_k,
-                "alpha": options.alpha,
-                "filter_languages": options.filter_languages,
-                "filter_paths": options.filter_paths,
-                "stats": index.stats(),
-                "warnings": index_warnings(index),
-                "results": structured_results(&results),
-            });
-            if results.is_empty() {
-                ToolText::ok_structured(no_results_message(), structured)
-            } else {
-                ToolText::ok_structured(
-                    format_results(
-                        &format!("Search results for: {query:?} (mode={mode})"),
-                        &results,
-                    ),
-                    structured,
-                )
-            }
+            mcp_search_result(McpSearchPresentation {
+                source,
+                query,
+                mode,
+                top_k,
+                options: &options,
+                stats: index.stats(),
+                warnings: index_warnings(index),
+                results,
+            })
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
+    }
+}
+
+struct McpSearchPresentation<'a> {
+    source: &'a str,
+    query: &'a str,
+    mode: SearchMode,
+    top_k: usize,
+    options: &'a SearchOptions,
+    stats: crate::IndexStats,
+    warnings: Value,
+    results: Vec<crate::SearchResult>,
+}
+
+fn mcp_search_result(presentation: McpSearchPresentation<'_>) -> ToolText {
+    let structured = json!({
+        "source": presentation.source,
+        "mode": presentation.mode.to_string(),
+        "top_k": presentation.top_k,
+        "alpha": presentation.options.alpha,
+        "filter_languages": presentation.options.filter_languages,
+        "filter_paths": presentation.options.filter_paths,
+        "stats": presentation.stats,
+        "warnings": presentation.warnings,
+        "results": structured_results(&presentation.results),
+    });
+    if presentation.results.is_empty() {
+        ToolText::ok_structured(no_results_message(), structured)
+    } else {
+        ToolText::ok_structured(
+            format_results(
+                &format!(
+                    "Search results for: {:?} (mode={})",
+                    presentation.query, presentation.mode
+                ),
+                &presentation.results,
+            ),
+            structured,
+        )
     }
 }
 

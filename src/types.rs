@@ -116,14 +116,14 @@ impl SearchOptions {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
     pub chunk: Chunk,
     pub score: f32,
     pub source: SearchMode,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexStats {
     pub indexed_files: usize,
     pub total_chunks: usize,

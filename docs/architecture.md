@@ -1,9 +1,11 @@
 # Architecture
 
-SIFS is a single-process Rust search engine for code repositories. The pipeline
-walks supported files, builds syntax-aware chunks when possible, builds a BM25
-index, and lazily attaches semantic model state only when dense or hybrid search
-needs it.
+SIFS is a Rust search engine for code repositories with two execution shapes:
+direct in-process indexing for library and one-shot use, and a shared local
+daemon for agent clients that benefit from warm indexes across repeated tool
+calls. The pipeline walks supported files, builds syntax-aware chunks when
+possible, builds a BM25 index, and lazily attaches semantic model state only
+when dense or hybrid search needs it.
 
 ## Pipeline overview
 
@@ -121,14 +123,27 @@ removes the source chunk from the result set.
 This makes `find_related` useful for finding alternate implementations, call
 site patterns, duplicated logic, or similar modules.
 
-## MCP caching
+## Daemon and MCP caching
 
-The MCP server stores `SifsIndex` instances in an in-memory cache for the life
-of the server process. Local indexes are keyed by canonical path. Git indexes
-are keyed by URL plus optional ref.
+The shared daemon stores `SifsIndex` instances in an in-memory cache for the
+life of the daemon process. Local indexes are keyed by canonical path plus index
+options. Git indexes are keyed by URL, optional ref, and index options. CLI
+commands opportunistically use the daemon when its socket is available and fall
+back to direct indexing when it is not.
 
 The cache includes chunks, sparse data, optional semantic state, and lookup
-maps. Restarting the server clears the cache.
+maps. Restarting the daemon clears the live cache; persistent sparse and dense
+caches still survive according to the selected cache mode.
+
+The stdio MCP server can be installed without a pinned source. In that mode it
+defaults to the server process working directory and still accepts explicit
+`repo` arguments for local paths or Git URLs. The recommended long-lived setup
+on macOS is:
+
+```bash
+sifs daemon install-agent
+sifs mcp install --client all
+```
 
 ## Persistent local indexes
 

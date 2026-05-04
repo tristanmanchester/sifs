@@ -9,6 +9,22 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added `sifs --version` and `sifs -V` so installed binaries can report their
+  package version.
+- Added a shared `sifs daemon` with Unix-socket IPC, daemon status/ping
+  commands, macOS LaunchAgent install/uninstall commands, and opportunistic CLI
+  reuse for warm search/index operations.
+- Added daemon-first MCP installation so `sifs mcp install` can configure Codex
+  and Claude without pinning the server to one source directory.
+
+### Changed
+
+- MCP servers started without an explicit source now default to the server
+  process working directory, while tool calls can still pass an explicit `repo`
+  for local paths or Git URLs.
+
 ## 0.1.1 - 2026-05-04
 
 ### Added

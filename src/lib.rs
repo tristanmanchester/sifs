@@ -1,4 +1,5 @@
 pub mod chunker;
+pub mod daemon;
 pub mod dense;
 pub mod file_walker;
 pub mod index;

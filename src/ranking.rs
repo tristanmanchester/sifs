@@ -65,9 +65,7 @@ pub fn resolve_alpha(query: &str, alpha: Option<f32>) -> f32 {
     alpha.unwrap_or_else(|| {
         if is_symbol_query(query) {
             0.25
-        } else if is_architecture_query(query) {
-            0.65
-        } else if is_natural_language_question(query) {
+        } else if is_architecture_query(query) || is_natural_language_question(query) {
             0.65
         } else if is_mixed_code_phrase(query) {
             0.45

@@ -1,6 +1,10 @@
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
+use sifs::daemon::{
+    DaemonClient, DaemonRequest, DaemonResult, DaemonRuntimeOptions, IndexRuntimeOptions,
+    SearchOptionsWire, SourceSpec, default_daemon_paths, run_foreground,
+};
 use sifs::{
     CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
     SearchOptions, SearchResult, SifsIndex, cache_summary, format_results, is_git_url,
@@ -14,6 +18,7 @@ use std::time::Instant;
 #[derive(Parser)]
 #[command(
     name = "sifs",
+    version,
     about = "SIFS Is Fast Search: instant local code search for agents."
 )]
 struct Cli {
@@ -134,6 +139,11 @@ enum Command {
         no_cache: bool,
         #[arg(long, help = "Use a project-local .sifs cache.")]
         project_cache: bool,
+    },
+    #[command(about = "Run or inspect the shared SIFS daemon used by agent integrations.")]
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommand,
     },
     #[command(about = "List repository-relative file paths included in the index.")]
     Files {
@@ -300,6 +310,37 @@ enum McpCommand {
 }
 
 #[derive(Subcommand)]
+enum DaemonCommand {
+    #[command(about = "Run the SIFS daemon in the foreground.")]
+    Run {
+        #[arg(
+            long,
+            help = "Remove an existing socket before binding. Useful after an unclean shutdown."
+        )]
+        replace_existing_socket: bool,
+    },
+    #[command(about = "Ping the running SIFS daemon.")]
+    Ping,
+    #[command(about = "Print daemon process and cached-index status.")]
+    Status {
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
+    #[command(about = "Install a macOS LaunchAgent that keeps the SIFS daemon running.")]
+    InstallAgent {
+        #[arg(long, help = "Print the LaunchAgent plist without writing it.")]
+        dry_run: bool,
+        #[arg(long, help = "Replace an existing SIFS LaunchAgent plist.")]
+        force: bool,
+    },
+    #[command(about = "Remove the macOS LaunchAgent for the SIFS daemon.")]
+    UninstallAgent {
+        #[arg(long, help = "Print what would be removed without changing files.")]
+        dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum ModelCommand {
     #[command(about = "Download or validate the embedding model in the Hugging Face cache.")]
     Pull {
@@ -442,6 +483,29 @@ fn main() -> Result<()> {
             no_cache,
             project_cache,
         }) => {
+            if let Some(result) = try_daemon_find_related(
+                &path,
+                &file_path,
+                line,
+                top_k,
+                encoder,
+                model.as_deref(),
+                offline,
+                no_download,
+                cache_config(cache_dir.clone(), no_cache, project_cache),
+            )? {
+                print_find_related_output(
+                    &result.source.source,
+                    &file_path,
+                    line,
+                    top_k,
+                    result.stats,
+                    u128::from(result.elapsed_ms),
+                    &result.results,
+                    &output,
+                )?;
+                return Ok(());
+            }
             let policy = model_policy(offline, no_download);
             let started = Instant::now();
             let index = build_hybrid_index(
@@ -456,49 +520,16 @@ fn main() -> Result<()> {
             };
             let results = index.find_related(&chunk, top_k)?;
             let elapsed_ms = started.elapsed().as_millis();
-            let payload = json!({
-                "source": path,
-                "file_path": file_path,
-                "line": line,
-                "top_k": top_k,
-                "index_stats": index.stats(),
-                "elapsed_ms": elapsed_ms,
-                "results": structured_results(&path, &results, 0),
-            });
-            if output.json {
-                println!("{}", serde_json::to_string_pretty(&payload)?);
-            } else if output.jsonl {
-                for result in &results {
-                    println!(
-                        "{}",
-                        serde_json::to_string(&json!({
-                            "source": path,
-                            "file_path": file_path,
-                            "line": line,
-                            "top_k": top_k,
-                            "elapsed_ms": elapsed_ms,
-                            "result": structured_result(&path, result, 0),
-                        }))?
-                    );
-                }
-            } else {
-                match output.format {
-                    TextFormat::Human => {
-                        if results.is_empty() {
-                            println!("No related chunks found for {file_path}:{line}.");
-                        } else {
-                            println!(
-                                "{}",
-                                format_results(
-                                    &format!("Chunks related to {file_path}:{line}"),
-                                    &results
-                                )
-                            );
-                        }
-                    }
-                    TextFormat::Compact => print_compact_results(&results),
-                }
-            }
+            print_find_related_output(
+                &path,
+                &file_path,
+                line,
+                top_k,
+                index.stats(),
+                elapsed_ms,
+                &results,
+                &output,
+            )?;
         }
         Some(Command::Model { command }) => run_model(command)?,
         Some(Command::Cache { command }) => run_cache(command)?,
@@ -614,6 +645,7 @@ fn main() -> Result<()> {
         Some(Command::Clean { path }) => run_clean(&path)?,
         Some(Command::Init { force }) => run_init(force)?,
         Some(Command::Capabilities) => print_capabilities(),
+        Some(Command::Daemon { command }) => run_daemon_command(command)?,
         None => {
             Cli::command().print_help()?;
             println!();
@@ -640,6 +672,29 @@ struct SearchCommand {
 }
 
 fn run_search(command: SearchCommand) -> Result<()> {
+    if let Some(result) = try_daemon_search(&command)? {
+        print_search_output(
+            &result.query,
+            &result.source.source,
+            &SearchOptions {
+                top_k: command.top_k,
+                mode: result.mode,
+                alpha: None,
+                filter_languages: command.languages.clone(),
+                filter_paths: command.filter_paths.clone(),
+                use_query_cache: true,
+            },
+            result.stats,
+            u128::from(result.elapsed_ms),
+            &daemon_warnings(&result.warnings),
+            &result.results,
+            command.context_lines,
+            command.explain,
+            &command.output,
+        )?;
+        return Ok(());
+    }
+
     let policy = model_policy(command.offline, command.no_download);
     let started = Instant::now();
     let index = build_index_for_mode(
@@ -655,7 +710,8 @@ fn run_search(command: SearchCommand) -> Result<()> {
     let results = index.search_with(&command.query, &options)?;
     let elapsed_ms = started.elapsed().as_millis();
     let warnings = context_warnings(&command.path, command.context_lines);
-    let payload = search_payload(
+
+    print_search_output(
         &command.query,
         &command.path,
         &options,
@@ -664,36 +720,56 @@ fn run_search(command: SearchCommand) -> Result<()> {
         &warnings,
         &results,
         command.context_lines,
-    );
+        command.explain,
+        &command.output,
+    )
+}
 
-    if command.output.json {
+#[allow(clippy::too_many_arguments)]
+fn print_search_output(
+    query: &str,
+    source: &str,
+    options: &SearchOptions,
+    stats: IndexStats,
+    elapsed_ms: u128,
+    warnings: &[String],
+    results: &[SearchResult],
+    context_lines: usize,
+    explain: bool,
+    output: &OutputArgs,
+) -> Result<()> {
+    let payload = search_payload(
+        query,
+        source,
+        options,
+        stats,
+        elapsed_ms,
+        warnings,
+        results,
+        context_lines,
+    );
+    if output.json {
         println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else if command.output.jsonl {
-        for result in &results {
+    } else if output.jsonl {
+        for result in results {
             println!(
                 "{}",
                 serde_json::to_string(&search_result_record(
-                    &command.query,
-                    &command.path,
-                    &options,
+                    query,
+                    source,
+                    options,
                     elapsed_ms,
-                    &warnings,
+                    warnings,
                     result,
-                    command.context_lines,
+                    context_lines,
                 ))?
             );
         }
     } else {
-        if command.explain {
-            print_explanation(
-                &command.query,
-                &command.path,
-                &options,
-                elapsed_ms,
-                &warnings,
-            );
+        if explain {
+            print_explanation(query, source, options, elapsed_ms, warnings);
         }
-        match command.output.format {
+        match output.format {
             TextFormat::Human => {
                 if results.is_empty() {
                     println!("No results found.");
@@ -701,19 +777,152 @@ fn run_search(command: SearchCommand) -> Result<()> {
                     println!(
                         "{}",
                         format_results(
-                            &format!(
-                                "Search results for: {:?} (mode={})",
-                                command.query, command.mode
-                            ),
-                            &results,
+                            &format!("Search results for: {:?} (mode={})", query, options.mode),
+                            results,
                         )
                     );
                 }
             }
-            TextFormat::Compact => print_compact_results(&results),
+            TextFormat::Compact => print_compact_results(results),
         }
     }
     Ok(())
+}
+
+fn try_daemon_search(
+    command: &SearchCommand,
+) -> Result<Option<sifs::daemon::protocol::SearchResultSet>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(&command.path, None, command.offline)?;
+    let policy = model_policy(command.offline, command.no_download);
+    let runtime_options = match command.mode {
+        SearchMode::Bm25 => IndexRuntimeOptions::sparse(command.cache.clone()),
+        SearchMode::Semantic | SearchMode::Hybrid => IndexRuntimeOptions::with_encoder(
+            encoder_spec(command.encoder, command.model.as_deref(), policy),
+            command.cache.clone(),
+        ),
+    };
+    let mut search = SearchOptions::new(command.top_k).with_mode(command.mode);
+    search.filter_languages = command.languages.clone();
+    search.filter_paths = command.filter_paths.clone();
+    match client.send(DaemonRequest::Search {
+        source,
+        options: runtime_options,
+        query: command.query.clone(),
+        search: SearchOptionsWire::from(search),
+    }) {
+        Ok(DaemonResult::Search(results)) => Ok(Some(results)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn try_daemon_find_related(
+    path: &str,
+    file_path: &str,
+    line: usize,
+    top_k: usize,
+    encoder: EncoderArg,
+    model: Option<&str>,
+    offline: bool,
+    no_download: bool,
+    cache: CacheConfig,
+) -> Result<Option<sifs::daemon::protocol::SearchResultSet>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(path, None, offline)?;
+    let policy = model_policy(offline, no_download);
+    match client.send(DaemonRequest::FindRelated {
+        source,
+        options: IndexRuntimeOptions::with_encoder(encoder_spec(encoder, model, policy), cache),
+        file_path: file_path.to_owned(),
+        line,
+        top_k,
+    }) {
+        Ok(DaemonResult::FindRelated(results)) => Ok(Some(results)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_find_related_output(
+    source: &str,
+    file_path: &str,
+    line: usize,
+    top_k: usize,
+    stats: IndexStats,
+    elapsed_ms: u128,
+    results: &[SearchResult],
+    output: &OutputArgs,
+) -> Result<()> {
+    let payload = json!({
+        "source": source,
+        "file_path": file_path,
+        "line": line,
+        "top_k": top_k,
+        "index_stats": stats,
+        "elapsed_ms": elapsed_ms,
+        "results": structured_results(source, results, 0),
+    });
+    if output.json {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else if output.jsonl {
+        for result in results {
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "source": source,
+                    "file_path": file_path,
+                    "line": line,
+                    "top_k": top_k,
+                    "elapsed_ms": elapsed_ms,
+                    "result": structured_result(source, result, 0),
+                }))?
+            );
+        }
+    } else {
+        match output.format {
+            TextFormat::Human => {
+                if results.is_empty() {
+                    println!("No related chunks found for {file_path}:{line}.");
+                } else {
+                    println!(
+                        "{}",
+                        format_results(&format!("Chunks related to {file_path}:{line}"), results)
+                    );
+                }
+            }
+            TextFormat::Compact => print_compact_results(results),
+        }
+    }
+    Ok(())
+}
+
+fn daemon_client_if_running() -> Result<Option<DaemonClient>> {
+    let paths = default_daemon_paths()?;
+    if paths.socket.exists() {
+        Ok(Some(DaemonClient::new(paths)))
+    } else {
+        Ok(None)
+    }
+}
+
+fn daemon_warnings(warnings: &[sifs::IndexWarning]) -> Vec<String> {
+    warnings
+        .iter()
+        .map(|warning| {
+            if warning.path.is_empty() {
+                warning.message.clone()
+            } else {
+                format!("{}: {}", warning.path, warning.message)
+            }
+        })
+        .collect()
 }
 
 fn build_index_for_mode(
@@ -782,6 +991,15 @@ fn run_files(
     offline: bool,
     no_download: bool,
 ) -> Result<()> {
+    if let Some(DaemonResult::ListFiles {
+        source,
+        total,
+        files,
+    }) = try_daemon_list_files(path, limit, model.as_deref(), offline, no_download)?
+    {
+        print_files_output(&source.source, total, limit, 0, files, output)?;
+        return Ok(());
+    }
     let policy = model_policy(offline, no_download);
     let started = Instant::now();
     let index = build_hybrid_index(
@@ -793,23 +1011,33 @@ fn run_files(
     let elapsed_ms = started.elapsed().as_millis();
     let files = index.indexed_files();
     let shown: Vec<_> = files.iter().take(limit).cloned().collect();
+    print_files_output(path, files.len(), limit, elapsed_ms, shown, output)
+}
+
+fn print_files_output(
+    source: &str,
+    total: usize,
+    limit: usize,
+    elapsed_ms: u128,
+    shown: Vec<String>,
+    output: OutputArgs,
+) -> Result<()> {
     let payload = json!({
-        "source": path,
-        "total": files.len(),
+        "source": source,
+        "total": total,
         "limit": limit,
         "elapsed_ms": elapsed_ms,
         "files": shown,
     });
-
     if output.json {
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else if output.jsonl {
-        for file in files.iter().take(limit) {
+        for file in &shown {
             println!(
                 "{}",
                 serde_json::to_string(&json!({
-                    "source": path,
-                    "total": files.len(),
+                    "source": source,
+                    "total": total,
                     "limit": limit,
                     "file_path": file,
                 }))?
@@ -819,9 +1047,9 @@ fn run_files(
         match output.format {
             TextFormat::Human => {
                 println!(
-                    "Indexed files for {path:?} (showing {} of {}):",
+                    "Indexed files for {source:?} (showing {} of {}):",
                     shown.len(),
-                    files.len()
+                    total
                 );
                 for file in shown {
                     println!("{file}");
@@ -837,6 +1065,32 @@ fn run_files(
     Ok(())
 }
 
+fn try_daemon_list_files(
+    path: &str,
+    limit: usize,
+    model: Option<&str>,
+    offline: bool,
+    no_download: bool,
+) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(path, None, offline)?;
+    let policy = model_policy(offline, no_download);
+    match client.send(DaemonRequest::ListFiles {
+        source,
+        options: IndexRuntimeOptions::with_encoder(
+            EncoderSpec::model2vec(model, policy),
+            CacheConfig::Platform,
+        ),
+        limit,
+    }) {
+        Ok(result @ DaemonResult::ListFiles { .. }) => Ok(Some(result)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
+}
+
 fn run_status(
     path: &str,
     json_output: bool,
@@ -844,6 +1098,19 @@ fn run_status(
     offline: bool,
     no_download: bool,
 ) -> Result<()> {
+    if let Some(DaemonResult::IndexStatus(status)) =
+        try_daemon_index_status(path, model.as_deref(), offline, no_download)?
+    {
+        print_status_output(
+            &status.source.source,
+            json_output,
+            status.stats,
+            status.semantic_loaded,
+            status.semantic_loaded,
+            0,
+        )?;
+        return Ok(());
+    }
     let policy = model_policy(offline, no_download);
     let started = Instant::now();
     let index = build_hybrid_index(
@@ -854,27 +1121,68 @@ fn run_status(
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let stats = index.stats();
+    print_status_output(
+        path,
+        json_output,
+        stats,
+        semantic_index_available(path),
+        index.semantic_loaded(),
+        elapsed_ms,
+    )
+}
+
+fn print_status_output(
+    source: &str,
+    json_output: bool,
+    stats: IndexStats,
+    semantic_index_available: bool,
+    semantic_index_loaded: bool,
+    elapsed_ms: u128,
+) -> Result<()> {
     let payload = json!({
-        "source": path,
+        "source": source,
         "index_stats": stats,
         "elapsed_ms": elapsed_ms,
-        "semantic_index_available": semantic_index_available(path),
-        "semantic_index_loaded": index.semantic_loaded(),
+        "semantic_index_available": semantic_index_available,
+        "semantic_index_loaded": semantic_index_loaded,
     });
-
     if json_output {
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         println!(
-            "Index status for {path:?}: {} files, {} chunks, languages: {}. Semantic index available: {}. Semantic index loaded: {}.",
+            "Index status for {source:?}: {} files, {} chunks, languages: {}. Semantic index available: {}. Semantic index loaded: {}.",
             stats.indexed_files,
             stats.total_chunks,
             format_languages(&stats.languages),
-            semantic_index_available(path),
-            index.semantic_loaded()
+            semantic_index_available,
+            semantic_index_loaded
         );
     }
     Ok(())
+}
+
+fn try_daemon_index_status(
+    path: &str,
+    model: Option<&str>,
+    offline: bool,
+    no_download: bool,
+) -> Result<Option<DaemonResult>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(path, None, offline)?;
+    let policy = model_policy(offline, no_download);
+    match client.send(DaemonRequest::IndexStatus {
+        source,
+        options: IndexRuntimeOptions::with_encoder(
+            EncoderSpec::model2vec(model, policy),
+            CacheConfig::Platform,
+        ),
+    }) {
+        Ok(result @ DaemonResult::IndexStatus(_)) => Ok(Some(result)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
 }
 
 fn semantic_index_available(path: &str) -> bool {
@@ -902,6 +1210,17 @@ fn run_get(
     offline: bool,
     no_download: bool,
 ) -> Result<()> {
+    if let Some(DaemonResult::GetChunk { source, chunk }) = try_daemon_get_chunk(
+        file_path,
+        line,
+        path,
+        model.as_deref(),
+        offline,
+        no_download,
+    )? {
+        print_get_output(&source.source, &chunk, output)?;
+        return Ok(());
+    }
     let policy = model_policy(offline, no_download);
     let index = build_hybrid_index(
         path,
@@ -913,11 +1232,14 @@ fn run_get(
         eprintln!("No chunk found at {file_path}:{line}. Use `sifs files` to check indexed paths.");
         std::process::exit(1);
     };
+    print_get_output(path, &chunk, output)
+}
+
+fn print_get_output(source: &str, chunk: &sifs::Chunk, output: OutputArgs) -> Result<()> {
     let payload = json!({
-        "source": path,
+        "source": source,
         "chunk": chunk,
     });
-
     if output.json {
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else if output.jsonl {
@@ -945,6 +1267,34 @@ fn run_get(
     Ok(())
 }
 
+fn try_daemon_get_chunk(
+    file_path: &str,
+    line: usize,
+    path: &str,
+    model: Option<&str>,
+    offline: bool,
+    no_download: bool,
+) -> Result<Option<DaemonResult>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(path, None, offline)?;
+    let policy = model_policy(offline, no_download);
+    match client.send(DaemonRequest::GetChunk {
+        source,
+        options: IndexRuntimeOptions::with_encoder(
+            EncoderSpec::model2vec(model, policy),
+            CacheConfig::Platform,
+        ),
+        file_path: file_path.to_owned(),
+        line,
+    }) {
+        Ok(result @ DaemonResult::GetChunk { .. }) => Ok(Some(result)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
+}
+
 fn run_clean(path: &str) -> Result<()> {
     if is_git_url(path) {
         bail!("clean only supports local directories");
@@ -960,6 +1310,7 @@ fn run_clean(path: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn search_payload(
     query: &str,
     source: &str,
@@ -1059,9 +1410,7 @@ fn expanded_context(
     let context_end = (end_line + context_lines).min(lines.len());
     let text = lines
         .get(context_start - 1..context_end)?
-        .iter()
-        .copied()
-        .collect::<Vec<_>>()
+        .to_vec()
         .join("\n");
     Some(json!({
         "start_line": context_start,
@@ -1143,6 +1492,197 @@ fn encoder_spec(encoder: EncoderArg, model: Option<&str>, policy: ModelLoadPolic
     match encoder {
         EncoderArg::Model2Vec => EncoderSpec::model2vec(model, policy),
         EncoderArg::Hashing => EncoderSpec::hashing(),
+    }
+}
+
+fn run_daemon_command(command: DaemonCommand) -> Result<()> {
+    match command {
+        DaemonCommand::Run {
+            replace_existing_socket,
+        } => {
+            let paths = default_daemon_paths()?;
+            eprintln!("SIFS daemon listening on {}", paths.socket.display());
+            run_foreground(DaemonRuntimeOptions {
+                paths,
+                replace_existing_socket,
+            })
+        }
+        DaemonCommand::Ping => {
+            let client = DaemonClient::new(default_daemon_paths()?);
+            match client.send(DaemonRequest::Ping)? {
+                DaemonResult::Pong { version } => {
+                    println!("SIFS daemon is running: {version}");
+                    Ok(())
+                }
+                other => bail!("unexpected daemon response: {other:?}"),
+            }
+        }
+        DaemonCommand::Status { json } => {
+            let client = DaemonClient::new(default_daemon_paths()?);
+            match client.send(DaemonRequest::Status)? {
+                DaemonResult::Status(status) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&status)?);
+                    } else {
+                        println!(
+                            "SIFS daemon {} (pid {}, protocol {})",
+                            status.version, status.pid, status.protocol_version
+                        );
+                        if status.indexes.is_empty() {
+                            println!("Cached indexes: none");
+                        } else {
+                            println!("Cached indexes:");
+                            for index in status.indexes {
+                                println!(
+                                    "- {}: {} files, {} chunks, semantic_loaded={}",
+                                    index.source.display(),
+                                    index.stats.indexed_files,
+                                    index.stats.total_chunks,
+                                    index.semantic_loaded
+                                );
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                other => bail!("unexpected daemon response: {other:?}"),
+            }
+        }
+        DaemonCommand::InstallAgent { dry_run, force } => install_launch_agent(dry_run, force),
+        DaemonCommand::UninstallAgent { dry_run } => uninstall_launch_agent(dry_run),
+    }
+}
+
+fn install_launch_agent(dry_run: bool, force: bool) -> Result<()> {
+    let exe = std::env::current_exe().context("resolve current sifs executable")?;
+    warn_if_development_binary(&exe);
+    if !dry_run && stable_binary_path(&exe) == "no" {
+        bail!(
+            "refusing to install LaunchAgent for development binary {}. Install with `cargo install --locked sifs` or Homebrew first.",
+            exe.display()
+        );
+    }
+    let plist_path = launch_agent_path()?;
+    let plist = launch_agent_plist(&exe)?;
+    if dry_run {
+        println!("{}", plist);
+        return Ok(());
+    }
+    if plist_path.exists() && !force {
+        bail!(
+            "SIFS LaunchAgent already exists at {}. Re-run with --force to replace it.",
+            plist_path.display()
+        );
+    }
+    let parent = plist_path
+        .parent()
+        .context("LaunchAgent path has no parent directory")?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create LaunchAgents directory {}", parent.display()))?;
+    fs::write(&plist_path, plist)
+        .with_context(|| format!("write LaunchAgent {}", plist_path.display()))?;
+    let _ = ProcessCommand::new("launchctl")
+        .args([
+            "bootout",
+            &format!("gui/{}", current_uid_string()),
+            plist_path.to_str().unwrap(),
+        ])
+        .output();
+    let output = ProcessCommand::new("launchctl")
+        .args([
+            "bootstrap",
+            &format!("gui/{}", current_uid_string()),
+            plist_path.to_str().unwrap(),
+        ])
+        .output()
+        .context("run launchctl bootstrap")?;
+    if !output.status.success() {
+        bail!(
+            "launchctl bootstrap failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    println!("Installed SIFS LaunchAgent at {}", plist_path.display());
+    Ok(())
+}
+
+fn uninstall_launch_agent(dry_run: bool) -> Result<()> {
+    let plist_path = launch_agent_path()?;
+    if dry_run {
+        println!("Would unload and remove {}", plist_path.display());
+        return Ok(());
+    }
+    if plist_path.exists() {
+        let _ = ProcessCommand::new("launchctl")
+            .args([
+                "bootout",
+                &format!("gui/{}", current_uid_string()),
+                plist_path.to_str().unwrap(),
+            ])
+            .output();
+        fs::remove_file(&plist_path)
+            .with_context(|| format!("remove LaunchAgent {}", plist_path.display()))?;
+        println!("Removed SIFS LaunchAgent at {}", plist_path.display());
+    } else {
+        println!("No SIFS LaunchAgent found at {}", plist_path.display());
+    }
+    Ok(())
+}
+
+fn launch_agent_path() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    Ok(PathBuf::from(home).join("Library/LaunchAgents/dev.sifs.daemon.plist"))
+}
+
+fn launch_agent_plist(exe: &Path) -> Result<String> {
+    Ok(format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.sifs.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{}</string>
+    <string>daemon</string>
+    <string>run</string>
+    <string>--replace-existing-socket</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>{}</string>
+  <key>StandardErrorPath</key>
+  <string>{}</string>
+</dict>
+</plist>
+"#,
+        xml_escape(&exe.to_string_lossy()),
+        xml_escape(&default_daemon_paths()?.log_file.to_string_lossy()),
+        xml_escape(&default_daemon_paths()?.log_file.to_string_lossy()),
+    ))
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn current_uid_string() -> String {
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid().to_string() }
+    }
+    #[cfg(not(unix))]
+    {
+        "0".to_owned()
     }
 }
 
@@ -1272,7 +1812,7 @@ struct McpDoctorOptions {
 
 struct McpConfig {
     sifs_path: PathBuf,
-    source: String,
+    source: Option<String>,
     ref_name: Option<String>,
     offline: bool,
     no_download: bool,
@@ -1282,7 +1822,11 @@ struct McpConfig {
 }
 
 fn run_mcp_install(options: McpInstallOptions) -> Result<()> {
-    let source = resolve_mcp_source(options.source.as_deref(), options.offline)?;
+    let source = options
+        .source
+        .as_deref()
+        .map(|source| resolve_mcp_source(Some(source), options.offline))
+        .transpose()?;
     let config = McpConfig {
         sifs_path: std::env::current_exe().context("resolve current sifs executable")?,
         source,
@@ -1330,7 +1874,7 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
     let source = resolve_mcp_source(Some(&options.source), options.offline)?;
     let config = McpConfig {
         sifs_path: std::env::current_exe().context("resolve current sifs executable")?,
-        source,
+        source: Some(source),
         ref_name: options.ref_name,
         offline: options.offline,
         no_download: options.no_download,
@@ -1351,12 +1895,14 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
         display_command(&mcp_server_command(&config))
     );
 
-    if !is_git_url(&config.source) {
+    if let Some(source) = &config.source
+        && !is_git_url(source)
+    {
         let smoke = ProcessCommand::new(&config.sifs_path)
             .args([
                 "search",
                 "sifs_mcp_smoke",
-                &config.source,
+                source,
                 "--mode",
                 "bm25",
                 "--offline",
@@ -1371,8 +1917,12 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
             ),
             Err(error) => println!("BM25 smoke: could not run ({error})"),
         }
-    } else {
+    } else if config.source.as_deref().map(is_git_url).unwrap_or(false) {
         println!("BM25 smoke: skipped for Git URL source");
+    } else {
+        println!(
+            "BM25 smoke: skipped because MCP install is daemon-first and not pinned to a source"
+        );
     }
     Ok(())
 }
@@ -1486,7 +2036,10 @@ fn resolve_mcp_source(source: Option<&str>, offline: bool) -> Result<String> {
 }
 
 fn mcp_args(config: &McpConfig) -> Vec<String> {
-    let mut args = vec!["mcp".to_owned(), config.source.clone()];
+    let mut args = vec!["mcp".to_owned()];
+    if let Some(source) = &config.source {
+        args.push(source.clone());
+    }
     if let Some(ref_name) = &config.ref_name {
         args.push("--ref".to_owned());
         args.push(ref_name.clone());

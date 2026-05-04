@@ -1,9 +1,9 @@
 # Command-line usage
 
 SIFS includes a command-line interface for one-shot searches, related-code
-lookups, agent-file generation, and MCP server startup. The public install
-surface is the `sifs` binary. Build the release binary before running these
-examples from the repository root.
+lookups, agent-file generation, daemon lifecycle management, and MCP server
+startup. The public install surface is the `sifs` binary. Build the release
+binary before running these examples from the repository root.
 
 ```bash
 cargo build --release
@@ -64,6 +64,29 @@ Persistent index caches use platform cache directories by default:
 Linux. Use `--cache-dir` to choose another cache root, `--no-cache` to disable
 persistent caches, or `--project-cache` to opt into a repository-local `.sifs/`
 cache.
+
+When the shared daemon is already running, `search`, `find-related`, `files`,
+`status`, and `get` opportunistically use it for warm in-memory indexes. If the
+daemon socket is not available, the commands fall back to direct one-shot
+indexing.
+
+## daemon command
+
+The `daemon` command manages the shared local SIFS daemon used by agent
+integrations and warm CLI searches.
+
+```bash
+target/release/sifs daemon run --replace-existing-socket
+target/release/sifs daemon ping
+target/release/sifs daemon status --json
+target/release/sifs daemon install-agent
+target/release/sifs daemon uninstall-agent
+```
+
+On macOS, `daemon install-agent` writes a user LaunchAgent that runs
+`sifs daemon run --replace-existing-socket` at login and keeps it alive.
+Use `--dry-run` to inspect the generated plist and `--force` to replace an
+existing plist.
 
 ## find-related command
 
@@ -182,8 +205,8 @@ target/release/sifs mcp https://github.com/owner/project --ref main
 
 When you provide a default source, MCP tool calls can omit the `repo` argument.
 They can also pass `repo` to search another local path or Git URL. When you
-don't provide a default source, every `search` and `find_related` call must
-include a local path or Git URL in `repo`.
+don't provide a default source, SIFS uses the MCP server process working
+directory as the default source and still accepts explicit `repo` overrides.
 
 ### MCP client installer
 
@@ -197,6 +220,8 @@ sifs mcp install [--client codex|claude|all] [--scope local|project|user] [--sou
 Examples:
 
 ```bash
+sifs daemon install-agent
+sifs mcp install --client all
 sifs mcp install --client all --source /path/to/project
 sifs mcp install --client codex --source /path/to/project --offline
 sifs mcp install --client claude --scope local --source /path/to/project
