@@ -1,0 +1,39 @@
+[package]
+name = "sifs"
+version = "0.1.0"
+edition = "2024"
+description = "SIFS Is Fast Search: instant local code search for agents"
+
+[dependencies]
+anyhow = "1.0"
+bm25 = { version = "2.3", optional = true }
+clap = { version = "4.5", features = ["derive"] }
+globset = "0.4"
+half = "2.7"
+hf-hub = "0.4"
+ignore = "0.4"
+memchr = "2.7"
+ndarray = { version = "0.16", features = ["rayon"] }
+once_cell = "1.21"
+rayon = "1.10"
+regex = "1.11"
+safetensors = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.23"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+tree-sitter = "0.26"
+tree-sitter-language-pack = "1.8.0-rc.26"
+walkdir = "2.5"
+
+[[bin]]
+name = "sifs"
+path = "src/main.rs"
+
+[[bin]]
+name = "sifs-benchmark"
+path = "src/bin/sifs-benchmark.rs"
+
+[[bin]]
+name = "sifs-embed"
+path = "src/bin/sifs-embed.rs"
