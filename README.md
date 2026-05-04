@@ -10,10 +10,10 @@ repository, splits files into useful chunks, embeds those chunks with a
 Model2Vec-compatible encoder, and runs hybrid search over semantic and BM25
 rankings.
 
-On the 63-repository Semble benchmark corpus, SIFS reached `NDCG@10=0.8444`
-with `93.0ms` average indexing time and `0.0017ms` repeated-query p50 latency.
-That is `0.0100` NDCG@10 behind Semble and `0.0173` behind CodeRankEmbed
-Hybrid, with a much faster warm query path in this benchmark.
+On the current annotated 63-repository benchmark corpus, SIFS reached
+`NDCG@10=0.8426` with `119.9ms` average cold indexing time. Query timing is now
+reported in two warm modes: uncached searches that execute ranking work, and
+cached repeat searches for identical repeated queries.
 
 ## What SIFS does
 
@@ -184,39 +184,58 @@ while natural-language queries keep more semantic weight.
 
 ## Benchmarks
 
-The current full-corpus benchmark uses the Semble benchmark suite: 63 pinned
-open-source repositories, 19 languages, and 1,251 annotated search tasks. In
-this local run, SIFS reached `NDCG@10=0.8444` with `p50=0.0017ms`
-repeated-query latency after indexing.
+The current full-corpus benchmark uses 63 pinned open-source repositories, 19
+languages, and 1,251 annotated search tasks. SIFS publishes three timing fields
+so the cache story is explicit:
 
-SIFS is third on raw NDCG@10 in this comparison, behind CodeRankEmbed Hybrid and
-Semble. It is `0.0100` NDCG@10 behind Semble and `0.0173` behind CodeRankEmbed
-Hybrid, while reporting much lower warm-query latency and lower average index
-time than the embedding-heavy baselines.
+```text
+cold_index_ms
+warm_uncached_query_ms
+warm_cached_repeat_query_ms
+```
 
-| Method | NDCG@10 | Index time | Query p50 |
-|---|---:|---:|---:|
-| CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms |
-| semble | 0.8544 | 439.4 ms | 1.3 ms |
-| **SIFS** | **0.8444** | **93.0 ms** | **0.0017 ms** |
-| CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms |
-| ColGREP | 0.6925 | 3.9 s | 979.3 ms |
-| grepai | 0.5606 | 35.0 s | 47.7 ms |
-| probe | 0.3872 | 0.0000 ms | 207.1 ms |
-| ripgrep | 0.1257 | 0.0000 ms | 8.8 ms |
+The older `0.0017ms` figure was cached repeat latency for identical queries,
+not general warm-query latency. In the current run, SIFS reports
+`warm_uncached_query_ms=0.442ms` and
+`warm_cached_repeat_query_ms=0.0012ms`. Use `warm_uncached_query_ms` when
+comparing normal searches after an index exists, and use
+`warm_cached_repeat_query_ms` only for repeated identical queries inside the
+same process.
 
-![SIFS speed and quality compared with code-search baselines](assets/images/speed_vs_quality_combined.png)
+SIFS gets relevant code into an agent's context quickly. The context-efficiency
+curve below measures how many annotated relevant target files are found as
+retrieved result chunks are added to the prompt budget.
+
+![SIFS context efficiency: recall versus retrieved context tokens](assets/images/sifs_context_efficiency.png)
+
+The comparison table is regenerated from benchmark JSON by
+[benchmarks/plot_sifs_comparison.py](benchmarks/plot_sifs_comparison.py). The
+Semble row is included as a direct comparison to the Python tool; the SIFS
+headline avoids using that tool's name for the corpus itself.
+
+| Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
+|---|---:|---:|---:|---:|
+| CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
+| Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
+| **SIFS** | **0.8426** | **119.9 ms** | **0.442 ms** | **0.0012 ms** |
+| CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
+| ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
+| grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
+| probe | 0.3872 | 0.0000 ms | 207.1 ms | n/a |
+| ripgrep | 0.1257 | 0.0000 ms | 8.8 ms | n/a |
+
+![SIFS search quality versus warm uncached query latency](assets/images/quality_vs_warm_latency.png)
 
 SIFS is strongest on symbol-heavy queries while still performing well on
 semantic and architecture questions.
 
-| Query category | NDCG@10 |
+| Query type | NDCG@10 |
 |---|---:|
-| symbol | 0.9566 |
-| semantic | 0.8262 |
-| architecture | 0.8070 |
+| symbol | 0.9486 |
+| semantic | 0.8264 |
+| architecture | 0.8063 |
 
-![SIFS quality by query category](assets/images/sifs_by_category.png)
+![SIFS quality by query type](assets/images/sifs_by_query_type.png)
 
 The benchmark artifacts live in [benchmarks/results](benchmarks/results), and
 the full methodology, per-language breakdown, additional figures, and React

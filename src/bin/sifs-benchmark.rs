@@ -33,6 +33,8 @@ struct Args {
     include_tasks: bool,
     #[arg(long)]
     alpha: Option<f32>,
+    #[arg(long, default_value_t = SearchMode::Hybrid)]
+    mode: SearchMode,
     #[arg(long)]
     model: Option<String>,
     #[arg(long)]
@@ -107,9 +109,11 @@ struct RepoResult {
     tasks: usize,
     ndcg5: f64,
     ndcg10: f64,
-    p50_ms: f64,
-    p90_ms: f64,
-    index_ms: f64,
+    cold_index_ms: f64,
+    warm_uncached_query_ms: f64,
+    warm_uncached_query_p90_ms: f64,
+    warm_cached_repeat_query_ms: f64,
+    warm_cached_repeat_query_p90_ms: f64,
     peak_rss_mb: f64,
     by_category: BTreeMap<String, f64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -120,10 +124,21 @@ struct RepoResult {
 struct TaskResult {
     query: String,
     category: String,
+    relevant_count: usize,
     ranks: Vec<usize>,
     ndcg5: f64,
     ndcg10: f64,
-    top_results: Vec<String>,
+    top_results: Vec<TaskHit>,
+}
+
+#[derive(Debug, Serialize)]
+struct TaskHit {
+    location: String,
+    path: String,
+    start_line: usize,
+    end_line: usize,
+    tokens: usize,
+    relevant: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -138,7 +153,9 @@ struct Summary {
     repos: usize,
     tasks: usize,
     avg_ndcg10: f64,
-    avg_p50_ms: f64,
+    avg_cold_index_ms: f64,
+    avg_warm_uncached_query_ms: f64,
+    avg_warm_cached_repeat_query_ms: f64,
 }
 
 fn main() -> Result<()> {
@@ -177,9 +194,10 @@ fn main() -> Result<()> {
             None,
             false,
         )?;
-        let index_ms = elapsed_ms(start);
+        let cold_index_ms = elapsed_ms(start);
 
-        let mut latencies = Vec::new();
+        let mut uncached_latencies = Vec::new();
+        let mut cached_latencies = Vec::new();
         let mut ndcg5_sum = 0.0;
         let mut ndcg10_sum = 0.0;
         let mut by_category_scores: HashMap<String, Vec<f64>> = HashMap::new();
@@ -193,14 +211,29 @@ fn main() -> Result<()> {
                 task.query
             );
             let mut last_results = Vec::new();
-            let mut search_options = SearchOptions::new(args.top_k).with_mode(SearchMode::Hybrid);
-            search_options.alpha = args.alpha;
-            std::hint::black_box(index.search_with(&task.query, &search_options)?);
+            let mut uncached_options = SearchOptions::new(args.top_k)
+                .with_mode(args.mode)
+                .with_cache(false);
+            uncached_options.alpha = args.alpha;
+            let mut cached_options = SearchOptions::new(args.top_k)
+                .with_mode(args.mode)
+                .with_cache(true);
+            cached_options.alpha = args.alpha;
+
+            std::hint::black_box(index.search_with(&task.query, &uncached_options)?);
             for _ in 0..args.latency_runs.max(1) {
                 let start = Instant::now();
-                last_results = index.search_with(&task.query, &search_options)?;
-                latencies.push(elapsed_ms(start));
+                last_results = index.search_with(&task.query, &uncached_options)?;
+                uncached_latencies.push(elapsed_ms(start));
             }
+
+            std::hint::black_box(index.search_with(&task.query, &cached_options)?);
+            for _ in 0..args.latency_runs.max(1) {
+                let start = Instant::now();
+                std::hint::black_box(index.search_with(&task.query, &cached_options)?);
+                cached_latencies.push(elapsed_ms(start));
+            }
+
             let ranks: Vec<usize> = task
                 .relevant
                 .iter()
@@ -218,19 +251,20 @@ fn main() -> Result<()> {
                 task_results.push(TaskResult {
                     query: task.query.clone(),
                     category: task.category.clone(),
+                    relevant_count: task.relevant.len(),
                     ranks,
                     ndcg5,
                     ndcg10,
                     top_results: last_results
                         .iter()
-                        .take(args.top_k.min(10))
-                        .map(|result| result.chunk.location())
+                        .map(|result| task_hit(result, task))
                         .collect(),
                 });
             }
         }
 
-        latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        uncached_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        cached_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let stats = index.stats();
         let mut by_category = BTreeMap::new();
         for (category, scores) in by_category_scores {
@@ -244,9 +278,11 @@ fn main() -> Result<()> {
             tasks: tasks.len(),
             ndcg5: ndcg5_sum / tasks.len() as f64,
             ndcg10: ndcg10_sum / tasks.len() as f64,
-            p50_ms: percentile(&latencies, 0.5),
-            p90_ms: percentile(&latencies, 0.9),
-            index_ms,
+            cold_index_ms,
+            warm_uncached_query_ms: percentile(&uncached_latencies, 0.5),
+            warm_uncached_query_p90_ms: percentile(&uncached_latencies, 0.9),
+            warm_cached_repeat_query_ms: percentile(&cached_latencies, 0.5),
+            warm_cached_repeat_query_p90_ms: percentile(&cached_latencies, 0.9),
             peak_rss_mb: peak_rss_mb(),
             by_category,
             task_results,
@@ -258,10 +294,12 @@ fn main() -> Result<()> {
         repos: results.len(),
         tasks: total_tasks,
         avg_ndcg10: weighted_mean(&results, |r| r.ndcg10),
-        avg_p50_ms: weighted_mean(&results, |r| r.p50_ms),
+        avg_cold_index_ms: weighted_mean(&results, |r| r.cold_index_ms),
+        avg_warm_uncached_query_ms: weighted_mean(&results, |r| r.warm_uncached_query_ms),
+        avg_warm_cached_repeat_query_ms: weighted_mean(&results, |r| r.warm_cached_repeat_query_ms),
     };
     let payload = Payload {
-        method: "sifs-hybrid".to_owned(),
+        method: format!("sifs-{}", args.mode),
         results,
         summary,
     };
@@ -269,12 +307,13 @@ fn main() -> Result<()> {
     if let Some(output) = args.output {
         fs::write(&output, json)?;
         eprintln!(
-            "Wrote benchmark results to {} ({} repos, {} tasks, avg_ndcg10={:.3}, avg_p50_ms={:.1}).",
+            "Wrote benchmark results to {} ({} repos, {} tasks, avg_ndcg10={:.3}, avg_warm_uncached_query_ms={:.1}, avg_warm_cached_repeat_query_ms={:.4}).",
             output.display(),
             payload.summary.repos,
             payload.summary.tasks,
             payload.summary.avg_ndcg10,
-            payload.summary.avg_p50_ms
+            payload.summary.avg_warm_uncached_query_ms,
+            payload.summary.avg_warm_cached_repeat_query_ms
         );
     } else {
         print!("{json}");
@@ -406,6 +445,24 @@ fn target_rank(results: &[sifs::SearchResult], target: &Target) -> Option<usize>
         target_matches(&chunk.file_path, chunk.start_line, chunk.end_line, target)
             .then_some(idx + 1)
     })
+}
+
+fn task_hit(result: &sifs::SearchResult, task: &Task) -> TaskHit {
+    let chunk = &result.chunk;
+    TaskHit {
+        location: chunk.location(),
+        path: chunk.file_path.clone(),
+        start_line: chunk.start_line,
+        end_line: chunk.end_line,
+        tokens: estimate_tokens(&chunk.content),
+        relevant: task.relevant.iter().any(|target| {
+            target_matches(&chunk.file_path, chunk.start_line, chunk.end_line, target)
+        }),
+    }
+}
+
+fn estimate_tokens(content: &str) -> usize {
+    content.split_whitespace().count().max(1)
 }
 
 fn target_matches(file_path: &str, start_line: usize, end_line: usize, target: &Target) -> bool {

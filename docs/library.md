@@ -218,6 +218,18 @@ let results = index.search_with(
 If both filters are present, SIFS searches chunks that match both filter sets.
 If no filter matches any chunk, SIFS falls back to searching the full index.
 
+Disable the in-process query-result cache when measuring uncached warm query
+latency or when a caller wants every request to execute ranking work.
+
+```rust
+let results = index.search_with(
+    "parse oauth callback",
+    &SearchOptions::new(10)
+        .with_mode(SearchMode::Hybrid)
+        .with_cache(false),
+)?;
+```
+
 ## Find related chunks
 
 Use `find_related` when you already have a `Chunk` and want nearby concepts or

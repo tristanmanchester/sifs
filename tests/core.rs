@@ -1,9 +1,14 @@
+use ndarray::Array2;
 use sifs::{
-    CacheConfig, Chunk, EncoderSpec, HashingEncoder, IndexOptions, ModelLoadPolicy, ModelOptions,
-    SearchMode, SearchOptions, SearchResult, SifsIndex, format_results,
+    CacheConfig, Chunk, Encoder, EncoderSpec, HashingEncoder, IndexOptions, ModelLoadPolicy,
+    ModelOptions, SearchMode, SearchOptions, SearchResult, SifsIndex, format_results,
 };
 use std::fs;
 use std::process::Command;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn chunk(content: &str, file_path: &str) -> Chunk {
     Chunk {
@@ -12,6 +17,26 @@ fn chunk(content: &str, file_path: &str) -> Chunk {
         start_line: 1,
         end_line: content.lines().count().max(1),
         language: Some("python".to_owned()),
+    }
+}
+
+struct CountingEncoder {
+    calls: Arc<AtomicUsize>,
+}
+
+impl Encoder for CountingEncoder {
+    fn encode(&self, texts: &[String]) -> Array2<f32> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let mut values = Array2::zeros((texts.len(), 2));
+        for (idx, text) in texts.iter().enumerate() {
+            values[[idx, 0]] = if text.contains("auth") { 1.0 } else { 0.0 };
+            values[[idx, 1]] = 1.0;
+        }
+        values
+    }
+
+    fn dim(&self) -> usize {
+        2
     }
 }
 
@@ -66,6 +91,36 @@ fn index_search_modes_and_filters_work() {
         .search_with("format", &SearchOptions::new(3).with_paths(paths))
         .unwrap();
     assert!(filtered.iter().all(|r| r.chunk.file_path == "utils.py"));
+}
+
+#[test]
+fn search_options_can_bypass_query_cache() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let chunks = vec![
+        chunk("fn authenticate_token() {}", "src/auth.rs"),
+        chunk("fn render_chart() {}", "src/chart.rs"),
+    ];
+    let index = SifsIndex::from_chunks(
+        Box::new(CountingEncoder {
+            calls: calls.clone(),
+        }),
+        chunks,
+    )
+    .unwrap();
+    let cached = SearchOptions::new(1)
+        .with_mode(SearchMode::Semantic)
+        .with_cache(true);
+    let uncached = SearchOptions::new(1)
+        .with_mode(SearchMode::Semantic)
+        .with_cache(false);
+
+    index.search_with("auth token", &cached).unwrap();
+    index.search_with("auth token", &cached).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    index.search_with("auth token", &uncached).unwrap();
+    index.search_with("auth token", &uncached).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
 }
 
 #[test]

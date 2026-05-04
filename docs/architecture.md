@@ -104,7 +104,8 @@ The hybrid alpha value controls semantic weight. When callers don't provide an
 alpha, SIFS resolves one from the query:
 
 - Symbol-like queries use more BM25 weight.
-- Natural-language queries keep more semantic weight.
+- Mixed code phrases use a balanced hybrid weight.
+- Natural-language and architecture questions keep more semantic weight.
 - Explicit alpha values override the automatic selection.
 
 Hybrid mode is the default because most developer queries contain both semantic

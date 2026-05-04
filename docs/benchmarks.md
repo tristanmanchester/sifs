@@ -78,8 +78,11 @@ Available filters and controls are:
 
 - `--repo <name>` can be repeated to include specific repositories.
 - `--language <language>` can be repeated to include specific languages.
+- `--mode <hybrid|semantic|bm25>` selects the search mode for the run.
 - `--top-k <count>` controls search depth for each task.
 - `--latency-runs <count>` controls repeated query timing per task.
+- `--include-tasks` includes per-task ranks and result metadata for analysis
+  plots such as context-efficiency curves.
 - `--output <path>` writes the JSON payload to a file.
 
 ## Output payload
@@ -99,9 +102,11 @@ results, and a weighted summary.
       "tasks": 10,
       "ndcg5": 0.72,
       "ndcg10": 0.79,
-      "p50_ms": 0.28,
-      "p90_ms": 0.41,
-      "index_ms": 194.4,
+      "cold_index_ms": 194.4,
+      "warm_uncached_query_ms": 0.28,
+      "warm_uncached_query_p90_ms": 0.41,
+      "warm_cached_repeat_query_ms": 0.0017,
+      "warm_cached_repeat_query_p90_ms": 0.0021,
       "peak_rss_mb": 208.1,
       "by_category": {
         "architecture": 0.81
@@ -112,14 +117,18 @@ results, and a weighted summary.
     "repos": 1,
     "tasks": 10,
     "avg_ndcg10": 0.79,
-    "avg_p50_ms": 0.28
+    "avg_cold_index_ms": 194.4,
+    "avg_warm_uncached_query_ms": 0.28,
+    "avg_warm_cached_repeat_query_ms": 0.0017
   }
 }
 ```
 
-Use `ndcg10` to compare ranking quality and `p50_ms` or `p90_ms` to compare
-query latency. Use `index_ms`, `peak_rss_mb`, `files`, and `chunks` when
-investigating indexing, memory, file selection, or chunking changes.
+Use `ndcg10` to compare ranking quality. Use `warm_uncached_query_ms` for
+normal searches after an index exists, and `warm_cached_repeat_query_ms` only
+for identical repeated queries inside the same process. Use `cold_index_ms`,
+`peak_rss_mb`, `files`, and `chunks` when investigating indexing, memory, file
+selection, or chunking changes.
 
 ## Local smoke benchmark
 
@@ -131,8 +140,9 @@ cargo build --release --example bench
 target/release/examples/bench /path/to/project "authentication flow" 100
 ```
 
-The example prints index time, query latency percentiles, indexed files, and
-chunk count. It also prints peak resident memory on Unix platforms.
+The example prints cold index time, warm uncached query percentiles, cached
+repeat query percentiles, indexed files, and chunk count. It also prints peak
+resident memory on Unix platforms.
 
 ## Embedding helper
 
@@ -155,10 +165,12 @@ These measurements were collected on May 4, 2026, on this development machine.
 They are useful as a reference point, but they aren't a hardware-independent
 performance contract.
 
-Full Semble corpus comparison:
+Full annotated corpus comparison:
 
-- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.8444183076002316`,
-  and `p50=0.0016651087130295766ms`.
+- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.8426255707785477`,
+  `cold_index_ms=119.93740263629101`,
+  `warm_uncached_query_ms=0.44186326778577134`, and
+  `warm_cached_repeat_query_ms=0.0011547985611510784`.
 - The detailed report, graphs, baseline comparison table, and per-language
   breakdown are in [Benchmark Report](benchmark-report.md).
 - The raw SIFS payload is in
@@ -166,37 +178,13 @@ Full Semble corpus comparison:
 
 React large-repository smoke benchmark:
 
-- Shallow clone of `facebook/react`: `index_ms=8289.240`,
-  `query_p50_ms=0.002`, `query_p90_ms=0.003`, `peak_rss_mb=362.8`,
-  `files=4373`, and `chunks=21117`.
+- Shallow clone of `facebook/react`: `cold_index_ms=2137.435`,
+  `warm_uncached_query_ms=2.053`, `warm_uncached_query_p90_ms=2.322`,
+  `warm_cached_repeat_query_ms=0.001`,
+  `warm_cached_repeat_query_p90_ms=0.001`, `peak_rss_mb=461.9`,
+  `files=4370`, and `chunks=21096`.
 - Captured output is in
   [benchmarks/results/react-smoke.txt](../benchmarks/results/react-smoke.txt).
-
-FastAPI annotated benchmark:
-
-- SIFS warm cache: `NDCG@5=0.7742068779742652`,
-  `NDCG@10=0.8297832939936765`, `p50=0.00125ms`,
-  `p90=0.004083ms`, `index=89.226292ms`, `peak_rss=175.265625MB`,
-  `files=46`, and `chunks=603`.
-- Python reference: `NDCG@10=0.786`, `p50=0.76ms`, `index=260ms`, and
-  `chunks=597`.
-
-Large local application smoke benchmark:
-
-- SIFS cold build after the optimization pass: `index_ms=10148.225`,
-  `query_p50_ms=0.001`, `query_p90_ms=0.001`, `peak_rss_mb=866.5`,
-  `files=4435`, and `chunks=51350`.
-- SIFS warm cache after the optimization pass: `index_ms=165.326`,
-  `query_p50_ms=0.001`, `query_p90_ms=0.001`, `peak_rss_mb=507.8`,
-  `files=4435`, and `chunks=51350`.
-- Python reference: `index_ms=25520.934`, `query_p50_ms=6.702`,
-  `query_p90_ms=7.292`, `files=4435`, and `chunks=50667`.
-
-The earlier SIFS baseline for this large local application was
-`index_ms=15904.490`, `query_p50_ms=2.218`, and `query_p90_ms=2.491`.
-Before batched embedding, local peak RSS measurements were around
-`2465-2775MB` for the same app. Before query caching, repeated-query p90 was
-around `1.783-2.070ms` after the first optimization pass.
 
 ## Interpreting deltas
 

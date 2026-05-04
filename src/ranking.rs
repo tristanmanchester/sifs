@@ -64,11 +64,15 @@ const SQL_DEFINITION_KEYWORDS: &[&str] = &[
 pub fn resolve_alpha(query: &str, alpha: Option<f32>) -> f32 {
     alpha.unwrap_or_else(|| {
         if is_symbol_query(query) {
-            0.3
+            0.25
         } else if is_architecture_query(query) {
-            0.55
+            0.65
+        } else if is_natural_language_question(query) {
+            0.65
+        } else if is_mixed_code_phrase(query) {
+            0.45
         } else {
-            0.3
+            0.55
         }
     })
 }
@@ -93,9 +97,32 @@ pub fn is_symbol_query(query: &str) -> bool {
 
 fn is_architecture_query(query: &str) -> bool {
     let lowered = query.trim().to_lowercase();
-    lowered.starts_with("how ")
+    lowered.contains(" architecture")
+        || lowered.contains(" design")
+        || lowered.contains(" flow")
+        || lowered.contains(" lifecycle")
+        || lowered.contains(" pipeline")
         || lowered.starts_with("how does ")
         || lowered.starts_with("how are ")
+}
+
+fn is_natural_language_question(query: &str) -> bool {
+    let lowered = query.trim().to_lowercase();
+    lowered.ends_with('?')
+        || lowered.starts_with("how ")
+        || lowered.starts_with("what ")
+        || lowered.starts_with("where ")
+        || lowered.starts_with("when ")
+        || lowered.starts_with("why ")
+        || lowered.starts_with("which ")
+        || lowered.starts_with("who ")
+}
+
+fn is_mixed_code_phrase(query: &str) -> bool {
+    EMBEDDED_SYMBOL_RE.is_match(query)
+        || query.split_whitespace().any(|part| {
+            is_symbol_query(part.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_'))
+        })
 }
 
 pub fn boost_multi_chunk_files(scores: &mut HashMap<usize, f32>, chunks: &[Chunk]) {
@@ -446,11 +473,18 @@ mod tests {
 
     #[test]
     fn alpha_detection_matches_symbol_vs_natural_language() {
-        assert_eq!(resolve_alpha("MyService", None), 0.3);
-        assert_eq!(resolve_alpha("how does routing work", None), 0.55);
+        assert_eq!(resolve_alpha("MyService", None), 0.25);
+        assert_eq!(resolve_alpha("parse_json", None), 0.25);
+        assert_eq!(resolve_alpha("how does routing work", None), 0.65);
+        assert_eq!(resolve_alpha("request lifecycle architecture", None), 0.65);
+        assert_eq!(
+            resolve_alpha("where is request validation handled?", None),
+            0.65
+        );
+        assert_eq!(resolve_alpha("useSession hook", None), 0.45);
         assert_eq!(
             resolve_alpha("request validation and error handling", None),
-            0.3
+            0.55
         );
         assert_eq!(resolve_alpha("MyService", Some(0.7)), 0.7);
     }

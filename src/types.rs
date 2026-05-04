@@ -66,6 +66,7 @@ pub struct SearchOptions {
     pub alpha: Option<f32>,
     pub filter_languages: Vec<String>,
     pub filter_paths: Vec<String>,
+    pub use_query_cache: bool,
 }
 
 impl Default for SearchOptions {
@@ -76,6 +77,7 @@ impl Default for SearchOptions {
             alpha: None,
             filter_languages: Vec::new(),
             filter_paths: Vec::new(),
+            use_query_cache: true,
         }
     }
 }
@@ -105,6 +107,11 @@ impl SearchOptions {
 
     pub fn with_paths(mut self, paths: impl IntoIterator<Item = String>) -> Self {
         self.filter_paths = paths.into_iter().collect();
+        self
+    }
+
+    pub fn with_cache(mut self, use_query_cache: bool) -> Self {
+        self.use_query_cache = use_query_cache;
         self
     }
 }

@@ -526,13 +526,15 @@ impl SifsIndex {
             filter_languages: filter_languages.map(<[String]>::to_vec),
             filter_paths: filter_paths.map(<[String]>::to_vec),
         };
-        if let Some(results) = self
-            .search_cache
-            .lock()
-            .ok()
-            .and_then(|cache| cache.get(&cache_key).cloned())
-        {
-            return Ok(results);
+        if options.use_query_cache {
+            if let Some(results) = self
+                .search_cache
+                .lock()
+                .ok()
+                .and_then(|cache| cache.get(&cache_key).cloned())
+            {
+                return Ok(results);
+            }
         }
         let selector = self.selector(filter_languages, filter_paths);
         let selector_ref = selector.as_deref();
@@ -571,7 +573,9 @@ impl SifsIndex {
                 )
             }
         };
-        if let Ok(mut cache) = self.search_cache.lock() {
+        if options.use_query_cache
+            && let Ok(mut cache) = self.search_cache.lock()
+        {
             cache.insert(cache_key, results.clone());
         }
         Ok(results)

@@ -6,27 +6,41 @@ hardware-independent performance contract.
 
 ## Summary
 
-SIFS was evaluated against the Semble benchmark corpus: 63 pinned open-source
-repositories, 19 languages, and 1,251 annotated search tasks. The benchmark uses
-NDCG@10 for ranking quality and repeated-query p50 latency for warm search.
+SIFS was evaluated against 63 pinned open-source repositories, 19 languages, and
+1,251 annotated search tasks. The benchmark reports NDCG@10 for ranking quality
+and three separate timing fields:
 
-| Method | NDCG@10 | Index time | Query p50 |
-|---|---:|---:|---:|
-| CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms |
-| semble | 0.8544 | 439.4 ms | 1.3 ms |
-| **SIFS** | **0.8444** | **93.0 ms** | **0.0017 ms** |
-| CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms |
-| ColGREP | 0.6925 | 3.9 s | 979.3 ms |
-| grepai | 0.5606 | 35.0 s | 47.7 ms |
-| probe | 0.3872 | 0.0000 ms | 207.1 ms |
-| ripgrep | 0.1257 | 0.0000 ms | 8.8 ms |
+```text
+cold_index_ms
+warm_uncached_query_ms
+warm_cached_repeat_query_ms
+```
 
-SIFS lands close to the strongest semantic/hybrid baselines while keeping
-indexing and warm-query latency low. In this run, SIFS was 0.0100 NDCG@10
-behind Semble and 0.0173 behind CodeRankEmbed Hybrid, with lower reported
-warm-query latency than every baseline in the comparison.
+The uncached warm query number bypasses SIFS's in-process query-result cache and
+is the honest value to compare for normal searches after an index exists. The
+cached repeat number measures identical repeated queries after one warm-up.
+
+| Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
+|---|---:|---:|---:|---:|
+| CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
+| Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
+| **SIFS** | **0.8426** | **119.9 ms** | **0.442 ms** | **0.0012 ms** |
+| CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
+| ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
+| grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
+| probe | 0.3872 | 0.0000 ms | 207.1 ms | n/a |
+| ripgrep | 0.1257 | 0.0000 ms | 8.8 ms | n/a |
+
+SIFS is third on raw NDCG@10 in this comparison. It is 0.0118 NDCG@10 behind
+Semble and 0.0191 behind CodeRankEmbed Hybrid. The speed story is still strong,
+but the meaningful warm-query figure is `0.442ms`, not the `0.0012ms` cached
+repeat path.
 
 ## Figures
+
+![SIFS context efficiency: recall versus retrieved context tokens](../assets/images/sifs_context_efficiency.png)
+
+![SIFS search quality versus warm uncached query latency](../assets/images/quality_vs_warm_latency.png)
 
 ![SIFS speed and quality compared with code-search baselines](../assets/images/speed_vs_quality_combined.png)
 
@@ -36,25 +50,24 @@ warm-query latency than every baseline in the comparison.
 
 ![SIFS by language](../assets/images/sifs_by_language.png)
 
-![SIFS by query category](../assets/images/sifs_by_category.png)
+![SIFS by query type](../assets/images/sifs_by_query_type.png)
 
 ## Methodology
 
-The SIFS result was generated with the Rust benchmark binary against the Semble
-benchmark annotations and pinned repositories:
+The SIFS result was generated with the Rust benchmark binary against the
+annotated pinned-repository corpus:
 
 ```bash
-cargo build --release
+cargo build --release --features diagnostics --bins
 target/release/sifs-benchmark \
-  --benchmarks-dir /Users/tristan/Projects/oss/semble-port/semble/benchmarks \
-  --bench-root /Users/tristan/.cache/semble-bench \
-  --latency-runs 5 \
-  --output /Users/tristan/Projects/oss/semble-port/sifs-bench/results/sifs-full.json
+  --benchmarks-dir /path/to/benchmark-corpus \
+  --bench-root /path/to/pinned-checkouts \
+  --output benchmarks/results/sifs-full.json \
+  --no-download
 ```
 
-The comparison baselines are the existing Semble result JSON files under
-`/Users/tristan/Projects/oss/semble-port/semble/benchmarks/results`. The plotted
-baseline files were:
+The comparison baselines are existing result JSON files from the adjacent Python
+tool checkout. The Semble row is included as a direct comparison to that tool.
 
 | Method | Source result file |
 |---|---|
@@ -66,10 +79,10 @@ baseline files were:
 | probe | `probe-715563a812c3.json` |
 | ripgrep | `ripgrep-fixed-strings-0332378809c5.json` |
 
-Cold latency in the figures is index time plus first-query latency. Warm latency
-is the reported query p50 with an existing index. Some baseline files only carry
-precomputed summary timing fields; those values are preserved rather than
-recomputed.
+Cold latency in the figures is cold index time plus warm uncached query p50.
+Warm latency is warm uncached query p50 with an existing index. Some baseline
+files only carry precomputed summary timing fields; those values are preserved
+rather than recomputed.
 
 The full SIFS payload is checked in at
 [benchmarks/results/sifs-full.json](../benchmarks/results/sifs-full.json). It
@@ -78,60 +91,71 @@ count, and category-level scores.
 
 ## SIFS by language
 
-| Language | Repos | Tasks | NDCG@10 | Query p50 |
-|---|---:|---:|---:|---:|
-| bash | 3 | 60 | 0.8524 | 0.0016 ms |
-| c | 3 | 60 | 0.7668 | 0.0016 ms |
-| cpp | 3 | 60 | 0.8890 | 0.0016 ms |
-| csharp | 3 | 60 | 0.8776 | 0.0016 ms |
-| elixir | 3 | 58 | 0.8926 | 0.0020 ms |
-| go | 3 | 58 | 0.8654 | 0.0017 ms |
-| haskell | 3 | 60 | 0.7944 | 0.0016 ms |
-| java | 3 | 61 | 0.8075 | 0.0017 ms |
-| javascript | 3 | 60 | 0.8513 | 0.0016 ms |
-| kotlin | 3 | 60 | 0.7941 | 0.0020 ms |
-| lua | 3 | 60 | 0.8468 | 0.0016 ms |
-| php | 3 | 60 | 0.8323 | 0.0017 ms |
-| python | 9 | 184 | 0.8598 | 0.0016 ms |
-| ruby | 3 | 58 | 0.8927 | 0.0016 ms |
-| rust | 3 | 60 | 0.8085 | 0.0017 ms |
-| scala | 3 | 59 | 0.8908 | 0.0017 ms |
-| swift | 3 | 53 | 0.8716 | 0.0016 ms |
-| typescript | 3 | 60 | 0.7219 | 0.0017 ms |
-| zig | 3 | 60 | 0.9050 | 0.0016 ms |
+| Language | Repos | Tasks | NDCG@10 | Warm uncached query | Cached repeat query |
+|---|---:|---:|---:|---:|---:|
+| bash | 3 | 60 | 0.8491 | 0.228 ms | 0.0011 ms |
+| c | 3 | 60 | 0.7413 | 0.569 ms | 0.0011 ms |
+| cpp | 3 | 60 | 0.8972 | 0.422 ms | 0.0011 ms |
+| csharp | 3 | 60 | 0.8765 | 0.793 ms | 0.0011 ms |
+| elixir | 3 | 58 | 0.8864 | 0.300 ms | 0.0014 ms |
+| go | 3 | 58 | 0.8783 | 0.300 ms | 0.0012 ms |
+| haskell | 3 | 60 | 0.7833 | 0.497 ms | 0.0011 ms |
+| java | 3 | 61 | 0.8231 | 0.654 ms | 0.0012 ms |
+| javascript | 3 | 60 | 0.8585 | 0.194 ms | 0.0011 ms |
+| kotlin | 3 | 60 | 0.8094 | 0.484 ms | 0.0013 ms |
+| lua | 3 | 60 | 0.8305 | 0.369 ms | 0.0011 ms |
+| php | 3 | 60 | 0.8253 | 0.396 ms | 0.0011 ms |
+| python | 9 | 184 | 0.8582 | 0.287 ms | 0.0011 ms |
+| ruby | 3 | 58 | 0.8833 | 0.268 ms | 0.0011 ms |
+| rust | 3 | 60 | 0.8029 | 0.509 ms | 0.0012 ms |
+| scala | 3 | 59 | 0.8930 | 0.558 ms | 0.0012 ms |
+| swift | 3 | 53 | 0.8599 | 0.564 ms | 0.0012 ms |
+| typescript | 3 | 60 | 0.7248 | 0.711 ms | 0.0011 ms |
+| zig | 3 | 60 | 0.9040 | 0.609 ms | 0.0011 ms |
 
 ## SIFS by query category
 
-| Category | Repos | NDCG@10 |
-|---|---:|---:|
-| architecture | 63 | 0.8070 |
-| semantic | 63 | 0.8262 |
-| symbol | 50 | 0.9566 |
+| Category | NDCG@10 |
+|---|---:|
+| architecture | 0.8063 |
+| semantic | 0.8264 |
+| symbol | 0.9486 |
 
 Symbol lookup is the strongest category. BM25 and query-aware boosts help exact
 identifiers while semantic retrieval handles natural-language discovery.
 
+## TypeScript relevance work
+
+TypeScript remains the weakest language slice in the full benchmark:
+`NDCG@10=0.7248` across 60 tasks. A checked-in mini corpus now covers React
+components, hooks, type definitions, barrel exports, `.d.ts` declarations,
+route files, and test/spec files:
+
+- [tests/fixtures/ts-mini-corpus](../tests/fixtures/ts-mini-corpus)
+- [tests/typescript_relevance.rs](../tests/typescript_relevance.rs)
+
+The suite intentionally keeps the test/spec-file query at a looser rank
+threshold because current ranking penalizes test files. That makes the weakness
+visible before changing global ranking.
+
 ## Large repository smoke test
 
-A separate smoke benchmark was run against a shallow clone of
+A separate smoke benchmark can be run against a shallow clone of
 `https://github.com/facebook/react`. This is not an annotated relevance test; it
 is a scale and latency check on a larger real-world repository.
 
 ```bash
-git clone --depth 1 https://github.com/facebook/react.git \
-  /Users/tristan/Projects/oss/semble-port/sifs-bench/repos/react
-
 cargo build --release --example bench
 target/release/examples/bench \
-  /Users/tristan/Projects/oss/semble-port/sifs-bench/repos/react \
+  /path/to/react \
   "how React schedules updates and work loops" \
   100
 ```
 
-Result:
+Current checked-in result:
 
 ```text
-index_ms=8289.240 query_p50_ms=0.002 query_p90_ms=0.003 peak_rss_mb=362.8 files=4373 chunks=21117
+cold_index_ms=2137.435 warm_uncached_query_ms=2.053 warm_uncached_query_p90_ms=2.322 warm_cached_repeat_query_ms=0.001 warm_cached_repeat_query_p90_ms=0.001 peak_rss_mb=461.9 files=4370 chunks=21096
 ```
 
 The captured output is checked in at
@@ -141,11 +165,10 @@ The captured output is checked in at
 
 The plotting script used for these graphs is checked in at
 [benchmarks/plot_sifs_comparison.py](../benchmarks/plot_sifs_comparison.py). It
-expects the Semble baseline result files to exist in the adjacent
-`../semble/benchmarks/results` checkout by default, and it was run with `uv`:
+was run with `uv`:
 
 ```bash
-uv run --with matplotlib --with numpy python \
+uv run --with matplotlib \
   benchmarks/plot_sifs_comparison.py \
   --sifs-result benchmarks/results/sifs-full.json
 ```
@@ -154,16 +177,7 @@ The generated PNGs are written into [assets/images](../assets/images), and a
 compact generated table is written to
 [benchmarks/README.generated.md](../benchmarks/README.generated.md).
 
-## Interpretation notes
-
-- SIFS reports low repeated-query latency because the benchmark measures
-  repeated searches against an already built in-process index, and repeated
-  identical searches hit the SIFS query cache.
-- Index timing is averaged across the annotated benchmark repositories. It is
-  best compared against methods measured through the same Semble benchmark
-  harness and result files.
-- The React smoke test gives a more concrete large-repository cold-index number:
-  about 8.29 seconds for 4,373 files and 21,117 chunks on this machine.
-- TypeScript is the weakest language slice in this run. It is a good target for
-  future chunking and ranking work because the same corpus also showed strong
-  results for JavaScript, Python, Ruby, Scala, Zig, Swift, and C++.
+The context-efficiency figure is generated from
+[benchmarks/results/sifs-context-curves.json](../benchmarks/results/sifs-context-curves.json),
+a compact summary of context-mode benchmark runs for SIFS hybrid, BM25, and
+semantic search.
