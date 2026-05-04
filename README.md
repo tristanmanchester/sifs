@@ -10,6 +10,13 @@ indexes a repository, splits files into useful chunks, embeds those chunks with
 a Model2Vec-compatible encoder, and serves fast hybrid search over semantic and
 BM25 rankings.
 
+The benchmark headline is simple: SIFS gets near the best semantic/hybrid
+retrieval quality while staying extremely fast. On the 63-repository Semble
+benchmark corpus, SIFS reached `NDCG@10=0.8444` with `93.0ms` average indexing
+time and `0.0017ms` repeated-query p50 latency. That puts it within `0.0100`
+NDCG@10 of Semble and `0.0173` of CodeRankEmbed Hybrid, while keeping the
+interactive query path effectively instant for warm agent sessions.
+
 ## What SIFS does
 
 SIFS turns a local directory or Git repository into a searchable code index. You
