@@ -7,9 +7,9 @@ needs it.
 
 ## Pipeline overview
 
-The index pipeline is intentionally small and direct. `SifsIndex` owns all data
-needed for BM25 search after construction, so CLI commands and MCP tools can run
-model-free lexical searches without reading files again.
+The index pipeline is small. `SifsIndex` owns all data needed for BM25 search
+after construction, so CLI commands and MCP tools can run model-free lexical
+searches without reading files again.
 
 The pipeline stages are:
 
@@ -116,8 +116,8 @@ Related-code lookup starts from a known chunk. SIFS semantically searches using
 the chunk content as the query, filters to the same language when possible, and
 removes the source chunk from the result set.
 
-This makes `find_related` useful for finding alternate implementations,
-call-site patterns, duplicated logic, or conceptually similar modules.
+This makes `find_related` useful for finding alternate implementations, call
+site patterns, duplicated logic, or similar modules.
 
 ## MCP caching
 
@@ -130,9 +130,10 @@ maps. Restarting the server clears the cache.
 
 ## Persistent local indexes
 
-Default local path indexing also writes a persistent cache under `.sifs/` in the
-indexed repository. SIFS validates that cache against the current sorted file
-signature list before loading it.
+Default local path indexing writes persistent cache entries under the platform
+cache directory, such as `~/Library/Caches/sifs` on macOS. The CLI can opt into
+a repository-local `.sifs/` cache with `--project-cache`. SIFS validates each
+cache entry against the current sorted file signature list before loading it.
 
 The sparse persistent cache stores:
 
@@ -149,19 +150,15 @@ build an index from source so option-specific behavior stays correct.
 
 ## Limitations
 
-SIFS keeps live indexes in memory after construction. Default local path
-indexing persists reusable index data to `.sifs/`, but other indexing modes
-still rebuild from source.
+SIFS keeps live indexes in memory after construction. Persistent caches are best
+effort: if a cache entry is missing or invalid, SIFS rebuilds from source and
+writes a fresh entry when persistent caching is enabled.
 
 Other current limits are:
 
 - Files must be readable as UTF-8 text.
 - Only the root `.gitignore` file is loaded.
 - Git indexing uses shallow clones.
-- Direct CLI commands can reuse `.sifs/` only for default local indexing.
+- Direct CLI commands use platform caches by default and only write `.sifs/`
+  when `--project-cache` is set.
 - Document-like files require explicit library options.
-
-## Next steps
-
-Read [Rust library usage](library.md) to use these components from Rust, or
-read [Benchmarking](benchmarks.md) to measure changes to the pipeline.

@@ -4,18 +4,16 @@
 
 # SIFS
 
-SIFS means "SIFS Is Fast Search." It's a Rust-native code search tool and
-library for agents, editor integrations, and local developer workflows. It
-indexes a repository, splits files into useful chunks, embeds those chunks with
-a Model2Vec-compatible encoder, and serves fast hybrid search over semantic and
-BM25 rankings.
+SIFS means "SIFS Is Fast Search." It is a Rust code search tool and library for
+agents, editor integrations, and local developer workflows. It indexes a
+repository, splits files into useful chunks, embeds those chunks with a
+Model2Vec-compatible encoder, and runs hybrid search over semantic and BM25
+rankings.
 
-The benchmark headline is simple: SIFS gets near the best semantic/hybrid
-retrieval quality while staying extremely fast. On the 63-repository Semble
-benchmark corpus, SIFS reached `NDCG@10=0.8444` with `93.0ms` average indexing
-time and `0.0017ms` repeated-query p50 latency. That puts it within `0.0100`
-NDCG@10 of Semble and `0.0173` of CodeRankEmbed Hybrid, while keeping the
-interactive query path effectively instant for warm agent sessions.
+On the 63-repository Semble benchmark corpus, SIFS reached `NDCG@10=0.8444`
+with `93.0ms` average indexing time and `0.0017ms` repeated-query p50 latency.
+That is `0.0100` NDCG@10 behind Semble and `0.0173` behind CodeRankEmbed
+Hybrid, with a much faster warm query path in this benchmark.
 
 ## What SIFS does
 
@@ -97,8 +95,7 @@ target/release/sifs /path/to/project
 
 ## Documentation
 
-The documentation is split by usage surface. Start with the page that matches
-how you plan to use SIFS.
+Start with the page that matches how you plan to use SIFS.
 
 - [Command-line usage](docs/cli.md) covers `search`, `find-related`, `init`,
   and MCP server startup.
@@ -132,16 +129,14 @@ while natural-language queries keep more semantic weight.
 ## Benchmarks
 
 The current full-corpus benchmark uses the Semble benchmark suite: 63 pinned
-open-source repositories, 19 languages, and 1,251 annotated search tasks. On
-this local run, SIFS reached `NDCG@10=0.8444` with `p50=0.0017ms` repeated-query
-latency after indexing.
+open-source repositories, 19 languages, and 1,251 annotated search tasks. In
+this local run, SIFS reached `NDCG@10=0.8444` with `p50=0.0017ms`
+repeated-query latency after indexing.
 
 SIFS is third on raw NDCG@10 in this comparison, behind CodeRankEmbed Hybrid and
-Semble. The gap is small: SIFS is `0.0100` NDCG@10 behind Semble and `0.0173`
-behind CodeRankEmbed Hybrid, while reporting much lower warm-query latency and
-lower average index time than the embedding-heavy baselines. The intended
-positioning is near-top relevance with a local, agent-native interface and very
-fast interactive search.
+Semble. It is `0.0100` NDCG@10 behind Semble and `0.0173` behind CodeRankEmbed
+Hybrid, while reporting much lower warm-query latency and lower average index
+time than the embedding-heavy baselines.
 
 | Method | NDCG@10 | Index time | Query p50 |
 |---|---:|---:|---:|
@@ -182,8 +177,3 @@ JSON are available through the library options.
 The file walker currently recognizes Python, JavaScript, TypeScript, Go, Rust,
 Java, Kotlin, Ruby, PHP, C, C++, C#, Swift, Scala, Elixir, Dart, Lua, SQL,
 Bash, Zig, Haskell, Markdown, YAML, TOML, and JSON extensions.
-
-## Next steps
-
-Read [command-line usage](docs/cli.md) if you want to run SIFS locally, or read
-[MCP server usage](docs/mcp.md) if you want to wire it into an agent client.

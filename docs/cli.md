@@ -65,7 +65,7 @@ Linux. Use `--cache-dir` to choose another cache root, `--no-cache` to disable
 persistent caches, or `--project-cache` to opt into a repository-local `.sifs/`
 cache.
 
-## Find-related command
+## find-related command
 
 The `find-related` command resolves a file and line into the indexed chunk that
 contains that line. It then searches for semantically related chunks in the same
@@ -87,7 +87,7 @@ If SIFS can't resolve the location, it exits with an error that names the file
 and line. Check that the file extension is indexed and that the line falls
 inside a non-empty chunk.
 
-## Model command
+## model command
 
 Semantic, hybrid, `find-related`, and `sifs-embed` need a Model2Vec-compatible
 embedding model. BM25 search does not.
@@ -119,7 +119,7 @@ target/release/sifs doctor [path] [--encoder <encoder>] [--model <model>] [--off
 Use it before offline semantic or hybrid search to confirm whether model files
 are already local.
 
-## Cache command
+## cache command
 
 SIFS stores persistent sparse and semantic index caches outside searched
 repositories by default. Use `cache status` to inspect the cache and
@@ -137,7 +137,7 @@ target/release/sifs cache clean --cache-dir /tmp/sifs-cache
 search for or remove project-local `.sifs/` directories unless you explicitly
 point `--cache-dir` at one.
 
-## Init command
+## init command
 
 The `init` command writes a ready-to-use agent description for clients that
 support local agent files. It creates `.claude/agents/sifs-search.md`.
@@ -152,7 +152,7 @@ Use `--force` to overwrite an existing file at that path.
 target/release/sifs init --force
 ```
 
-## Capabilities command
+## capabilities command
 
 The `capabilities` command prints the main CLI and MCP capabilities in one
 place. Use it when onboarding a user or checking what an agent can discover
@@ -213,17 +213,12 @@ indexing canonicalizes the path and uses the `ignore` crate for nested
 
 Direct CLI searches use the platform cache by default, such as
 `~/Library/Caches/sifs` on macOS, so searching a repository does not create
-repo-local files. Use `--cache local` to opt into `.sifs/`, `--cache off` to
-disable persistent cache reuse, and `sifs clean .` to remove the selected
-persistent cache for a local directory.
+repo-local files. Use `--project-cache` to opt into `.sifs/`, `--no-cache` to
+disable persistent cache reuse, and `sifs clean .` to remove a local `.sifs`
+cache for a directory.
 
-BM25 mode is the safest network-free smoke path for package managers:
+BM25 mode is the safest network-free smoke path for package-manager checks:
 
 ```bash
 target/release/sifs search "SessionToken" /path/to/project --mode bm25 --offline
 ```
-
-## Next steps
-
-Read [MCP server usage](mcp.md) to wire SIFS into an agent client, or read
-[Benchmarking](benchmarks.md) to measure latency and search quality.

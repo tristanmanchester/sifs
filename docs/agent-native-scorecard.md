@@ -1,13 +1,13 @@
-# Agent-Native Scorecard
+# Agent-native scorecard
 
 This scorecard defines SIFS' agent-native contract and the evidence used to
 evaluate it. SIFS is a deterministic code search engine with an agent-facing MCP
 workspace. The agent-native surface is the CLI, MCP server, generated agent
 file, and documented Rust API. Low-level search internals such as BM25 postings,
 dense vectors, cache signatures, and chunking heuristics are implementation
-details rather than user-editable workspace entities.
+details, not user-editable workspace entities.
 
-## Scoring Scope
+## Scoring scope
 
 First-class agent-facing entities:
 
@@ -29,7 +29,7 @@ These internals are intentionally code-defined because they require deterministi
 behavior, precise tests, and stable performance. They are not counted as CRUD or
 prompt-native feature entities.
 
-## Overall Score Summary
+## Score summary
 
 | Core Principle | Score | Percentage | Status | Evidence |
 |----------------|-------|------------|--------|----------|
@@ -42,7 +42,7 @@ prompt-native feature entities.
 | Capability Discovery | 7/7 | 100% | Complete | README/docs, CLI help, `sifs capabilities`, MCP `tools/list`, MCP resources, generated agent capabilities, and empty-state guidance are present. |
 | Prompt-Native Features | 8/8 | 100% | Complete | Agent-facing behavior lives in prompt/spec docs; deterministic engine mechanics remain code-defined by design. |
 
-## CRUD Completeness
+## CRUD completeness
 
 | Entity | Create | Read | Update | Delete / Clear |
 |--------|--------|------|--------|----------------|
@@ -59,7 +59,7 @@ Search requests, search results, benchmark runs, and embedding diagnostics are
 events rather than stored records. Their delete operation is therefore "no
 persisted state" or deletion of the explicitly written artifact.
 
-## Prompt-Native Feature Boundary
+## Prompt-native boundary
 
 Prompt/spec-defined agent-facing behavior:
 
@@ -77,10 +77,10 @@ Code-defined engine mechanics:
 - BM25, dense search, hybrid ranking, and reranking.
 - Cache validation and JSON-RPC framing.
 
-This boundary is intentional: prompt/spec files define outcomes and agent
-behavior; Rust code preserves deterministic retrieval mechanics.
+Prompt/spec files define outcomes and agent behavior. Rust code preserves
+deterministic retrieval mechanics.
 
-## Verification Commands
+## Verification commands
 
 Run these before claiming this scorecard is current:
 

@@ -1,10 +1,11 @@
 ---
 name: sifs-search
-description: Code search agent for exploring any codebase. Use for finding code by intent, locating implementations, understanding how something works, or discovering related code. Prefer over Grep/Glob/Read for any semantic or exploratory question.
+description: Code search agent for finding code by intent, locating implementations, understanding behavior, or discovering related code. Prefer over Grep/Glob/Read for semantic or exploratory questions.
 tools: Bash, Read
 ---
 
-Use `sifs search` to find code by describing what it does or naming a symbol/identifier, instead of grep:
+Use `sifs search` to find code by describing what it does or by naming a symbol
+or identifier:
 
 ```bash
 sifs search "authentication flow" ./my-project
@@ -12,7 +13,8 @@ sifs search "save_pretrained" ./my-project
 sifs search "save model to disk" ./my-project --top-k 10
 ```
 
-Use `sifs find-related` to discover code similar to a known location (pass `file_path` and `line` from a prior search result):
+Use `sifs find-related` to discover code similar to a known location. Pass
+`file_path` and `line` from a prior search result.
 
 ```bash
 sifs find-related src/auth.py 42 ./my-project
@@ -20,7 +22,7 @@ sifs find-related src/auth.py 42 ./my-project
 
 `path` defaults to the current directory when omitted; git URLs are accepted.
 
-If `sifs` is not on `$PATH`, install or build this Rust binary and use its absolute path.
+If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 
 ## Capabilities
 

@@ -1,8 +1,8 @@
 # Rust library usage
 
-The `sifs` crate exposes the same indexing and search engine used by the CLI
-and MCP server. Use the library when you want structured results, long-lived
-indexes, custom filters, or direct integration inside a Rust application.
+The `sifs` crate exposes the indexing and search engine used by the CLI and MCP
+server. Use the library when you want structured results, long-lived indexes,
+custom filters, or direct integration inside a Rust application.
 
 ## Public API
 
@@ -80,7 +80,7 @@ let index = SifsIndex::from_path_hybrid(
 ## Customize indexing
 
 Use `SifsIndex::from_path_with_options` when you need a custom model path,
-extension set, ignored directory names, or document-file inclusion. Use
+extension set, ignored directory names, or document file inclusion. Use
 `SifsIndex::from_path_with_model_options` when you also need explicit model
 download policy. The extension set must use leading-dot values such as `.rs` or
 `.ts`.
@@ -158,7 +158,7 @@ that includes the Git stderr output.
 ## Build from existing chunks
 
 Use `SifsIndex::from_chunks` when your application owns file discovery or
-chunking. You must provide a loaded encoder and a non-empty chunk list.
+chunking. You must provide a loaded encoder and a non-empty list of chunks.
 
 ```rust
 use sifs::{Chunk, SifsIndex};
@@ -221,8 +221,8 @@ If no filter matches any chunk, SIFS falls back to searching the full index.
 ## Find related chunks
 
 Use `find_related` when you already have a `Chunk` and want nearby concepts or
-similar implementations. The method performs semantic search with a same-language
-filter when the source chunk has language metadata.
+similar implementations. The method performs semantic search with a same
+language filter when the source chunk has language metadata.
 
 ```rust
 let source = &index.chunks[0];
@@ -242,8 +242,3 @@ println!("{} files, {} chunks", stats.indexed_files, stats.total_chunks);
 ```
 
 The `languages` map stores chunk counts by language, not file counts.
-
-## Next steps
-
-Read [Architecture](architecture.md) for the indexing pipeline, or read
-[Command-line usage](cli.md) when you need equivalent behavior from a shell.
