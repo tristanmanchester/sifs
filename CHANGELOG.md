@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Rejected empty MCP `repo` arguments so tool calls no longer silently index the
+  server working directory instead of the intended source.
+
 ## 0.2.1 - 2026-05-04
 
 ### Added

@@ -216,3 +216,36 @@ fn unknown_method_returns_structured_result_without_corrupting_transport() {
             .contains("Unsupported method")
     );
 }
+
+#[test]
+fn empty_repo_argument_is_rejected_instead_of_indexing_cwd() {
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+            "name": "index_status",
+            "arguments": {"repo": ""}
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp(input.as_bytes());
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 7);
+    assert_eq!(response["result"]["isError"], true);
+    assert!(
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("repo must not be empty")
+    );
+}

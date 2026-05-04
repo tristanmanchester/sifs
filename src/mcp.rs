@@ -657,6 +657,9 @@ fn selected_source<'a>(
     default_source: Option<&'a str>,
 ) -> std::result::Result<Option<&'a str>, String> {
     let requested = args.get("repo").and_then(Value::as_str);
+    if requested.is_some_and(str::is_empty) {
+        return Err("repo must not be empty; omit it to use the default source".to_owned());
+    }
     Ok(requested.or(default_source))
 }
 
