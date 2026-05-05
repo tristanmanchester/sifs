@@ -1,6 +1,6 @@
 # SIFS benchmark report
 
-These measurements were collected on May 4, 2026, on this development machine.
+These measurements were collected on May 5, 2026, on this development machine.
 They are intended to make local tradeoffs visible, not to define a
 hardware-independent performance contract.
 
@@ -22,19 +22,19 @@ cached repeat number measures identical repeated queries after one warm-up.
 
 | Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|
+| **SIFS** | **0.8641** | **6.5 ms** | **0.376 ms** | **0.0012 ms** |
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | **0.8426** | **119.9 ms** | **0.442 ms** | **0.0012 ms** |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
 | probe | 0.3872 | 0.0000 ms | 207.1 ms | n/a |
 | ripgrep | 0.1257 | 0.0000 ms | 8.8 ms | n/a |
 
-SIFS is third on raw NDCG@10 in this comparison. It is 0.0118 NDCG@10 behind
-Semble and 0.0191 behind CodeRankEmbed Hybrid. The speed story is still strong,
-but the meaningful warm-query figure is `0.442ms`, not the `0.0012ms` cached
-repeat path.
+SIFS is first on raw NDCG@10 in this comparison, narrowly ahead of
+CodeRankEmbed Hybrid by 0.0024 and Semble by 0.0097. The speed story also got
+cleaner: the meaningful warm-query figure is `0.376ms`, not the `0.0012ms`
+cached repeat path.
 
 ## Figures
 
@@ -93,43 +93,43 @@ count, and category-level scores.
 
 | Language | Repos | Tasks | NDCG@10 | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|---:|
-| bash | 3 | 60 | 0.8491 | 0.228 ms | 0.0011 ms |
-| c | 3 | 60 | 0.7413 | 0.569 ms | 0.0011 ms |
-| cpp | 3 | 60 | 0.8972 | 0.422 ms | 0.0011 ms |
-| csharp | 3 | 60 | 0.8765 | 0.793 ms | 0.0011 ms |
-| elixir | 3 | 58 | 0.8864 | 0.300 ms | 0.0014 ms |
-| go | 3 | 58 | 0.8783 | 0.300 ms | 0.0012 ms |
-| haskell | 3 | 60 | 0.7833 | 0.497 ms | 0.0011 ms |
-| java | 3 | 61 | 0.8231 | 0.654 ms | 0.0012 ms |
-| javascript | 3 | 60 | 0.8585 | 0.194 ms | 0.0011 ms |
-| kotlin | 3 | 60 | 0.8094 | 0.484 ms | 0.0013 ms |
-| lua | 3 | 60 | 0.8305 | 0.369 ms | 0.0011 ms |
-| php | 3 | 60 | 0.8253 | 0.396 ms | 0.0011 ms |
-| python | 9 | 184 | 0.8582 | 0.287 ms | 0.0011 ms |
-| ruby | 3 | 58 | 0.8833 | 0.268 ms | 0.0011 ms |
-| rust | 3 | 60 | 0.8029 | 0.509 ms | 0.0012 ms |
-| scala | 3 | 59 | 0.8930 | 0.558 ms | 0.0012 ms |
-| swift | 3 | 53 | 0.8599 | 0.564 ms | 0.0012 ms |
-| typescript | 3 | 60 | 0.7248 | 0.711 ms | 0.0011 ms |
-| zig | 3 | 60 | 0.9040 | 0.609 ms | 0.0011 ms |
+| bash | 3 | 60 | 0.8677 | 0.170 ms | 0.0012 ms |
+| c | 3 | 60 | 0.7775 | 0.488 ms | 0.0012 ms |
+| cpp | 3 | 60 | 0.8614 | 0.412 ms | 0.0012 ms |
+| csharp | 3 | 60 | 0.8777 | 0.736 ms | 0.0012 ms |
+| elixir | 3 | 58 | 0.8881 | 0.238 ms | 0.0015 ms |
+| go | 3 | 58 | 0.8885 | 0.227 ms | 0.0012 ms |
+| haskell | 3 | 60 | 0.8179 | 0.411 ms | 0.0012 ms |
+| java | 3 | 61 | 0.8803 | 0.550 ms | 0.0012 ms |
+| javascript | 3 | 60 | 0.9090 | 0.200 ms | 0.0012 ms |
+| kotlin | 3 | 60 | 0.8579 | 0.459 ms | 0.0013 ms |
+| lua | 3 | 60 | 0.8503 | 0.280 ms | 0.0012 ms |
+| php | 3 | 60 | 0.8125 | 0.354 ms | 0.0012 ms |
+| python | 9 | 184 | 0.8615 | 0.239 ms | 0.0012 ms |
+| ruby | 3 | 58 | 0.8640 | 0.208 ms | 0.0012 ms |
+| rust | 3 | 60 | 0.8966 | 0.390 ms | 0.0012 ms |
+| scala | 3 | 59 | 0.8777 | 0.502 ms | 0.0012 ms |
+| swift | 3 | 53 | 0.8955 | 0.373 ms | 0.0012 ms |
+| typescript | 3 | 60 | 0.8475 | 0.633 ms | 0.0012 ms |
+| zig | 3 | 60 | 0.8915 | 0.548 ms | 0.0012 ms |
 
 ## SIFS by query category
 
 | Category | NDCG@10 |
 |---|---:|
-| architecture | 0.8063 |
-| semantic | 0.8264 |
-| symbol | 0.9486 |
+| architecture | 0.8313 |
+| semantic | 0.8551 |
+| symbol | 0.9437 |
 
 Symbol lookup is the strongest category. BM25 and query-aware boosts help exact
 identifiers while semantic retrieval handles natural-language discovery.
 
-## TypeScript relevance work
+## Language relevance work
 
-TypeScript remains the weakest language slice in the full benchmark:
-`NDCG@10=0.7248` across 60 tasks. A checked-in mini corpus now covers React
-components, hooks, type definitions, barrel exports, `.d.ts` declarations,
-route files, and test/spec files:
+C is now the weakest language slice in the full benchmark: `NDCG@10=0.7775`
+across 60 tasks. TypeScript improved to `NDCG@10=0.8475`. A checked-in mini
+corpus covers React components, hooks, type definitions, barrel exports,
+`.d.ts` declarations, route files, and test/spec files:
 
 - [tests/fixtures/ts-mini-corpus](../tests/fixtures/ts-mini-corpus)
 - [tests/typescript_relevance.rs](../tests/typescript_relevance.rs)

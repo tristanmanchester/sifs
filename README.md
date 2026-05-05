@@ -6,8 +6,8 @@
 
 Fast Rust code search for agents.
 
-SIFS indexes repositories in `119.9ms` on average, answers normal warm searches
-in `0.442ms`, and reaches `NDCG@10=0.8426` on the current annotated
+SIFS indexes repositories in `6.5ms` on average, answers normal warm searches
+in `0.376ms`, and reaches `NDCG@10=0.8641` on the current annotated
 63-repository benchmark corpus. It runs as a CLI, a Rust crate, or a local MCP
 server for agent clients. Hybrid search combines semantic retrieval with BM25;
 BM25 mode runs fully offline without loading model files or touching the
@@ -246,8 +246,8 @@ Use `sifs model pull` or `sifs model fetch` to prefetch the default model. Use
 ## Benchmarks
 
 The current full-corpus benchmark uses 63 pinned open-source repositories, 19
-languages, and 1,251 annotated search tasks. SIFS reaches `NDCG@10=0.8426`,
-indexes cold in `119.9ms`, and answers normal warm queries in `0.442ms`.
+languages, and 1,251 annotated search tasks. SIFS reaches `NDCG@10=0.8641`,
+indexes cold in `6.5ms`, and answers normal warm queries in `0.376ms`.
 
 ![SIFS search quality versus warm uncached query latency](assets/images/quality_vs_warm_latency.png)
 
@@ -258,9 +258,9 @@ headline avoids using that tool's name for the corpus itself.
 
 | Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|
+| **SIFS** | **0.8641** | **6.5 ms** | **0.376 ms** | **0.0012 ms** |
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | **0.8426** | **119.9 ms** | **0.442 ms** | **0.0012 ms** |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
@@ -292,9 +292,9 @@ and architecture questions.
 
 | Query type | NDCG@10 |
 |---|---:|
-| symbol | 0.9486 |
-| semantic | 0.8264 |
-| architecture | 0.8063 |
+| symbol | 0.9437 |
+| semantic | 0.8551 |
+| architecture | 0.8313 |
 
 ![SIFS quality by query type and search mode](assets/images/query_type_quality_by_mode.png)
 
