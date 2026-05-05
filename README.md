@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> •
+  <a href="#agent-integration">Agent Integration</a> •
   <a href="#mcp-server">MCP Server</a> •
   <a href="#cli">CLI</a> •
   <a href="#rust-library">Rust Library</a> •
@@ -31,19 +32,41 @@ sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
 The default mode is `hybrid` (semantic + BM25). Omit `--source` to search the
 current directory, or pass a local path or Git URL explicitly.
 
+## Agent Integration
+
+SIFS is CLI-first for agents. Install a project instruction snippet or local
+skill so Codex, Claude Code, OpenClaw, Hermes, and generic skill-aware agents
+know to use SIFS before broad file reads:
+
+```bash
+sifs agent print --target codex --artifact snippet
+sifs agent install --target codex --artifact snippet --file AGENTS.md --dry-run --json
+sifs agent install --target codex --artifact snippet --file AGENTS.md
+sifs agent doctor --target codex --json
+```
+
+The generated guidance tells agents to use MCP tools only when they are visible
+in the current session, and to fall back to shell commands such as
+`sifs search`, `sifs list-files`, `sifs get`, and `sifs agent-context --json`
+otherwise.
+
+Full integration reference: [docs/agent-integration.md](docs/agent-integration.md).
+
 ## Features
 
 - **Fastest in class.** 6.5 ms cold index, 0.376 ms warm query, 0.0012 ms for cached repeats. Pure Rust, all on CPU.
 - **State-of-the-art quality.** NDCG@10 of 0.8641 across 63 repositories and 19 languages. Ahead of CodeRankEmbed Hybrid (0.8617) and Semble (0.8544).
 - **Three search modes.** `hybrid` for most queries, `semantic` for natural language, `bm25` for symbols and identifiers. Switch per query.
 - **Fully offline.** BM25 mode loads nothing — no tokenizers, no model files, no network. Hybrid and semantic modes work offline once the model is cached locally.
-- **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand; local paths are watched for changes.
+- **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand and can be refreshed explicitly after files change.
+- **Agent skills and snippets.** Print, install, inspect, and remove CLI-first
+  SIFS guidance with `sifs agent`.
 - **Local and remote.** Pass a local path or a Git URL with `--source`.
 - Discover the machine-readable command contract with `sifs agent-context --json`.
 - Save source/search defaults in profiles and record local feedback when agents
   hit friction.
-- Generate agent files and run benchmark diagnostics for quality and latency
-  checks.
+- Generate agent skills/snippets and run benchmark diagnostics for quality and
+  latency checks.
 
 ## Install
 

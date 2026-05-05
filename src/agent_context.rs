@@ -116,6 +116,79 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "subcommands": ["create", "list"],
                 "mutates": true,
                 "mutation_boundary": "local append-only feedback log"
+            },
+            "agent": {
+                "summary": "Print, install, inspect, or remove target-specific SIFS agent artifacts.",
+                "subcommands": ["print", "install", "doctor", "uninstall"],
+                "targets": ["codex", "claude-code", "openclaw", "hermes", "generic", "all"],
+                "artifacts": ["skill", "snippet", "mcp", "all"],
+                "flags": {
+                    "--target": {"type": "enum", "required": true},
+                    "--artifact": {"type": "enum", "required": true},
+                    "--destination": {"type": "path", "required": false},
+                    "--file": {"type": "path", "required": false},
+                    "--source": {"type": "string", "required": false},
+                    "--profile": {"type": "string", "required": false},
+                    "--dry-run": {"type": "boolean"},
+                    "--force": {"type": "boolean"},
+                    "--json": {"type": "boolean"}
+                },
+                "mutates": true,
+                "mutation_boundary": "install/uninstall only touches SIFS-managed skill files or managed instruction blocks; MCP mutation stays with `sifs mcp install`"
+            }
+        },
+        "integrations": {
+            "schema_version": 1,
+            "principle": "CLI-first. MCP is optional and should only be used when visible in the current agent session.",
+            "targets": [
+                {
+                    "name": "codex",
+                    "artifacts": ["skill", "snippet", "mcp"],
+                    "default_skill_destination": "~/.codex/skills/sifs-search",
+                    "default_snippet_file": "AGENTS.md",
+                    "visibility_probe": "unknown_from_cli"
+                },
+                {
+                    "name": "claude-code",
+                    "artifacts": ["skill", "snippet", "mcp"],
+                    "default_skill_destination": ".claude/agents/sifs-search.md",
+                    "default_snippet_file": "CLAUDE.md",
+                    "visibility_probe": "client_dependent"
+                },
+                {
+                    "name": "openclaw",
+                    "artifacts": ["skill", "snippet"],
+                    "default_skill_destination": "~/.agents/skills/sifs-search",
+                    "default_snippet_file": "AGENTS.md",
+                    "visibility_probe": "unknown_from_cli",
+                    "support_note": "local artifact install only; no public discovery claim"
+                },
+                {
+                    "name": "hermes",
+                    "artifacts": ["skill", "snippet"],
+                    "default_skill_destination": "~/.agents/skills/sifs-search",
+                    "default_snippet_file": "AGENTS.md",
+                    "visibility_probe": "unknown_from_cli",
+                    "support_note": "local artifact install only; no public discovery claim"
+                },
+                {
+                    "name": "generic",
+                    "artifacts": ["skill", "snippet"],
+                    "default_skill_destination": null,
+                    "default_snippet_file": "AGENTS.md",
+                    "visibility_probe": "unknown_from_cli"
+                }
+            ],
+            "commands": {
+                "print": "sifs agent print --target codex --artifact snippet --json",
+                "install": "sifs agent install --target codex --artifact snippet --file AGENTS.md --dry-run --json",
+                "doctor": "sifs agent doctor --target codex --json",
+                "uninstall": "sifs agent uninstall --target codex --artifact snippet --file AGENTS.md --dry-run --json"
+            },
+            "doctor_states": ["pass", "fail", "unknown"],
+            "managed_snippet_markers": {
+                "begin": "<!-- BEGIN SIFS AGENT INSTRUCTIONS schema=1 checksum=... -->",
+                "end": "<!-- END SIFS AGENT INSTRUCTIONS -->"
             }
         },
         "mcp": {
@@ -132,11 +205,15 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "profile_show",
                 "feedback_create",
                 "feedback_list",
+                "agent_print",
+                "agent_doctor",
                 "init_agent"
             ],
             "resources": [
                 "sifs://server/context",
                 "sifs://agent/context",
+                "sifs://index/status",
+                "sifs://index/files",
                 "sifs://profiles",
                 "sifs://feedback"
             ]

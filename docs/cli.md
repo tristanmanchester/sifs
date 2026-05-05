@@ -23,6 +23,34 @@ target/release/sifs agent-context --json
 This command is intentionally cheap: it does not index sources, load models, or
 touch the network.
 
+## Agent artifacts
+
+`agent` prints, installs, inspects, and removes target-specific SIFS integration
+artifacts. Generated artifacts are CLI-first and MCP-optional.
+
+```bash
+target/release/sifs agent print --target codex --artifact snippet
+target/release/sifs agent print --target generic --artifact skill --json
+target/release/sifs agent install --target codex --artifact snippet --file AGENTS.md --dry-run --json
+target/release/sifs agent install --target codex --artifact snippet --file AGENTS.md
+target/release/sifs agent doctor --target codex --json
+target/release/sifs agent uninstall --target codex --artifact snippet --file AGENTS.md --dry-run --json
+```
+
+Targets are `codex`, `claude-code`, `openclaw`, `hermes`, `generic`, and
+`all`. Artifacts are `skill`, `snippet`, `mcp`, and `all`.
+
+Snippet installs write only a SIFS managed block:
+
+```markdown
+<!-- BEGIN SIFS AGENT INSTRUCTIONS schema=1 checksum=... -->
+...
+<!-- END SIFS AGENT INSTRUCTIONS -->
+```
+
+Re-running an identical install is a no-op. User-modified managed blocks require
+`--force`. See [agent-integration.md](agent-integration.md) for target details.
+
 ## Search
 
 `search` indexes the selected source and returns ranked chunks. `--source` is
@@ -132,6 +160,8 @@ mutation results.
 ```bash
 target/release/sifs doctor --source . --offline --json
 target/release/sifs capabilities --json
+target/release/sifs agent doctor --target codex --json
+target/release/sifs agent install --target codex --artifact snippet --file AGENTS.md --dry-run --json
 target/release/sifs init --force --json
 target/release/sifs model status --json
 target/release/sifs model pull --json
@@ -139,6 +169,9 @@ target/release/sifs cache status --json
 target/release/sifs cache clean --dry-run --json
 target/release/sifs cache clean --force --json
 ```
+
+`sifs init` remains as a compatibility shortcut for the Claude Code agent file.
+Prefer `sifs agent` for new target-aware skill and snippet workflows.
 
 Project-local cache cleanup is explicit and force-gated:
 

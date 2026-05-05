@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
+use sifs::agent_artifacts::{AgentArtifact, AgentTarget, render_artifact};
+use sifs::agent_installer::{AgentMutationOptions, AgentOperation, apply_mutation};
 use sifs::daemon::{
     DaemonClient, DaemonRequest, DaemonResult, DaemonRuntimeOptions, IndexRuntimeOptions,
     SearchOptionsWire, SourceSpec, default_daemon_paths, run_foreground,
@@ -258,6 +260,11 @@ enum Command {
         #[arg(long, help = "Print structured JSON output.")]
         json: bool,
     },
+    #[command(about = "Print, install, inspect, or remove SIFS agent integration artifacts.")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
     #[command(about = "Print SIFS agent, CLI, and MCP capabilities.")]
     Capabilities {
         #[arg(long, help = "Print structured JSON output.")]
@@ -497,6 +504,86 @@ enum FeedbackCommand {
         #[arg(long, default_value_t = 20)]
         limit: usize,
         #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentCommand {
+    #[command(about = "Print a target-specific SIFS skill, snippet, or MCP guidance artifact.")]
+    Print {
+        #[arg(long, value_enum)]
+        target: AgentTarget,
+        #[arg(long, value_enum)]
+        artifact: AgentArtifact,
+        #[arg(long, help = "Destination hint used in JSON output and next actions.")]
+        destination: Option<PathBuf>,
+        #[arg(long, help = "Instruction file hint used for snippets.")]
+        file: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Project source to include in generated project-local guidance."
+        )]
+        source: Option<String>,
+        #[arg(
+            long,
+            help = "Profile name to include in generated project-local guidance."
+        )]
+        profile: Option<String>,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
+    #[command(about = "Install a target-specific SIFS skill, snippet, or MCP guidance artifact.")]
+    Install {
+        #[arg(long, value_enum)]
+        target: AgentTarget,
+        #[arg(long, value_enum)]
+        artifact: AgentArtifact,
+        #[arg(long, help = "Skill/package destination path.")]
+        destination: Option<PathBuf>,
+        #[arg(long, help = "Instruction file for snippet insertion.")]
+        file: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Project source to include in generated project-local guidance."
+        )]
+        source: Option<String>,
+        #[arg(
+            long,
+            help = "Profile name to include in generated project-local guidance."
+        )]
+        profile: Option<String>,
+        #[arg(long, help = "Preview planned writes without changing files.")]
+        dry_run: bool,
+        #[arg(long, help = "Replace stale or user-modified managed artifacts.")]
+        force: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
+    #[command(about = "Inspect installed SIFS agent artifacts and fallback readiness.")]
+    Doctor {
+        #[arg(long, value_enum)]
+        target: AgentTarget,
+        #[arg(long, value_enum, default_value_t = AgentArtifact::All)]
+        artifact: AgentArtifact,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
+    #[command(about = "Remove SIFS-managed skill files or instruction snippets.")]
+    Uninstall {
+        #[arg(long, value_enum)]
+        target: AgentTarget,
+        #[arg(long, value_enum)]
+        artifact: AgentArtifact,
+        #[arg(long, help = "Skill/package destination path.")]
+        destination: Option<PathBuf>,
+        #[arg(long, help = "Instruction file for snippet removal.")]
+        file: Option<PathBuf>,
+        #[arg(long, help = "Preview planned removals without changing files.")]
+        dry_run: bool,
+        #[arg(long, help = "Remove stale or user-modified managed artifacts.")]
+        force: bool,
+        #[arg(long, help = "Print structured JSON output.")]
         json: bool,
     },
 }
@@ -880,6 +967,7 @@ fn main() -> Result<()> {
             json,
         }) => run_clean(source.as_deref().unwrap_or("."), dry_run, force, json)?,
         Some(Command::Init { force, json }) => run_init(force, json)?,
+        Some(Command::Agent { command }) => run_agent(command)?,
         Some(Command::Capabilities { json }) => print_capabilities(json)?,
         Some(Command::AgentContext { json }) => print_agent_context(json)?,
         Some(Command::Profile { command }) => run_profile(command)?,
@@ -3228,7 +3316,8 @@ fn run_init(force: bool, json_output: bool) -> Result<()> {
         std::process::exit(1);
     }
     fs::create_dir_all(dest.parent().unwrap())?;
-    fs::write(&dest, include_str!("agents/sifs-search.md"))?;
+    let rendered = render_artifact(AgentTarget::ClaudeCode, AgentArtifact::Skill, None, None)?;
+    fs::write(&dest, &rendered.content)?;
     if json_output {
         println!(
             "{}",
@@ -3236,12 +3325,239 @@ fn run_init(force: bool, json_output: bool) -> Result<()> {
                 "changed": true,
                 "destination": dest,
                 "force": force,
+                "checksum": rendered.checksum,
+                "next_actions": [
+                    "sifs agent install --target claude-code --artifact skill --destination .claude/agents/sifs-search.md"
+                ],
             }))?
         );
     } else {
         println!("Created {}", dest.display());
     }
     Ok(())
+}
+
+fn run_agent(command: AgentCommand) -> Result<()> {
+    match command {
+        AgentCommand::Print {
+            target,
+            artifact,
+            destination,
+            file,
+            source,
+            profile,
+            json,
+        } => run_agent_print(target, artifact, destination, file, source, profile, json),
+        AgentCommand::Install {
+            target,
+            artifact,
+            destination,
+            file,
+            source,
+            profile,
+            dry_run,
+            force,
+            json,
+        } => run_agent_mutation(
+            AgentOperation::Install,
+            target,
+            artifact,
+            destination,
+            file,
+            source,
+            profile,
+            dry_run,
+            force,
+            json,
+        ),
+        AgentCommand::Doctor {
+            target,
+            artifact,
+            json,
+        } => run_agent_doctor(target, artifact, json),
+        AgentCommand::Uninstall {
+            target,
+            artifact,
+            destination,
+            file,
+            dry_run,
+            force,
+            json,
+        } => run_agent_mutation(
+            AgentOperation::Uninstall,
+            target,
+            artifact,
+            destination,
+            file,
+            None,
+            None,
+            dry_run,
+            force,
+            json,
+        ),
+    }
+}
+
+fn run_agent_print(
+    target: AgentTarget,
+    artifact: AgentArtifact,
+    destination: Option<PathBuf>,
+    file: Option<PathBuf>,
+    source: Option<String>,
+    profile: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    let outputs = render_agent_artifacts(
+        target,
+        artifact,
+        destination,
+        file,
+        source.as_deref(),
+        profile.as_deref(),
+    )?;
+    if json_output {
+        let values: Vec<_> = outputs
+            .iter()
+            .map(|rendered| rendered.print_output())
+            .collect();
+        if values.len() == 1 {
+            println!("{}", serde_json::to_string_pretty(&values[0])?);
+        } else {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "schema_version": sifs::agent_artifacts::AGENT_ARTIFACT_SCHEMA_VERSION,
+                    "artifacts": values,
+                }))?
+            );
+        }
+    } else {
+        for (index, rendered) in outputs.iter().enumerate() {
+            if outputs.len() > 1 {
+                if index > 0 {
+                    println!();
+                }
+                println!(
+                    "# target={} artifact={}",
+                    rendered.target, rendered.artifact
+                );
+            }
+            print!("{}", rendered.content);
+            if !rendered.content.ends_with('\n') {
+                println!();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_agent_mutation(
+    operation: AgentOperation,
+    target: AgentTarget,
+    artifact: AgentArtifact,
+    destination: Option<PathBuf>,
+    file: Option<PathBuf>,
+    source: Option<String>,
+    profile: Option<String>,
+    dry_run: bool,
+    force: bool,
+    json_output: bool,
+) -> Result<()> {
+    let outputs = render_agent_artifacts(
+        target,
+        artifact,
+        destination.clone(),
+        file.clone(),
+        source.as_deref(),
+        profile.as_deref(),
+    )?;
+    let mut reports = Vec::new();
+    for rendered in outputs {
+        let options = AgentMutationOptions {
+            target: rendered.target,
+            artifact: rendered.artifact,
+            destination: destination.clone(),
+            file: file.clone(),
+            dry_run,
+            force,
+        };
+        reports.push(apply_mutation(operation, &rendered, &options)?);
+    }
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "schema_version": sifs::agent_artifacts::AGENT_ARTIFACT_SCHEMA_VERSION,
+                "dry_run": dry_run,
+                "force": force,
+                "results": reports,
+            }))?
+        );
+    } else {
+        for report in reports {
+            let destination = report
+                .destination
+                .as_deref()
+                .map(|destination| format!(" at {destination}"))
+                .unwrap_or_default();
+            println!(
+                "{} {}: {}{}",
+                report.target, report.artifact, report.status, destination
+            );
+            for warning in report.warnings {
+                println!("warning: {warning}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_agent_doctor(target: AgentTarget, artifact: AgentArtifact, json_output: bool) -> Result<()> {
+    let report = sifs::agent_doctor::doctor(target, artifact);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("SIFS agent doctor");
+        for target in report.targets {
+            println!("{}: {}", target.target, target.status);
+            for check in target.checks {
+                println!("  {}: {} - {}", check.name, check.state, check.evidence);
+            }
+            for action in target.next_actions {
+                println!("  next: {action}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn render_agent_artifacts(
+    target: AgentTarget,
+    artifact: AgentArtifact,
+    destination: Option<PathBuf>,
+    file: Option<PathBuf>,
+    source: Option<&str>,
+    profile: Option<&str>,
+) -> Result<Vec<sifs::agent_artifacts::RenderedArtifact>> {
+    let mut rendered = Vec::new();
+    for concrete_target in target.concrete_targets() {
+        for concrete_artifact in artifact.concrete_artifacts(concrete_target) {
+            let mut artifact =
+                render_artifact(concrete_target, concrete_artifact, source, profile)?;
+            if concrete_artifact == AgentArtifact::Skill {
+                if let Some(destination) = &destination {
+                    artifact.destination_hint = Some(destination.clone());
+                }
+            } else if concrete_artifact == AgentArtifact::Snippet {
+                if let Some(file) = &file {
+                    artifact.destination_hint = Some(file.clone());
+                }
+            }
+            rendered.push(artifact);
+        }
+    }
+    Ok(rendered)
 }
 
 fn print_capabilities(json_output: bool) -> Result<()> {
@@ -3258,6 +3574,7 @@ fn print_capabilities(json_output: bool) -> Result<()> {
         "- Run BM25 search without loading or downloading an embedding model.",
         "- Manage embedding models with `sifs model pull` and `sifs model status`.",
         "- Generate a Claude agent file with `sifs init`.",
+        "- Print, install, inspect, and remove agent skills and instruction snippets with `sifs agent`.",
         "- Use `sifs-benchmark` for quality and latency benchmarks.",
         "- Use `sifs-embed` for embedding diagnostics.",
         "",

@@ -145,6 +145,28 @@ sifs daemon install-agent
 sifs mcp install --client all
 ```
 
+## Agent artifacts
+
+The `sifs agent` command renders and manages target-specific integration
+artifacts on top of the same search contract. Rendering lives in
+`src/agent_artifacts.rs`, mutation safety lives in `src/agent_installer.rs`, and
+readiness checks live in `src/agent_doctor.rs`.
+
+The canonical artifact is a CLI-first `sifs-search` skill package under
+`skills/sifs-search/`. Target mirrors under `extras/` are local package shapes
+for agent-skill consumers such as OpenClaw and Hermes; they do not imply public
+marketplace discovery.
+
+Instruction snippets are inserted into `AGENTS.md` or `CLAUDE.md` with stable
+managed markers and checksums. The installer preserves surrounding user content,
+is idempotent on repeated runs, and requires `--force` before replacing a
+user-modified managed block.
+
+MCP remains optional for these artifacts. Generated instructions tell agents to
+use MCP tools only when visible in the current session and to fall back to shell
+commands such as `sifs search`, `sifs list-files`, `sifs get`, and
+`sifs agent-context --json`.
+
 ## Persistent local indexes
 
 Default local path indexing writes persistent cache entries under the platform

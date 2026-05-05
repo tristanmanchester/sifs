@@ -11,6 +11,18 @@ versioning where practical.
 
 ### Added
 
+- Added an ideation artifact for making SIFS more agent-native across Codex,
+  Claude Code, OpenClaw, Hermes, agent skills, plugins, and MCP integrations.
+- Added a CLI-first agent skill installer plan covering target-aware skill
+  exports, managed `AGENTS.md`/`CLAUDE.md` snippets, and MCP-as-optional
+  readiness checks.
+- Added `sifs agent print`, `sifs agent install`, `sifs agent doctor`, and
+  `sifs agent uninstall` for CLI-first agent skills, snippets, and readiness
+  checks across Codex, Claude Code, OpenClaw, Hermes, and generic targets.
+- Added a canonical `sifs-search` skill package with command, MCP, and
+  troubleshooting references for agent-skill consumers.
+- Added read-only MCP `agent_print` and `agent_doctor` tools so MCP clients can
+  inspect agent artifacts without broad filesystem mutation.
 - Added `sifs agent-context --json` and MCP `agent_context` discovery so
   agents can inspect the CLI/MCP contract without scraping help text.
 - Added persistent `sifs profile` commands for saved source/search/model/cache
@@ -29,6 +41,8 @@ versioning where practical.
   hints to search and file-list payloads.
 - Updated CLI, MCP, generated agent guidance, and the agent-native scorecard for
   the new Trevin Chow 10-principle contract.
+- Positioned MCP as an optional agent capability and documented CLI fallback
+  behavior for generated skills and snippets.
 - Added a plan for a breaking agent-native CLI/MCP redesign covering
   `agent-context`, canonical source/filter vocabulary, uniform JSON diagnostics,
   strict validation, profiles, feedback, and contract-level tests.

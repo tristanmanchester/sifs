@@ -5,6 +5,10 @@ surface mirrors the agent-native CLI vocabulary: use `source` for local paths or
 Git URLs, `limit` for bounded result counts, and `list_files` for indexed file
 inventory.
 
+MCP is optional for agent integration. The `sifs agent` command can install
+CLI-first skills and snippets that tell agents to fall back to shell commands
+when MCP tools are not visible in the current session.
+
 ## Start the server
 
 ```bash
@@ -68,6 +72,10 @@ Supported resources:
 Core tools:
 
 - `agent_context`: return the versioned CLI/MCP contract.
+- `agent_print`: render a SIFS skill, snippet, or MCP guidance artifact without
+  writing files.
+- `agent_doctor`: inspect agent artifact readiness; reports `unknown` when
+  current-session visibility cannot be proven.
 - `search`: search chunks by natural language, code, or symbol query.
 - `find_related`: find chunks related to a known file and line.
 - `index_status`: inspect the selected source.
@@ -75,7 +83,9 @@ Core tools:
 - `clear_index`: remove the selected source from the in-memory MCP cache.
 - `list_files`: list repository-relative indexed file paths.
 - `get_chunk`: read the indexed chunk containing a file and line.
-- `init_agent`: write the generated SIFS agent file.
+- `init_agent`: compatibility helper for writing the Claude Code SIFS agent
+  file. Prefer `agent_print` plus CLI `sifs agent install` for new
+  target-aware workflows.
 
 Profile and feedback tools:
 

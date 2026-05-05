@@ -1,4 +1,7 @@
+pub mod agent_artifacts;
 pub mod agent_context;
+pub mod agent_doctor;
+pub mod agent_installer;
 pub mod chunker;
 pub mod daemon;
 pub mod dense;

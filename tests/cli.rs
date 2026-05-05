@@ -406,6 +406,309 @@ fn agent_context_json_describes_agent_native_contract() {
             .iter()
             .any(|tool| tool == "list_files")
     );
+    assert!(value["integrations"]["targets"].is_array());
+    assert_eq!(
+        value["integrations"]["commands"]["install"],
+        "sifs agent install --target codex --artifact snippet --file AGENTS.md --dry-run --json"
+    );
+    assert!(
+        value["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "agent_print")
+    );
+}
+
+#[test]
+fn agent_print_snippet_json_is_cli_first_and_mcp_optional() {
+    let output = sifs()
+        .args([
+            "agent",
+            "print",
+            "--target",
+            "codex",
+            "--artifact",
+            "snippet",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["target"], "codex");
+    assert_eq!(value["artifact"], "snippet");
+    assert_eq!(value["mcp_optional"], true);
+    assert_eq!(value["mcp_required"], false);
+    assert!(value["checksum"].as_str().unwrap().starts_with("sha256:"));
+    let content = value["content"].as_str().unwrap();
+    assert!(content.contains("sifs agent-context --json"));
+    assert!(content.contains("sifs search"));
+    assert!(content.contains("fall back to the CLI"));
+}
+
+#[test]
+fn agent_print_raw_skill_has_no_json_wrapper() {
+    let output = sifs()
+        .args([
+            "agent",
+            "print",
+            "--target",
+            "generic",
+            "--artifact",
+            "skill",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.starts_with("---\nname: sifs-search"));
+    assert!(stdout.contains("sifs list-files"));
+    assert!(!stdout.trim_start().starts_with('{'));
+}
+
+#[test]
+fn agent_snippet_install_is_dry_run_idempotent_and_uninstall_safe() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("AGENTS.md");
+    fs::write(
+        &agents,
+        "# Project Instructions\n\nKeep existing guidance.\n",
+    )
+    .unwrap();
+
+    let dry_run = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "codex",
+            "--artifact",
+            "snippet",
+            "--file",
+            agents.to_str().unwrap(),
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        dry_run.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&dry_run.stderr)
+    );
+    let planned: Value = serde_json::from_slice(&dry_run.stdout).unwrap();
+    assert_eq!(planned["dry_run"], true);
+    assert_eq!(planned["results"][0]["status"], "installed");
+    assert_eq!(
+        fs::read_to_string(&agents).unwrap(),
+        "# Project Instructions\n\nKeep existing guidance.\n"
+    );
+
+    let install = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "codex",
+            "--artifact",
+            "snippet",
+            "--file",
+            agents.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let content = fs::read_to_string(&agents).unwrap();
+    assert!(content.contains("# Project Instructions"));
+    assert!(content.contains("<!-- BEGIN SIFS AGENT INSTRUCTIONS"));
+    assert_eq!(content.matches("BEGIN SIFS AGENT INSTRUCTIONS").count(), 1);
+
+    let second = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "codex",
+            "--artifact",
+            "snippet",
+            "--file",
+            agents.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_json: Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second_json["results"][0]["status"], "unchanged");
+    assert_eq!(
+        fs::read_to_string(&agents)
+            .unwrap()
+            .matches("BEGIN SIFS AGENT INSTRUCTIONS")
+            .count(),
+        1
+    );
+
+    let uninstall = sifs()
+        .args([
+            "agent",
+            "uninstall",
+            "--target",
+            "codex",
+            "--artifact",
+            "snippet",
+            "--file",
+            agents.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        uninstall.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&uninstall.stderr)
+    );
+    let final_content = fs::read_to_string(&agents).unwrap();
+    assert!(final_content.contains("Keep existing guidance."));
+    assert!(!final_content.contains("SIFS AGENT INSTRUCTIONS"));
+}
+
+#[test]
+fn agent_install_refuses_user_modified_managed_block_without_force() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = dir.path().join("AGENTS.md");
+    fs::write(
+        &agents,
+        "<!-- BEGIN SIFS AGENT INSTRUCTIONS -->\nuser changed this\n<!-- END SIFS AGENT INSTRUCTIONS -->\n",
+    )
+    .unwrap();
+
+    let output = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "codex",
+            "--artifact",
+            "snippet",
+            "--file",
+            agents.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("user-modified SIFS block"));
+}
+
+#[test]
+fn agent_skill_install_writes_package_and_is_idempotent() {
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("sifs-search");
+
+    let output = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "generic",
+            "--artifact",
+            "skill",
+            "--destination",
+            destination.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["results"][0]["status"], "installed");
+    assert!(destination.join("SKILL.md").exists());
+    assert!(destination.join("references/commands.md").exists());
+    assert!(destination.join("scripts/check-setup.sh").exists());
+    let skill = fs::read_to_string(destination.join("SKILL.md")).unwrap();
+    assert!(skill.contains("name: sifs-search"));
+    assert!(skill.contains("sifs agent-context --json"));
+
+    let second = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "generic",
+            "--artifact",
+            "skill",
+            "--destination",
+            destination.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_json: Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(second_json["results"][0]["status"], "unchanged");
+}
+
+#[test]
+fn agent_doctor_json_reports_readiness_matrix() {
+    let output = sifs()
+        .args([
+            "agent",
+            "doctor",
+            "--target",
+            "codex",
+            "--artifact",
+            "all",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["targets"][0]["target"], "codex");
+    let checks = value["targets"][0]["checks"].as_array().unwrap();
+    assert!(checks.iter().any(|check| check["name"] == "binary_on_path"));
+    assert!(
+        checks
+            .iter()
+            .any(|check| check["name"] == "visible_to_current_session"
+                && check["state"] == "unknown")
+    );
 }
 
 #[test]

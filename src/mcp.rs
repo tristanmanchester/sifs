@@ -1,4 +1,5 @@
 use crate::SifsIndex;
+use crate::agent_artifacts::{AgentArtifact, AgentTarget, render_artifact};
 use crate::daemon::{
     DaemonClient, DaemonRequest, DaemonResult, IndexRuntimeOptions, SearchOptionsWire, SourceSpec,
     default_daemon_paths,
@@ -267,6 +268,8 @@ fn handle_tool_call(
         "profile_show" => tool_profile_show(args),
         "feedback_create" => tool_feedback_create(args),
         "feedback_list" => tool_feedback_list(args),
+        "agent_print" => tool_agent_print(args),
+        "agent_doctor" => tool_agent_doctor(args),
         "init_agent" => tool_init_agent(args),
         _ => ToolText::error(format!("Unknown tool: {name}")),
     };
@@ -637,6 +640,41 @@ fn tool_get_chunk(
     }
 }
 
+fn tool_agent_print(args: Value) -> ToolText {
+    let target = match parse_agent_target(&args, "target", false) {
+        Ok(target) => target,
+        Err(message) => return ToolText::error(message),
+    };
+    let artifact = match parse_agent_artifact(&args, "artifact", false) {
+        Ok(artifact) => artifact,
+        Err(message) => return ToolText::error(message),
+    };
+    let source = args.get("source").and_then(Value::as_str);
+    let profile = args.get("profile").and_then(Value::as_str);
+    match render_artifact(target, artifact, source, profile) {
+        Ok(rendered) => {
+            ToolText::ok_structured(rendered.content.clone(), json!(rendered.print_output()))
+        }
+        Err(err) => ToolText::error(err.to_string()),
+    }
+}
+
+fn tool_agent_doctor(args: Value) -> ToolText {
+    let target = match parse_agent_target(&args, "target", true) {
+        Ok(target) => target,
+        Err(message) => return ToolText::error(message),
+    };
+    let artifact = match parse_agent_artifact(&args, "artifact", true) {
+        Ok(artifact) => artifact,
+        Err(message) => return ToolText::error(message),
+    };
+    let report = crate::agent_doctor::doctor(target, artifact);
+    ToolText::ok_structured(
+        serde_json::to_string_pretty(&report).unwrap_or_else(|_| "agent doctor failed".to_owned()),
+        json!(report),
+    )
+}
+
 fn tool_init_agent(args: Value) -> ToolText {
     let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
     let dest = args
@@ -659,13 +697,60 @@ fn tool_init_agent(args: Value) -> ToolText {
     {
         return ToolText::error(format!("Failed to create {}: {err}", parent.display()));
     }
-    if let Err(err) = fs::write(&dest, include_str!("agents/sifs-search.md")) {
+    let rendered = match render_artifact(AgentTarget::ClaudeCode, AgentArtifact::Skill, None, None)
+    {
+        Ok(rendered) => rendered,
+        Err(err) => return ToolText::error(format!("Failed to render Claude agent file: {err}")),
+    };
+    if let Err(err) = fs::write(&dest, &rendered.content) {
         return ToolText::error(format!("Failed to write {}: {err}", dest.display()));
     }
     ToolText::ok_structured(
         format!("Created {}", dest.display()),
-        json!({"destination": dest, "force": force, "created": true}),
+        json!({
+            "destination": dest,
+            "force": force,
+            "created": true,
+            "checksum": rendered.checksum,
+            "next_actions": ["sifs agent install --target claude-code --artifact skill --destination .claude/agents/sifs-search.md"]
+        }),
     )
+}
+
+fn parse_agent_target(
+    args: &Value,
+    field: &str,
+    allow_all_default: bool,
+) -> std::result::Result<AgentTarget, String> {
+    let value = args.get(field).and_then(Value::as_str);
+    match value {
+        Some("codex") => Ok(AgentTarget::Codex),
+        Some("claude-code") | Some("claude") => Ok(AgentTarget::ClaudeCode),
+        Some("openclaw") => Ok(AgentTarget::Openclaw),
+        Some("hermes") => Ok(AgentTarget::Hermes),
+        Some("generic") => Ok(AgentTarget::Generic),
+        Some("all") if allow_all_default => Ok(AgentTarget::All),
+        None if allow_all_default => Ok(AgentTarget::All),
+        None => Err(format!("{field} is required")),
+        Some(other) => Err(format!("unsupported agent target: {other}")),
+    }
+}
+
+fn parse_agent_artifact(
+    args: &Value,
+    field: &str,
+    allow_all_default: bool,
+) -> std::result::Result<AgentArtifact, String> {
+    let value = args.get(field).and_then(Value::as_str);
+    match value {
+        Some("skill") => Ok(AgentArtifact::Skill),
+        Some("snippet") => Ok(AgentArtifact::Snippet),
+        Some("mcp") => Ok(AgentArtifact::Mcp),
+        Some("all") if allow_all_default => Ok(AgentArtifact::All),
+        None if allow_all_default => Ok(AgentArtifact::All),
+        None => Err(format!("{field} is required")),
+        Some(other) => Err(format!("unsupported agent artifact: {other}")),
+    }
 }
 
 fn selected_source(
@@ -1053,6 +1138,8 @@ fn tool_names() -> Vec<&'static str> {
         "profile_show",
         "feedback_create",
         "feedback_list",
+        "agent_print",
+        "agent_doctor",
         "init_agent",
     ]
 }
@@ -1199,6 +1286,31 @@ fn tool_schemas() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {"limit": {"type": "integer", "minimum": 1, "default": 20}}
+            }
+        }),
+        json!({
+            "name": "agent_print",
+            "description": "Render a SIFS agent skill, instruction snippet, or MCP guidance artifact without writing files.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "enum": ["codex", "claude-code", "openclaw", "hermes", "generic"]},
+                    "artifact": {"type": "string", "enum": ["skill", "snippet", "mcp"]},
+                    "source": {"type": ["string", "null"]},
+                    "profile": {"type": ["string", "null"]}
+                },
+                "required": ["target", "artifact"]
+            }
+        }),
+        json!({
+            "name": "agent_doctor",
+            "description": "Inspect SIFS agent artifact readiness. This is read-only and reports unknown for current-session visibility when it cannot be proven.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "enum": ["codex", "claude-code", "openclaw", "hermes", "generic", "all"], "default": "all"},
+                    "artifact": {"type": "string", "enum": ["skill", "snippet", "mcp", "all"], "default": "all"}
+                }
             }
         }),
         json!({
