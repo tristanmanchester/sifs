@@ -82,6 +82,19 @@ cargo build --release
 target/release/sifs search "authentication flow" --source .
 ```
 
+Keep installed binaries current with:
+
+```bash
+sifs update --check
+sifs update --dry-run
+sifs update
+```
+
+`sifs update` delegates to Cargo or Homebrew only when the current executable is
+recognized as being owned by that package manager. For copied, development, or
+ambiguous binaries, it prints manual next actions instead of mutating an
+unrelated install.
+
 The `sifs-benchmark` and `sifs-embed` diagnostic binaries require the `diagnostics` feature:
 
 ```bash

@@ -9,6 +9,19 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added an implementation plan for a package-manager-backed `sifs update`
+  command, with passive update-available notices deferred as follow-up work.
+- Added `sifs update` with check, dry-run, JSON, Cargo/Homebrew ownership gates,
+  and package-manager-backed mutation for safely updating installed binaries.
+
+### Changed
+
+- Added explicit Homebrew and Cargo installation guidance to the `sifs-search`
+  skill troubleshooting docs and setup-check scripts for agents that do not
+  already have `sifs` on `PATH`.
+
 ### Fixed
 
 - Reclaimed stale daemon Unix sockets automatically when starting `sifs daemon run`

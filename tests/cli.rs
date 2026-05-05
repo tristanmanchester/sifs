@@ -61,6 +61,124 @@ fn version_flag_prints_package_version() {
 }
 
 #[test]
+fn update_help_documents_check_dry_run_and_json() {
+    let output = sifs().args(["update", "--help"]).output().unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--check"));
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--update-timeout"));
+}
+
+#[test]
+fn update_check_json_reports_unknown_install_without_mutation_plan() {
+    let output = sifs()
+        .args(["update", "--check", "--json"])
+        .env("SIFS_UPDATE_CURRENT_EXE", "/tmp/copied/sifs")
+        .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["mode"], "check");
+    assert_eq!(value["ownership"]["install_owner"], "unknown");
+    assert_eq!(value["actionable_update_available"], true);
+    assert_eq!(value["ownership"]["mutation_supported"], false);
+    assert!(value["planned_commands"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn update_execute_json_fails_for_unsupported_install() {
+    let output = sifs()
+        .args(["update", "--json"])
+        .env("SIFS_UPDATE_CURRENT_EXE", "/tmp/copied/sifs")
+        .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["status"], "unsupported");
+    assert_eq!(value["ownership"]["mutation_supported"], false);
+    assert!(value["planned_commands"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn update_dry_run_json_plans_cargo_command_for_owned_install() {
+    let output = sifs()
+        .args(["update", "--dry-run", "--json"])
+        .env("HOME", "/home/me")
+        .env("SIFS_UPDATE_CURRENT_EXE", "/home/me/.cargo/bin/sifs")
+        .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
+        .env("SIFS_UPDATE_CARGO_PATH", "/usr/bin/cargo")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["mode"], "dry_run");
+    assert_eq!(value["ownership"]["install_owner"], "cargo");
+    assert_eq!(value["ownership"]["mutation_supported"], true);
+    assert_eq!(value["planned_commands"][0]["program"], "/usr/bin/cargo");
+    assert_eq!(value["planned_commands"][0]["args"][0], "install");
+}
+
+#[test]
+fn update_dry_run_json_plans_homebrew_command_from_manager_version() {
+    let output = sifs()
+        .args(["update", "--dry-run", "--json"])
+        .env(
+            "SIFS_UPDATE_CURRENT_EXE",
+            "/opt/homebrew/Cellar/sifs/0.3.0/bin/sifs",
+        )
+        .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
+        .env("SIFS_UPDATE_HOMEBREW_MANAGER_VERSION", "9.9.9")
+        .env("SIFS_UPDATE_BREW_PATH", "/opt/homebrew/bin/brew")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["ownership"]["install_owner"], "homebrew");
+    assert_eq!(value["versions"]["manager_available_version"], "9.9.9");
+    assert_eq!(value["versions"]["upstream_latest_version"], "9.9.9");
+    assert_eq!(value["planned_commands"][1]["args"][0], "upgrade");
+}
+
+#[test]
+fn update_execute_json_reports_runner_failure() {
+    let output = sifs()
+        .args(["update", "--json"])
+        .env("HOME", "/home/me")
+        .env("SIFS_UPDATE_CURRENT_EXE", "/home/me/.cargo/bin/sifs")
+        .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
+        .env("SIFS_UPDATE_CARGO_PATH", "/usr/bin/cargo")
+        .env("SIFS_UPDATE_RUNNER_STATUS", "42")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["status"], "failed");
+    assert_eq!(value["runner"]["code"], 42);
+}
+
+#[test]
 fn mcp_help_documents_server_options() {
     let output = sifs().args(["mcp", "--help"]).output().unwrap();
 
@@ -416,6 +534,17 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["search"]["flags"]["--source"].is_object());
     assert!(value["commands"]["search"]["flags"]["--limit"].is_object());
     assert!(value["commands"]["list-files"].is_object());
+    assert_eq!(value["commands"]["update"]["output"], "update_report");
+    assert_eq!(
+        value["commands"]["update"]["flags"]["--update-timeout"]["default"],
+        600
+    );
+    assert!(
+        value["commands"]["update"]["mutation_boundary"]
+            .as_str()
+            .unwrap()
+            .contains("owned by that manager")
+    );
     assert!(
         value["mcp"]["tools"]
             .as_array()

@@ -7,6 +7,7 @@ use sifs::daemon::{
     DaemonClient, DaemonRequest, DaemonResult, DaemonRuntimeOptions, IndexRuntimeOptions,
     SearchOptionsWire, SourceSpec, default_daemon_paths, run_foreground,
 };
+use sifs::update::{UpdateMode, UpdateOptions, run_update};
 use sifs::{
     CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
     SearchOptions, SearchResult, SifsIndex, cache_summary, format_results, is_git_url,
@@ -284,6 +285,28 @@ enum Command {
     Feedback {
         #[command(subcommand)]
         command: FeedbackCommand,
+    },
+    #[command(about = "Check for or install the latest SIFS release through Cargo or Homebrew.")]
+    Update {
+        #[arg(
+            long,
+            help = "Check update status without planning or running mutation."
+        )]
+        check: bool,
+        #[arg(
+            long,
+            conflicts_with = "check",
+            help = "Print the package-manager command that would run without changing state."
+        )]
+        dry_run: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+        #[arg(
+            long,
+            default_value_t = 600,
+            help = "Timeout in seconds for package-manager update execution."
+        )]
+        update_timeout: u64,
     },
 }
 
@@ -973,6 +996,18 @@ fn main() -> Result<()> {
         Some(Command::Profile { command }) => run_profile(command)?,
         Some(Command::Feedback { command }) => run_feedback(command)?,
         Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
+        Some(Command::Update {
+            check,
+            dry_run,
+            json,
+            update_timeout,
+        }) => run_update_command(
+            check,
+            dry_run,
+            json,
+            timeout,
+            Duration::from_secs(update_timeout),
+        )?,
         None => {
             Cli::command().print_help()?;
             println!();
@@ -3608,6 +3643,100 @@ fn print_agent_context(json_output: bool) -> Result<()> {
         serde_json::to_string_pretty(&agent_context::agent_context(names, true))?
     );
     Ok(())
+}
+
+fn run_update_command(
+    check: bool,
+    dry_run: bool,
+    json_output: bool,
+    timeout: Duration,
+    update_timeout: Duration,
+) -> Result<()> {
+    let mode = if check {
+        UpdateMode::Check
+    } else if dry_run {
+        UpdateMode::DryRun
+    } else {
+        UpdateMode::Execute
+    };
+    let report = run_update(&UpdateOptions {
+        mode,
+        timeout,
+        update_timeout,
+    })?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return if update_should_exit_nonzero(mode, &report.status) {
+            std::process::exit(1);
+        } else {
+            Ok(())
+        };
+    }
+    print_update_report(&report);
+    if update_should_exit_nonzero(mode, &report.status) {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn update_should_exit_nonzero(mode: UpdateMode, status: &str) -> bool {
+    status == "failed"
+        || (mode == UpdateMode::Execute && matches!(status, "unsupported" | "blocked"))
+}
+
+fn print_update_report(report: &sifs::update::UpdateReport) {
+    match report.status.as_str() {
+        "unchanged" => {
+            println!("SIFS is up to date: {}", report.versions.current_version);
+        }
+        "update_available" => {
+            let latest = report
+                .versions
+                .actionable_latest_version
+                .as_deref()
+                .unwrap_or("unknown");
+            println!(
+                "Update available: sifs {} -> {}",
+                report.versions.current_version, latest
+            );
+        }
+        "planned" => {
+            println!("SIFS update plan:");
+            for command in &report.planned_commands {
+                println!("  {} {}", command.program, command.args.join(" "));
+            }
+        }
+        "updated" => {
+            println!("Updated SIFS.");
+        }
+        "unsupported" | "blocked" => {
+            println!("sifs update cannot safely mutate this install.");
+            for condition in &report.ownership.blocking_conditions {
+                println!("- {condition}");
+            }
+        }
+        "unknown" => {
+            println!("Could not determine whether a SIFS update is available.");
+        }
+        "failed" => {
+            eprintln!("sifs update failed.");
+            if let Some(runner) = &report.runner {
+                if !runner.stderr.trim().is_empty() {
+                    eprintln!("{}", runner.stderr.trim());
+                }
+            }
+        }
+        other => println!("sifs update status: {other}"),
+    }
+    for warning in &report.warnings {
+        eprintln!("Warning: {warning}");
+    }
+    if !report.next_actions.is_empty() {
+        println!("Next actions:");
+        for action in &report.next_actions {
+            println!("- {action}");
+        }
+    }
 }
 
 fn run_profile(command: ProfileCommand) -> Result<()> {

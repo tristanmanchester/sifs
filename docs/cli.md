@@ -168,10 +168,32 @@ target/release/sifs model pull --json
 target/release/sifs cache status --json
 target/release/sifs cache clean --dry-run --json
 target/release/sifs cache clean --force --json
+target/release/sifs update --check --json
+target/release/sifs update --dry-run --json
 ```
 
 `sifs init` remains as a compatibility shortcut for the Claude Code agent file.
 Prefer `sifs agent` for new target-aware skill and snippet workflows.
+
+## Updating SIFS
+
+`update` checks for and installs newer SIFS releases through the package manager
+that owns the current binary. Cargo installs compare against crates.io.
+Homebrew installs use Homebrew's manager-available formula version as the
+actionable version and may report crates.io as upstream context.
+
+```bash
+target/release/sifs update --check
+target/release/sifs update --check --json
+target/release/sifs update --dry-run --json
+target/release/sifs update --json
+```
+
+`--check` reports availability and blocking conditions without requiring a safe
+mutation plan. `--dry-run` validates ownership and prints the package-manager
+commands that would run. Default mutation refuses development, copied,
+ambiguous, PATH-shadowed, or ownership-mismatched binaries instead of updating a
+different install root.
 
 Project-local cache cleanup is explicit and force-gated:
 

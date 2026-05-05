@@ -105,6 +105,18 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "mutates": false,
                 "output": "diagnostic_report"
             },
+            "update": {
+                "summary": "Check for or install the latest SIFS release through the package manager that owns the current binary.",
+                "flags": {
+                    "--check": {"type": "boolean", "description": "Report update availability without planning or running mutation."},
+                    "--dry-run": {"type": "boolean", "description": "Validate install ownership and print planned package-manager commands without mutation."},
+                    "--json": {"type": "boolean"},
+                    "--update-timeout": {"type": "integer", "default": 600}
+                },
+                "mutates": true,
+                "mutation_boundary": "only runs Cargo or Homebrew when the current executable is proven to be owned by that manager; unsupported/dev/ambiguous installs return next actions instead",
+                "output": "update_report"
+            },
             "profile": {
                 "summary": "Manage persistent search contexts.",
                 "subcommands": ["save", "list", "show", "delete"],

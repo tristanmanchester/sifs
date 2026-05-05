@@ -17,6 +17,7 @@ pub mod search;
 pub mod sparse;
 pub mod tokens;
 pub mod types;
+pub mod update;
 pub mod utils;
 
 pub use index::{

@@ -2024,6 +2024,7 @@ dependencies = [
  "rayon",
  "regex",
  "safetensors",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2031,6 +2032,7 @@ dependencies = [
  "tokenizers",
  "tree-sitter",
  "tree-sitter-language-pack",
+ "ureq 2.12.1",
 ]
 
 [[package]]
