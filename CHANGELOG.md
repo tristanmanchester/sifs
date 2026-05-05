@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Reclaimed stale daemon Unix sockets automatically when starting `sifs daemon run`
+  without requiring `--replace-existing-socket`.
+
 ## 0.3.0 - 2026-05-05
 
 ### Added

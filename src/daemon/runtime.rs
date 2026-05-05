@@ -8,6 +8,7 @@ use crate::daemon::protocol::{
 use crate::utils::resolve_chunk;
 use anyhow::{Context, Result, bail};
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::time::Instant;
@@ -49,10 +50,35 @@ fn prepare_socket(paths: &DaemonPaths, replace_existing_socket: bool) -> Result<
             .with_context(|| format!("remove old daemon socket {}", paths.socket.display()))?;
         return Ok(());
     }
-    bail!(
-        "SIFS daemon socket already exists at {}. Remove it or pass --replace-existing-socket.",
-        paths.socket.display()
-    )
+    let metadata = std::fs::symlink_metadata(&paths.socket)
+        .with_context(|| format!("inspect daemon socket path {}", paths.socket.display()))?;
+    if !metadata.file_type().is_socket() {
+        bail!(
+            "SIFS daemon socket path already exists but is not a socket: {}",
+            paths.socket.display()
+        );
+    }
+    match UnixStream::connect(&paths.socket) {
+        Ok(_) => {
+            bail!(
+                "SIFS daemon socket already exists at {} and appears active. Stop the running daemon or pass --replace-existing-socket.",
+                paths.socket.display()
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+            std::fs::remove_file(&paths.socket).with_context(|| {
+                format!("remove stale daemon socket {}", paths.socket.display())
+            })?;
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "probe existing SIFS daemon socket at {}",
+                paths.socket.display()
+            )
+        }),
+    }
 }
 
 fn handle_connection(mut stream: UnixStream, manager: &mut IndexManager) -> Result<()> {

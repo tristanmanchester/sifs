@@ -1,5 +1,6 @@
 use serde_json::Value;
 use std::fs;
+use std::os::unix::net::UnixListener;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -119,6 +120,22 @@ fn daemon_run_ping_and_status_work_over_socket() {
     let value: Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(value["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(value["indexes"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn daemon_run_reclaims_stale_socket_without_replace_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("sifs.sock");
+    drop(UnixListener::bind(&socket).unwrap());
+
+    let child = sifs()
+        .args(["daemon", "run"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .spawn()
+        .unwrap();
+    let _guard = ChildGuard(child);
+
+    wait_for_daemon(&socket);
 }
 
 #[test]
