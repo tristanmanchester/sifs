@@ -83,3 +83,37 @@ Rules:
 Checks include binary availability, skill/snippet presence, MCP config, MCP handshake guidance, search smoke guidance, current-session visibility, and CLI fallback readiness.
 
 `unknown` is deliberate. A config file can exist even when the active agent session has no visible MCP tools, so doctor does not overclaim runtime visibility.
+
+## Skill Package Publishing
+
+The canonical portable skill lives at `skills/sifs-search/`. The ClawHub-ready
+OpenClaw package lives at `extras/openclaw/sifs-search/` so it can be published
+as a self-contained folder with:
+
+- `SKILL.md`
+- `references/commands.md`
+- `references/mcp.md`
+- `references/troubleshooting.md`
+- `scripts/check-setup.sh`
+
+Before publishing, run the local readiness checks:
+
+```bash
+cargo test --test skill_parity
+python3 scripts/clawhub_skill_sync.py check
+```
+
+The check command validates OpenClaw metadata, confirms the package files are
+present, runs the bundled setup script, inspects the remote ClawHub slug when
+`clawhub` is installed, and prints a changelog preview. It does not publish.
+
+Publishing is intentionally manual:
+
+```bash
+clawhub auth login --token "$CLAWHUB_TOKEN" --no-browser
+python3 scripts/clawhub_skill_sync.py publish
+```
+
+The GitHub Actions workflow `.github/workflows/clawhub-skill.yml` runs checks on
+skill-package changes. It only publishes when manually dispatched with
+`mode=publish` and a `CLAWHUB_TOKEN` secret is available.

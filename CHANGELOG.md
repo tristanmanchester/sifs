@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.3.0 - 2026-05-05
+
 ### Added
 
 - Added an ideation artifact for making SIFS more agent-native across Codex,
@@ -21,6 +23,9 @@ versioning where practical.
   checks across Codex, Claude Code, OpenClaw, Hermes, and generic targets.
 - Added a canonical `sifs-search` skill package with command, MCP, and
   troubleshooting references for agent-skill consumers.
+- Added ClawHub publishing prep for the `sifs-search` skill, including
+  trigger-eval fixtures, standalone OpenClaw package references, a parity test,
+  a readiness/publish helper, and a manual GitHub Actions workflow.
 - Added read-only MCP `agent_print` and `agent_doctor` tools so MCP clients can
   inspect agent artifacts without broad filesystem mutation.
 - Added `sifs agent-context --json` and MCP `agent_context` discovery so
@@ -43,6 +48,9 @@ versioning where practical.
   the new Trevin Chow 10-principle contract.
 - Positioned MCP as an optional agent capability and documented CLI fallback
   behavior for generated skills and snippets.
+- Improved `sifs-search` skill descriptions and metadata across canonical,
+  OpenClaw, Hermes, and generic agent-skill packages using trigger-oriented
+  agent skill guidance.
 - Added a plan for a breaking agent-native CLI/MCP redesign covering
   `agent-context`, canonical source/filter vocabulary, uniform JSON diagnostics,
   strict validation, profiles, feedback, and contract-level tests.

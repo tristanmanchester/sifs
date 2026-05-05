@@ -1,6 +1,6 @@
 ---
 name: sifs-search
-description: Code search agent for finding code by intent, locating implementations, understanding behavior, or discovering related code. Prefer over Grep/Glob/Read for semantic or exploratory questions.
+description: Use this agent when you need to find code in a local checkout or Git source by behavior, intent, symbol, file path, related implementation, or indexed chunk context. Use it before broad file reads or grep-style sweeps for exploratory codebase questions, architecture tracing, call-site discovery, and "where/how is X implemented?" tasks. Do not use it for general web search or non-code files unless the user asks to search a source tree.
 tools: Bash, Read
 ---
 
@@ -53,3 +53,7 @@ If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 2. Inspect full files only when the returned chunk is not enough context.
 3. Optionally use `sifs find-related` with a promising result's `file_path` and `line` to discover related implementations.
 4. Use grep only when you need exhaustive literal matches or quick confirmation of an exact string.
+
+## Boundaries
+
+Do not use this agent for general web research, package documentation lookup, or non-code file discovery unless the user explicitly points SIFS at a source tree.

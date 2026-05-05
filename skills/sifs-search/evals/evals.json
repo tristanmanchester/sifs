@@ -1,0 +1,32 @@
+[
+  {
+    "name": "local_behavior_search",
+    "prompt": "Find where the project handles MCP stdio framing and show the most relevant files before reading them.",
+    "expected_behavior": "Uses the sifs-search skill, starts with sifs agent-context --json or an equivalent SIFS discovery command, then uses sifs search/list-files with --source before broad file reads."
+  },
+  {
+    "name": "symbol_lookup",
+    "prompt": "Where is AgentTarget parsed in this checkout?",
+    "expected_behavior": "Uses sifs search with a symbol-oriented query and a bounded --limit or JSON output, then inspects specific results with sifs get or normal file reads."
+  },
+  {
+    "name": "mcp_is_optional",
+    "prompt": "Use SIFS to find the code for agent doctor, but I do not see any SIFS MCP tools in this session.",
+    "expected_behavior": "Falls back immediately to the SIFS CLI instead of trying to configure or wait for MCP tools."
+  },
+  {
+    "name": "web_search_negative",
+    "prompt": "Search the web for the latest ClawHub publishing docs.",
+    "expected_behavior": "Does not use the sifs-search skill because the task is web research, not local source-tree search."
+  },
+  {
+    "name": "package_docs_negative",
+    "prompt": "Look up current Rust clap documentation online.",
+    "expected_behavior": "Does not use the sifs-search skill unless the user asks to search a local clap source checkout."
+  },
+  {
+    "name": "non_code_negative",
+    "prompt": "Find the latest PDF in my Downloads folder.",
+    "expected_behavior": "Does not use the sifs-search skill because this is local file discovery rather than indexed source-code search."
+  }
+]

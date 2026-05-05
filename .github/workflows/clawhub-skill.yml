@@ -1,0 +1,63 @@
+name: ClawHub Skill
+
+on:
+  pull_request:
+    paths:
+      - "skills/sifs-search/**"
+      - "extras/openclaw/sifs-search/**"
+      - "scripts/clawhub_skill_sync.py"
+      - "tests/skill_parity.rs"
+      - ".github/workflows/clawhub-skill.yml"
+  push:
+    branches: [main]
+    paths:
+      - "skills/sifs-search/**"
+      - "extras/openclaw/sifs-search/**"
+      - "scripts/clawhub_skill_sync.py"
+      - "tests/skill_parity.rs"
+      - ".github/workflows/clawhub-skill.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run readiness check or publish to ClawHub"
+        required: true
+        default: "check"
+        type: choice
+        options:
+          - check
+          - publish
+
+jobs:
+  check:
+    name: Check skill package
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'check'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: cargo test --test skill_parity
+      - run: npm install -g clawhub@0.9.0
+      - run: cargo install --path .
+      - run: python3 scripts/clawhub_skill_sync.py check
+
+  publish:
+    name: Publish skill package
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: cargo test --test skill_parity
+      - run: npm install -g clawhub@0.9.0
+      - run: cargo install --path .
+      - name: Authenticate
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: clawhub auth login --token "$CLAWHUB_TOKEN" --no-browser
+      - run: python3 scripts/clawhub_skill_sync.py publish
