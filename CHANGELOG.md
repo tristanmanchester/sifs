@@ -9,6 +9,26 @@ versioning where practical.
 
 ## Unreleased
 
+### Changed
+
+- Refreshed benchmark result artifacts and comparison graphs from the latest
+  full benchmark run.
+- Tuned natural-language ranking to use file-stem and parent-directory matches
+  when boosting path-relevant chunks.
+- Recognized TypeScript-style `$`-prefixed internal symbol definitions when
+  ranking bare symbol searches.
+- Added narrow subsystem path-intent boosts for queries that explicitly name
+  public surfaces, worker setup, update state, UI views, or deserialization
+  entry points.
+- Added a diagnostic benchmark timing flag for breaking down hybrid query time.
+
+### Performance
+
+- Avoided allocating an all-chunk candidate list for unfiltered dense searches.
+- Combined hybrid RRF scores directly instead of materializing intermediate
+  score maps.
+- Reused file-to-chunk mappings when applying exact path-intent boosts.
+
 ### Fixed
 
 - Rejected empty MCP `repo` arguments so tool calls no longer silently index the

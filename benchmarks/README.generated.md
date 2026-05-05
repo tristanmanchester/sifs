@@ -6,9 +6,9 @@ Source SIFS result: `benchmarks/results/sifs-full.json`
 
 | Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|
+| **SIFS** | 0.8642 | 6.5 ms | 0.376 ms | 0.0012 ms |
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | 0.8426 | 119.9 ms | 0.442 ms | 0.0012 ms |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |

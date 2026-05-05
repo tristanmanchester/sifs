@@ -1,5 +1,5 @@
 use ndarray::{Array1, Array2, Axis};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use crate::ranking::truncate_top_k;
@@ -44,21 +44,32 @@ impl DenseIndex {
         if selector.is_some_and(|s| s.is_empty()) {
             return Vec::new();
         }
-        let candidates: Vec<usize> = selector
-            .map(|s| s.to_vec())
-            .unwrap_or_else(|| (0..self.len()).collect());
-        let mut scores: Vec<(usize, f32)> = candidates
-            .par_iter()
-            .map(|&idx| {
-                let row = self.vectors.row(idx);
-                let score = row
-                    .iter()
-                    .zip(vector.iter())
-                    .map(|(a, b)| a * b)
-                    .sum::<f32>();
-                (idx, score)
-            })
-            .collect();
+        let mut scores: Vec<(usize, f32)> = match selector {
+            Some(candidates) => candidates
+                .par_iter()
+                .map(|&idx| {
+                    let row = self.vectors.row(idx);
+                    let score = row
+                        .iter()
+                        .zip(vector.iter())
+                        .map(|(a, b)| a * b)
+                        .sum::<f32>();
+                    (idx, score)
+                })
+                .collect(),
+            None => (0..self.len())
+                .into_par_iter()
+                .map(|idx| {
+                    let row = self.vectors.row(idx);
+                    let score = row
+                        .iter()
+                        .zip(vector.iter())
+                        .map(|(a, b)| a * b)
+                        .sum::<f32>();
+                    (idx, score)
+                })
+                .collect(),
+        };
         truncate_top_k(&mut scores, k);
         scores
     }

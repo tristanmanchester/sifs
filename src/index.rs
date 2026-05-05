@@ -562,6 +562,7 @@ impl SifsIndex {
                     &state.index,
                     &self.bm25_index,
                     &self.chunks,
+                    Some(&self.file_mapping),
                     options.top_k,
                     options.alpha,
                     selector_ref,

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use sifs::search::{hybrid_timing, reset_hybrid_timing};
 use sifs::{
     ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex, metrics::peak_rss_mb,
 };
@@ -41,6 +42,8 @@ struct Args {
     offline: bool,
     #[arg(long = "no-download")]
     no_download: bool,
+    #[arg(long)]
+    hybrid_timing: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -167,6 +170,9 @@ fn main() -> Result<()> {
     let tasks = load_tasks(&args, &specs)?;
     if tasks.is_empty() {
         bail!("No benchmark tasks matched the requested filters");
+    }
+    if args.hybrid_timing {
+        reset_hybrid_timing();
     }
 
     let mut by_repo: BTreeMap<String, Vec<Task>> = BTreeMap::new();
@@ -317,6 +323,22 @@ fn main() -> Result<()> {
         );
     } else {
         print!("{json}");
+    }
+    if args.hybrid_timing {
+        let timing = hybrid_timing();
+        let divisor = timing.queries.max(1) as f64;
+        eprintln!(
+            "Hybrid timing per query: queries={} encode_ms={:.4} dense_ms={:.4} bm25_ms={:.4} fuse_ms={:.4} file_boost_ms={:.4} query_boost_ms={:.4} rerank_ms={:.4} collect_ms={:.4}",
+            timing.queries,
+            timing.encode.as_secs_f64() * 1000.0 / divisor,
+            timing.dense.as_secs_f64() * 1000.0 / divisor,
+            timing.bm25.as_secs_f64() * 1000.0 / divisor,
+            timing.fuse.as_secs_f64() * 1000.0 / divisor,
+            timing.file_boost.as_secs_f64() * 1000.0 / divisor,
+            timing.query_boost.as_secs_f64() * 1000.0 / divisor,
+            timing.rerank.as_secs_f64() * 1000.0 / divisor,
+            timing.collect.as_secs_f64() * 1000.0 / divisor,
+        );
     }
     Ok(())
 }
