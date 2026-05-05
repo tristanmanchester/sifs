@@ -9,6 +9,12 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
+  dependencies, keeping ClawHub workflow Cargo commands locked, and making
+  update-command tests independent of runner `CARGO_HOME`.
+
 ## 0.3.1 - 2026-05-05
 
 ### Added

@@ -115,6 +115,7 @@ fn update_dry_run_json_plans_cargo_command_for_owned_install() {
     let output = sifs()
         .args(["update", "--dry-run", "--json"])
         .env("HOME", "/home/me")
+        .env("CARGO_HOME", "/home/me/.cargo")
         .env("SIFS_UPDATE_CURRENT_EXE", "/home/me/.cargo/bin/sifs")
         .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
         .env("SIFS_UPDATE_CARGO_PATH", "/usr/bin/cargo")
@@ -165,6 +166,7 @@ fn update_execute_json_reports_runner_failure() {
     let output = sifs()
         .args(["update", "--json"])
         .env("HOME", "/home/me")
+        .env("CARGO_HOME", "/home/me/.cargo")
         .env("SIFS_UPDATE_CURRENT_EXE", "/home/me/.cargo/bin/sifs")
         .env("SIFS_UPDATE_LATEST_VERSION", "9.9.9")
         .env("SIFS_UPDATE_CARGO_PATH", "/usr/bin/cargo")
@@ -918,7 +920,8 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
         String::from_utf8_lossy(&search.stderr)
     );
     let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
-    assert_eq!(searched["source"], dir.path().to_str().unwrap());
+    let searched_source = fs::canonicalize(searched["source"].as_str().unwrap()).unwrap();
+    assert_eq!(searched_source, fs::canonicalize(dir.path()).unwrap());
     assert_eq!(searched["mode"], "bm25");
     assert_eq!(searched["limit"], 3);
 

@@ -277,15 +277,15 @@ impl SifsIndex {
             options.include_text_files,
         )
         .ok();
-        if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures) {
-            if let Some(payload) = load_cached_index_payload(cache_entry, &context, signatures) {
-                return Self::from_cached_parts(
-                    options.semantic_config.clone(),
-                    payload,
-                    Some(cache_entry.clone()),
-                    Some(context),
-                );
-            }
+        if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures)
+            && let Some(payload) = load_cached_index_payload(cache_entry, &context, signatures)
+        {
+            return Self::from_cached_parts(
+                options.semantic_config.clone(),
+                payload,
+                Some(cache_entry.clone()),
+                Some(context),
+            );
         }
         let chunks = create_chunks_from_path(
             &root,
@@ -521,15 +521,14 @@ impl SifsIndex {
             filter_languages: filter_languages.map(<[String]>::to_vec),
             filter_paths: filter_paths.map(<[String]>::to_vec),
         };
-        if options.use_query_cache {
-            if let Some(results) = self
+        if options.use_query_cache
+            && let Some(results) = self
                 .search_cache
                 .lock()
                 .ok()
                 .and_then(|cache| cache.get(&cache_key).cloned())
-            {
-                return Ok(results);
-            }
+        {
+            return Ok(results);
         }
         let selector = self.selector(filter_languages, filter_paths);
         let selector_ref = selector.as_deref();
@@ -685,10 +684,10 @@ impl SifsIndex {
             return;
         };
         let cache_path = semantic_cache_path(cache_entry, semantic_config, model_fingerprint);
-        if let Some(parent) = cache_path.parent() {
-            if fs::create_dir_all(parent).is_err() {
-                return;
-            }
+        if let Some(parent) = cache_path.parent()
+            && fs::create_dir_all(parent).is_err()
+        {
+            return;
         }
         let tmp_path = cache_path.with_extension("bin.tmp");
         if fs::write(&tmp_path, bytes).is_ok() {
@@ -773,10 +772,10 @@ fn write_cached_index_payload(index: &SifsIndex) {
         return;
     };
     let cache_path = sparse_cache_path(cache_entry);
-    if let Some(parent) = cache_path.parent() {
-        if fs::create_dir_all(parent).is_err() {
-            return;
-        }
+    if let Some(parent) = cache_path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return;
     }
     let tmp_path = cache_path.with_extension("bin.tmp");
     if fs::write(&tmp_path, bytes).is_ok() {

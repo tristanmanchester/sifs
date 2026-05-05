@@ -3584,10 +3584,10 @@ fn render_agent_artifacts(
                 if let Some(destination) = &destination {
                     artifact.destination_hint = Some(destination.clone());
                 }
-            } else if concrete_artifact == AgentArtifact::Snippet {
-                if let Some(file) = &file {
-                    artifact.destination_hint = Some(file.clone());
-                }
+            } else if concrete_artifact == AgentArtifact::Snippet
+                && let Some(file) = &file
+            {
+                artifact.destination_hint = Some(file.clone());
             }
             rendered.push(artifact);
         }
@@ -3720,10 +3720,10 @@ fn print_update_report(report: &sifs::update::UpdateReport) {
         }
         "failed" => {
             eprintln!("sifs update failed.");
-            if let Some(runner) = &report.runner {
-                if !runner.stderr.trim().is_empty() {
-                    eprintln!("{}", runner.stderr.trim());
-                }
+            if let Some(runner) = &report.runner
+                && !runner.stderr.trim().is_empty()
+            {
+                eprintln!("{}", runner.stderr.trim());
             }
         }
         other => println!("sifs update status: {other}"),
