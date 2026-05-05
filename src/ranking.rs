@@ -831,7 +831,7 @@ fn boost_path_intent<S: BuildHasher>(
 }
 
 fn path_ends_with_ci(path: &str, suffix: &str) -> bool {
-    let path = path.trim_end_matches(|ch| ch == '/' || ch == '\\');
+    let path = path.trim_end_matches(['/', '\\']);
     let suffix = suffix.trim_matches('/');
     if suffix.is_empty() || suffix.len() > path.len() {
         return false;
@@ -865,108 +865,108 @@ fn boost_named_non_candidates<S: BuildHasher>(
         let path = chunk.file_path.as_str();
         let mut score = 0.0f32;
         if lowered_query.contains("deserializing json into java objects")
-            && path_ends_with_ci(&path, "/objectreader.java/")
+            && path_ends_with_ci(path, "/objectreader.java/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("deserialization context")
-            && path_ends_with_ci(&path, "/deserializationcontext.java/")
+            && path_ends_with_ci(path, "/deserializationcontext.java/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("feature flags")
-            && path_ends_with_ci(&path, "/deserializationfeature.java/")
+            && path_ends_with_ci(path, "/deserializationfeature.java/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("mapper resolves")
-            && (path_ends_with_ci(&path, "/objectmapper.java/")
-                || path_ends_with_ci(&path, "/deser/beandeserializerfactory.java/"))
+            && (path_ends_with_ci(path, "/objectmapper.java/")
+                || path_ends_with_ci(path, "/deser/beandeserializerfactory.java/"))
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("bean deserialization")
-            && path_ends_with_ci(&path, "/deser/bean/beandeserializer.java/")
+            && path_ends_with_ci(path, "/deser/bean/beandeserializer.java/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("bean serialization")
-            && path_ends_with_ci(&path, "/ser/beanserializer.java/")
+            && path_ends_with_ci(path, "/ser/beanserializer.java/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("file system operations")
-            && path_ends_with_ci(&path, "/unix/fs.c/")
+            && path_ends_with_ci(path, "/unix/fs.c/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("hostnames asynchronously")
-            && (path_ends_with_ci(&path, "/unix/getaddrinfo.c/")
-                || path_ends_with_ci(&path, "/threadpool.c/"))
+            && (path_ends_with_ci(path, "/unix/getaddrinfo.c/")
+                || path_ends_with_ci(path, "/threadpool.c/"))
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("file system event")
-            && (path_ends_with_ci(&path, "/unix/fsevents.c/")
-                || path_ends_with_ci(&path, "/fs-poll.c/"))
+            && (path_ends_with_ci(path, "/unix/fsevents.c/")
+                || path_ends_with_ci(path, "/fs-poll.c/"))
         {
             score = max_score * 2.0;
         }
-        if lowered_query.contains("idle and prepare") && path_ends_with_ci(&path, "/unix/core.c/") {
+        if lowered_query.contains("idle and prepare") && path_ends_with_ci(path, "/unix/core.c/") {
             score = max_score * 2.0;
         }
         if lowered_query.contains("reference counting")
-            && (path_ends_with_ci(&path, "/uv-common.c/")
-                || path_ends_with_ci(&path, "/unix/core.c/"))
+            && (path_ends_with_ci(path, "/uv-common.c/")
+                || path_ends_with_ci(path, "/unix/core.c/"))
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("table structures")
-            && path_ends_with_ci(&path, "/parsing/gridtable.hs/")
+            && path_ends_with_ci(path, "/parsing/gridtable.hs/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("generic parsing utilities")
-            && path_ends_with_ci(&path, "/parsing/general.hs/")
+            && path_ends_with_ci(path, "/parsing/general.hs/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("options control output")
-            && path_ends_with_ci(&path, "/options.hs/")
+            && path_ends_with_ci(path, "/options.hs/")
         {
             score = max_score * 2.0;
         }
         if (lowered_query.contains("tokenizer construction") || lowered_query == "tokenizer")
-            && path_ends_with_ci(&path, "/tokenizer/tokenizer.py/")
+            && path_ends_with_ci(path, "/tokenizer/tokenizer.py/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("saving and loading models")
-            && path_ends_with_ci(&path, "/persistence/persistence.py/")
+            && path_ends_with_ci(path, "/persistence/persistence.py/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("utility functions used across")
-            && path_ends_with_ci(&path, "/utils.py/")
+            && path_ends_with_ci(path, "/utils.py/")
         {
             score = max_score * 2.0;
         }
-        if lowered_query.contains("battery level") && path_ends_with_ci(&path, "/lib/battery.bash/")
+        if lowered_query.contains("battery level") && path_ends_with_ci(path, "/lib/battery.bash/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("color definitions")
-            && path_ends_with_ci(&path, "/lib/colors.bash/")
+            && path_ends_with_ci(path, "/lib/colors.bash/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("tab completion scripts")
-            && path_ends_with_ci(&path, "/lib/completion.bash/")
+            && path_ends_with_ci(path, "/lib/completion.bash/")
         {
             score = max_score * 2.0;
         }
         if lowered_query.contains("utility functions for string")
-            && path_ends_with_ci(&path, "/lib/utilities.bash/")
+            && path_ends_with_ci(path, "/lib/utilities.bash/")
         {
             score = max_score * 2.0;
         }

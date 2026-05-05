@@ -9,7 +9,21 @@ command -v sifs
 sifs --version
 ```
 
-If the binary is not on `PATH`, use the absolute binary path or build/install SIFS first.
+If `sifs` is not installed and the user has asked you to install missing tools, prefer Homebrew on macOS:
+
+```bash
+brew install tristanmanchester/tap/sifs
+sifs --version
+```
+
+On systems without Homebrew, use Cargo when Rust is available:
+
+```bash
+cargo install sifs
+sifs --version
+```
+
+If neither installer is available, report that SIFS is missing and continue with the agent's normal code-search tools. Do not silently install system packages unless the user or local project instructions allow tool installation.
 
 ## Search runs against the wrong checkout
 

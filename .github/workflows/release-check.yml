@@ -1,0 +1,73 @@
+name: Release Check
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - v*
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-check:
+    name: Release checklist
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Validate release metadata
+        run: python3 scripts/ci_release_check.py
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build default binaries
+        run: cargo build --locked
+
+      - name: Build diagnostic binaries
+        run: cargo build --locked --features diagnostics --bins
+
+      - name: Check package publication
+        run: cargo publish --dry-run --locked
+
+      - name: List package contents
+        run: cargo package --list
+
+      - name: Validate Homebrew formula syntax
+        run: ruby -c packaging/homebrew/sifs.rb
+
+      - name: Build Homebrew formula from source
+        if: github.ref_type == 'tag'
+        run: brew install --build-from-source ./packaging/homebrew/sifs.rb
+
+      - name: Create tiny repository
+        if: github.ref_type == 'tag'
+        run: |
+          mkdir -p /tmp/sifs-release-tiny-repo
+          cat > /tmp/sifs-release-tiny-repo/auth.py <<'PY'
+          def authenticate_token(token):
+              return token == "secret"
+          PY
+          git -C /tmp/sifs-release-tiny-repo init --quiet
+
+      - name: Smoke installed CLI
+        if: github.ref_type == 'tag'
+        run: |
+          sifs --help
+          sifs search authenticate_token --source /tmp/sifs-release-tiny-repo --mode bm25 --offline --no-cache
+          sifs mcp install --dry-run --client codex --source /tmp/sifs-release-tiny-repo --offline
+          sifs mcp install --dry-run --client claude --scope local --source /tmp/sifs-release-tiny-repo --offline

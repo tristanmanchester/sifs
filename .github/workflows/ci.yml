@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust ${{ matrix.rust }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rust: stable
+            full: true
+          - os: ubuntu-latest
+            rust: 1.85.0
+            full: false
+          - os: macos-latest
+            rust: stable
+            full: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+
+      - name: Cache Cargo builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Validate release metadata
+        run: python3 scripts/ci_release_check.py
+
+      - name: Check formatting
+        if: matrix.full
+        run: cargo fmt --all --check
+
+      - name: Run Clippy
+        if: matrix.full
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build default binaries
+        run: cargo build --locked
+
+      - name: Build diagnostic binaries
+        if: matrix.full
+        run: cargo build --locked --features diagnostics --bins
+
+      - name: Check package publication
+        if: matrix.full
+        run: cargo publish --dry-run --locked
+
+      - name: Validate Homebrew formula syntax
+        run: ruby -c packaging/homebrew/sifs.rb

@@ -1,0 +1,56 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmarks_dir:
+        description: Directory containing repos.json and annotations
+        required: false
+        type: string
+      output_name:
+        description: Artifact name for benchmark results
+        required: false
+        default: sifs-benchmark-results
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmarks:
+    name: Diagnostics benchmark
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build diagnostic binaries
+        run: cargo build --release --features diagnostics --bins
+
+      - name: Build smoke benchmark example
+        run: cargo build --release --example bench
+
+      - name: Run local smoke benchmark
+        run: target/release/examples/bench . "agent context" 10
+
+      - name: Run annotated benchmark
+        if: inputs.benchmarks_dir != ''
+        run: |
+          mkdir -p benchmarks/results
+          target/release/sifs-benchmark \
+            --benchmarks-dir "${{ inputs.benchmarks_dir }}" \
+            --output benchmarks/results/sifs-ci.json
+
+      - name: Upload results
+        if: inputs.benchmarks_dir != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.output_name }}
+          path: benchmarks/results/sifs-ci.json

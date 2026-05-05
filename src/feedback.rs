@@ -62,7 +62,7 @@ pub fn list_feedback(cache_root: &Path, limit: usize) -> Result<(Vec<FeedbackEnt
         entries.push(serde_json::from_str::<FeedbackEntry>(&line)?);
     }
     let total = entries.len();
-    entries.sort_by(|left, right| right.created_at_unix_ms.cmp(&left.created_at_unix_ms));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.created_at_unix_ms));
     entries.truncate(limit);
     Ok((entries, total))
 }

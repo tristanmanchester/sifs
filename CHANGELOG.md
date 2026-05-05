@@ -11,6 +11,9 @@ versioning where practical.
 
 ### Added
 
+- Added GitHub Actions CI, release-check, and benchmark workflows for Rust
+  formatting, linting, tests, packaging checks, MSRV coverage, and manual
+  diagnostic benchmark runs.
 - Added an implementation plan for a package-manager-backed `sifs update`
   command, with passive update-available notices deferred as follow-up work.
 - Added `sifs update` with check, dry-run, JSON, Cargo/Homebrew ownership gates,
