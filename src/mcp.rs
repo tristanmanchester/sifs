@@ -7,6 +7,7 @@ use crate::index::{CacheConfig, IndexOptions};
 use crate::model2vec::{EncoderSpec, ModelOptions};
 use crate::types::{SearchMode, SearchOptions};
 use crate::utils::{format_results, is_git_url, resolve_chunk};
+use crate::{agent_context, feedback, platform_cache_root, profiles};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -259,8 +260,13 @@ fn handle_tool_call(
         "index_status" => tool_index_status(args, cache, default_source, ref_name),
         "refresh_index" => tool_refresh_index(args, cache, default_source, ref_name),
         "clear_index" => tool_clear_index(args, cache, default_source, ref_name),
-        "list_indexed_files" => tool_list_indexed_files(args, cache, default_source, ref_name),
+        "list_files" => tool_list_files(args, cache, default_source, ref_name),
         "get_chunk" => tool_get_chunk(args, cache, default_source, ref_name),
+        "agent_context" => tool_agent_context(),
+        "profile_list" => tool_profile_list(),
+        "profile_show" => tool_profile_show(args),
+        "feedback_create" => tool_feedback_create(args),
+        "feedback_list" => tool_feedback_list(args),
         "init_agent" => tool_init_agent(args),
         _ => ToolText::error(format!("Unknown tool: {name}")),
     };
@@ -321,16 +327,18 @@ fn tool_search(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let mode = args
-        .get("mode")
-        .and_then(Value::as_str)
-        .and_then(|s| s.parse::<SearchMode>().ok())
-        .unwrap_or(SearchMode::Hybrid);
-    let top_k = args.get("top_k").and_then(Value::as_u64).unwrap_or(5) as usize;
+    let mode = match parse_mcp_mode(&args) {
+        Ok(mode) => mode,
+        Err(message) => return ToolText::error(message),
+    };
+    let top_k = match parse_mcp_limit(&args, "limit", 5) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
     let options = search_options_from_args(&args, top_k, mode);
-    if let Some(result) = cache.daemon_search(source, ref_name, query, &options) {
+    if let Some(result) = cache.daemon_search(&source, ref_name, query, &options) {
         return mcp_search_result(McpSearchPresentation {
-            source,
+            source: &source,
             query,
             mode,
             top_k,
@@ -340,20 +348,20 @@ fn tool_search(
             results: result.results,
         });
     }
-    match cache.get(source, ref_name) {
+    match cache.get(&source, ref_name) {
         Ok(index) => {
             let results = match index.search_with(query, &options) {
                 Ok(results) => results,
                 Err(err) => return ToolText::error(format!("Search failed: {err}")),
             };
             mcp_search_result(McpSearchPresentation {
-                source,
+                source: &source,
                 query,
                 mode,
                 top_k,
                 options: &options,
                 stats: index.stats(),
-                warnings: index_warnings(index),
+                warnings: search_warnings_json(index, &options),
                 results,
             })
         }
@@ -376,12 +384,14 @@ fn mcp_search_result(presentation: McpSearchPresentation<'_>) -> ToolText {
     let structured = json!({
         "source": presentation.source,
         "mode": presentation.mode.to_string(),
-        "top_k": presentation.top_k,
+        "limit": presentation.top_k,
         "alpha": presentation.options.alpha,
         "filter_languages": presentation.options.filter_languages,
         "filter_paths": presentation.options.filter_paths,
         "stats": presentation.stats,
         "warnings": presentation.warnings,
+        "truncated": presentation.results.len() >= presentation.top_k,
+        "hint": if presentation.results.len() >= presentation.top_k { Some("Increase limit or add filter_languages/filter_paths to narrow the search.") } else { None },
         "results": structured_results(&presentation.results),
     });
     if presentation.results.is_empty() {
@@ -416,8 +426,11 @@ fn tool_find_related(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let top_k = args.get("top_k").and_then(Value::as_u64).unwrap_or(5) as usize;
-    match cache.get(source, ref_name) {
+    let top_k = match parse_mcp_limit(&args, "limit", 5) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    match cache.get(&source, ref_name) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
                 return ToolText::ok(format!(
@@ -468,8 +481,8 @@ fn tool_index_status(
         }
         Err(message) => return ToolText::error(message),
     };
-    let was_cached = cache.contains_source(source, ref_name);
-    match cache.get(source, ref_name) {
+    let was_cached = cache.contains_source(&source, ref_name);
+    match cache.get(&source, ref_name) {
         Ok(index) => {
             let stats = index.stats();
             let structured = json!({
@@ -513,7 +526,7 @@ fn tool_refresh_index(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    match cache.refresh(source, ref_name) {
+    match cache.refresh(&source, ref_name) {
         Ok(index) => {
             let stats = index.stats();
             ToolText::ok_structured(
@@ -541,7 +554,7 @@ fn tool_clear_index(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    match cache.remove(source, ref_name) {
+    match cache.remove(&source, ref_name) {
         Ok(removed) => ToolText::ok_structured(
             if removed {
                 format!("Cleared in-memory index for {source:?}.")
@@ -554,7 +567,7 @@ fn tool_clear_index(
     }
 }
 
-fn tool_list_indexed_files(
+fn tool_list_files(
     args: Value,
     cache: &mut IndexCache,
     default_source: Option<&str>,
@@ -565,8 +578,11 @@ fn tool_list_indexed_files(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize;
-    match cache.get(source, ref_name) {
+    let limit = match parse_mcp_limit(&args, "limit", 200) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    match cache.get(&source, ref_name) {
         Ok(index) => {
             let files = index.indexed_files();
             let shown: Vec<_> = files.iter().take(limit).cloned().collect();
@@ -577,7 +593,7 @@ fn tool_list_indexed_files(
                     files.len(),
                     shown.join("\n")
                 ),
-                json!({"source": source, "total": files.len(), "limit": limit, "warnings": index_warnings(index), "files": shown}),
+                json!({"source": source, "total": files.len(), "limit": limit, "truncated": files.len() > shown.len(), "hint": if files.len() > shown.len() { Some("Increase limit to inspect more indexed files.") } else { None }, "warnings": index_warnings(index), "files": shown}),
             )
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
@@ -600,11 +616,11 @@ fn tool_get_chunk(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    match cache.get(source, ref_name) {
+    match cache.get(&source, ref_name) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
                 return ToolText::ok(format!(
-                    "No chunk found at {file_path}:{line}. Use list_indexed_files to check indexed paths."
+                    "No chunk found at {file_path}:{line}. Use list_files to check indexed paths."
                 ));
             };
             ToolText::ok_structured(
@@ -652,15 +668,32 @@ fn tool_init_agent(args: Value) -> ToolText {
     )
 }
 
-fn selected_source<'a>(
-    args: &'a Value,
-    default_source: Option<&'a str>,
-) -> std::result::Result<Option<&'a str>, String> {
-    let requested = args.get("repo").and_then(Value::as_str);
-    if requested.is_some_and(str::is_empty) {
-        return Err("repo must not be empty; omit it to use the default source".to_owned());
+fn selected_source(
+    args: &Value,
+    default_source: Option<&str>,
+) -> std::result::Result<Option<String>, String> {
+    if args.get("repo").is_some() {
+        return Err("repo is no longer a canonical MCP argument; use source instead".to_owned());
     }
-    Ok(requested.or(default_source))
+    let requested = args.get("source").and_then(Value::as_str);
+    if requested.is_some_and(str::is_empty) {
+        return Err("source must not be empty; omit it to use the default source".to_owned());
+    }
+    if let Some(requested) = requested {
+        return Ok(Some(requested.to_owned()));
+    }
+    if let Some(profile_name) = args.get("profile").and_then(Value::as_str) {
+        if profile_name.is_empty() {
+            return Err("profile must not be empty".to_owned());
+        }
+        let root = platform_cache_root().map_err(|err| err.to_string())?;
+        let profile = profiles::get_profile(&root, profile_name).map_err(|err| err.to_string())?;
+        if let Some(source) = profile.source {
+            return Ok(Some(source));
+        }
+        return Err(format!("profile {profile_name:?} does not define a source"));
+    }
+    Ok(default_source.map(str::to_owned))
 }
 
 fn search_options_from_args(args: &Value, top_k: usize, mode: SearchMode) -> SearchOptions {
@@ -669,6 +702,28 @@ fn search_options_from_args(args: &Value, top_k: usize, mode: SearchMode) -> Sea
     options.filter_languages = string_array_arg(args, "filter_languages");
     options.filter_paths = string_array_arg(args, "filter_paths");
     options
+}
+
+fn parse_mcp_mode(args: &Value) -> std::result::Result<SearchMode, String> {
+    match args.get("mode").and_then(Value::as_str) {
+        Some(value) => value
+            .parse::<SearchMode>()
+            .map_err(|_| format!("mode must be one of: hybrid, semantic, bm25 (got {value:?})")),
+        None => Ok(SearchMode::Hybrid),
+    }
+}
+
+fn parse_mcp_limit(args: &Value, key: &str, default: usize) -> std::result::Result<usize, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(default);
+    };
+    let Some(limit) = value.as_u64() else {
+        return Err(format!("{key} must be an integer >= 1"));
+    };
+    if limit == 0 {
+        return Err(format!("{key} must be at least 1"));
+    }
+    Ok(limit as usize)
 }
 
 fn string_array_arg(args: &Value, key: &str) -> Vec<String> {
@@ -714,6 +769,132 @@ fn index_warnings(index: &SifsIndex) -> Value {
     )
 }
 
+fn search_warnings_json(index: &SifsIndex, options: &SearchOptions) -> Value {
+    let mut warnings = index
+        .warnings()
+        .iter()
+        .map(|warning| {
+            json!({
+                "kind": "index_warning",
+                "path": warning.path,
+                "message": warning.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    let indexed_files = index.indexed_files();
+    for path in &options.filter_paths {
+        if !indexed_files.iter().any(|indexed| indexed == path) {
+            let normalized = path.strip_prefix("./").unwrap_or(path);
+            let suggestion = indexed_files
+                .iter()
+                .find(|indexed| indexed.as_str() == normalized)
+                .cloned();
+            warnings.push(json!({
+                "kind": "path_filter_no_match",
+                "message": if let Some(suggestion) = &suggestion {
+                    format!("No indexed file exactly matched {path:?}. Did you mean {suggestion:?}?")
+                } else {
+                    format!("No indexed file matched {path:?}.")
+                },
+                "suggestions": suggestion.into_iter().collect::<Vec<_>>(),
+            }));
+        }
+    }
+    let languages = index.stats().languages;
+    for language in &options.filter_languages {
+        if !languages.contains_key(language) {
+            warnings.push(json!({
+                "kind": "language_filter_no_match",
+                "message": format!("No indexed chunks matched language {language:?}."),
+                "valid_languages": languages.keys().cloned().collect::<Vec<_>>(),
+            }));
+        }
+    }
+    json!(warnings)
+}
+
+fn tool_agent_context() -> ToolText {
+    let names = platform_cache_root()
+        .ok()
+        .and_then(|root| profiles::profile_names(&root).ok())
+        .unwrap_or_default();
+    let structured = agent_context::agent_context(names, true);
+    ToolText::ok_structured(
+        serde_json::to_string_pretty(&structured).unwrap_or_else(|_| "{}".to_owned()),
+        structured,
+    )
+}
+
+fn tool_profile_list() -> ToolText {
+    match platform_cache_root().and_then(|root| {
+        let profiles = profiles::load_profiles(&root)?;
+        Ok(json!({"profiles": profiles, "total": profiles.len(), "path": profiles::profile_store_path(&root)}))
+    }) {
+        Ok(structured) => ToolText::ok_structured(
+            serde_json::to_string_pretty(&structured).unwrap_or_default(),
+            structured,
+        ),
+        Err(err) => ToolText::error(format!("Failed to list profiles: {err}")),
+    }
+}
+
+fn tool_profile_show(args: Value) -> ToolText {
+    let name = args.get("name").and_then(Value::as_str).unwrap_or_default();
+    match platform_cache_root().and_then(|root| {
+        let profile = profiles::get_profile(&root, name)?;
+        Ok(json!({"profile": profile, "path": profiles::profile_store_path(&root)}))
+    }) {
+        Ok(structured) => ToolText::ok_structured(
+            serde_json::to_string_pretty(&structured).unwrap_or_default(),
+            structured,
+        ),
+        Err(err) => ToolText::error(format!("Failed to show profile: {err}")),
+    }
+}
+
+fn tool_feedback_create(args: Value) -> ToolText {
+    let message = args
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let command_context = args
+        .get("command_context")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    match platform_cache_root().and_then(|root| {
+        feedback::create_feedback(&root, message, command_context).map(|entry| (root, entry))
+    }) {
+        Ok((root, entry)) => ToolText::ok_structured(
+            format!("Feedback recorded locally: {}", entry.id),
+            json!({"changed": true, "feedback": entry, "path": feedback::feedback_log_path(&root)}),
+        ),
+        Err(err) => ToolText::error(format!("Failed to record feedback: {err}")),
+    }
+}
+
+fn tool_feedback_list(args: Value) -> ToolText {
+    let limit = match parse_mcp_limit(&args, "limit", 20) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    match platform_cache_root().and_then(|root| {
+        let (entries, total) = feedback::list_feedback(&root, limit)?;
+        Ok(json!({
+            "feedback": entries,
+            "total": total,
+            "limit": limit,
+            "truncated": total > limit,
+            "path": feedback::feedback_log_path(&root),
+        }))
+    }) {
+        Ok(structured) => ToolText::ok_structured(
+            serde_json::to_string_pretty(&structured).unwrap_or_default(),
+            structured,
+        ),
+        Err(err) => ToolText::error(format!("Failed to list feedback: {err}")),
+    }
+}
+
 fn no_results_message() -> &'static str {
     NO_RESULTS_MESSAGE.trim()
 }
@@ -725,10 +906,10 @@ fn no_repo_message() -> &'static str {
 fn build_instructions(default_source: Option<&str>, ref_name: Option<&str>) -> String {
     let source_context = match default_source {
         Some(source) => format!(
-            "\n\nCurrent server context:\n- Default source: {source}\n- Git ref: {}\n- Repo selection policy: tool calls may omit `repo` to use the default source, or pass `repo` to search another local path or Git URL.\n- Long-lived sessions cache indexes in memory; call `refresh_index` after files change.",
+            "\n\nCurrent server context:\n- Default source: {source}\n- Git ref: {}\n- Source selection policy: tool calls may omit `source` to use the default source, pass `source` to search another local path or Git URL, or pass `profile` to use a saved profile.\n- Long-lived sessions cache indexes in memory; call `refresh_index` after files change.",
             ref_name.unwrap_or("none")
         ),
-        None => "\n\nCurrent server context:\n- No default source is configured. Tool calls must pass `repo` as a local path or Git URL.".to_owned(),
+        None => "\n\nCurrent server context:\n- No default source is configured. Tool calls must pass `source` as a local path or Git URL, or pass a saved `profile`.".to_owned(),
     };
     format!("{}{}", MCP_INSTRUCTIONS.trim(), source_context)
 }
@@ -739,6 +920,24 @@ fn resource_schemas() -> Vec<Value> {
             "uri": "sifs://server/context",
             "name": "SIFS server context",
             "description": "Default source, ref, cache keys, and available tools.",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "sifs://agent/context",
+            "name": "SIFS agent context",
+            "description": "Versioned CLI and MCP contract for agents.",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "sifs://profiles",
+            "name": "SIFS profiles",
+            "description": "Saved source and search profiles.",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "sifs://feedback",
+            "name": "SIFS feedback",
+            "description": "Local feedback entries recorded by agents.",
             "mimeType": "application/json"
         }),
         json!({
@@ -769,6 +968,31 @@ fn handle_resource_read(
         .unwrap_or_default();
     let payload = match uri {
         "sifs://server/context" => server_context_json(cache, default_source, ref_name),
+        "sifs://agent/context" => {
+            let names = platform_cache_root()
+                .ok()
+                .and_then(|root| profiles::profile_names(&root).ok())
+                .unwrap_or_default();
+            agent_context::agent_context(names, true)
+        }
+        "sifs://profiles" => {
+            match platform_cache_root().and_then(|root| {
+                let profiles = profiles::load_profiles(&root)?;
+                Ok(json!({"profiles": profiles, "path": profiles::profile_store_path(&root)}))
+            }) {
+                Ok(value) => value,
+                Err(err) => json!({"error": err.to_string()}),
+            }
+        }
+        "sifs://feedback" => {
+            match platform_cache_root().and_then(|root| {
+                let (entries, total) = feedback::list_feedback(&root, 20)?;
+                Ok(json!({"feedback": entries, "total": total, "limit": 20, "path": feedback::feedback_log_path(&root)}))
+            }) {
+                Ok(value) => value,
+                Err(err) => json!({"error": err.to_string()}),
+            }
+        }
         "sifs://index/status" => json!({
             "message": "Call the index_status tool to build or inspect the default index.",
             "default_source": default_source,
@@ -776,7 +1000,7 @@ fn handle_resource_read(
             "memory_cached": default_source.map(|source| cache.contains_source(source, ref_name)).unwrap_or(false),
         }),
         "sifs://index/files" => json!({
-            "message": "Call the list_indexed_files tool to build or inspect the default index file list.",
+            "message": "Call the list_files tool to build or inspect the default index file list.",
             "default_source": default_source,
             "ref": ref_name,
         }),
@@ -822,8 +1046,13 @@ fn tool_names() -> Vec<&'static str> {
         "index_status",
         "refresh_index",
         "clear_index",
-        "list_indexed_files",
+        "list_files",
         "get_chunk",
+        "agent_context",
+        "profile_list",
+        "profile_show",
+        "feedback_create",
+        "feedback_list",
         "init_agent",
     ]
 }
@@ -842,15 +1071,21 @@ fn format_languages(languages: &std::collections::BTreeMap<String, usize>) -> St
 fn tool_schemas() -> Vec<Value> {
     vec![
         json!({
+            "name": "agent_context",
+            "description": "Return the versioned SIFS CLI/MCP contract for agents.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }),
+        json!({
             "name": "search",
             "description": SEARCH_DESCRIPTION.trim(),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Natural language or code query."},
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path to index and search."},
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path to index and search."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source and search defaults."},
                     "mode": {"type": "string", "enum": ["hybrid", "semantic", "bm25"], "default": "hybrid", "description": "Use hybrid by default, bm25 for exact symbols/literals, and semantic for conceptual queries."},
-                    "top_k": {"type": "integer", "minimum": 1, "default": 5, "description": "Maximum number of ranked chunks to return."},
+                    "limit": {"type": "integer", "minimum": 1, "default": 5, "description": "Maximum number of ranked chunks to return."},
                     "alpha": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Optional hybrid semantic weight. Omit to let SIFS choose from query shape."},
                     "filter_languages": {"type": "array", "items": {"type": "string"}, "description": "Optional exact language labels to search, such as rust or typescript."},
                     "filter_paths": {"type": "array", "items": {"type": "string"}, "description": "Optional repository-relative file paths to search."}
@@ -866,8 +1101,9 @@ fn tool_schemas() -> Vec<Value> {
                 "properties": {
                     "file_path": {"type": "string", "description": "Repository-relative file path exactly as shown in a search result."},
                     "line": {"type": "integer", "minimum": 1, "description": "One-based line number inside the known chunk."},
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
-                    "top_k": {"type": "integer", "minimum": 1, "default": 5, "description": "Maximum number of related chunks to return."}
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
+                    "limit": {"type": "integer", "minimum": 1, "default": 5, "description": "Maximum number of related chunks to return."}
                 },
                 "required": ["file_path", "line"]
             }
@@ -878,7 +1114,8 @@ fn tool_schemas() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."}
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
                 }
             }
         }),
@@ -888,7 +1125,8 @@ fn tool_schemas() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."}
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
                 }
             }
         }),
@@ -898,17 +1136,19 @@ fn tool_schemas() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."}
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
                 }
             }
         }),
         json!({
-            "name": "list_indexed_files",
+            "name": "list_files",
             "description": "List repository-relative file paths included in the selected index.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
                     "limit": {"type": "integer", "minimum": 1, "default": 200, "description": "Maximum number of file paths to return."}
                 }
             }
@@ -919,11 +1159,46 @@ fn tool_schemas() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "file_path": {"type": "string", "description": "Repository-relative file path exactly as shown in a search result or list_indexed_files."},
+                    "file_path": {"type": "string", "description": "Repository-relative file path exactly as shown in a search result or list_files."},
                     "line": {"type": "integer", "minimum": 1, "description": "One-based line number inside the desired chunk."},
-                    "repo": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."}
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
                 },
                 "required": ["file_path", "line"]
+            }
+        }),
+        json!({
+            "name": "profile_list",
+            "description": "List saved SIFS profiles.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }),
+        json!({
+            "name": "profile_show",
+            "description": "Show one saved SIFS profile.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "name": "feedback_create",
+            "description": "Record local feedback about SIFS agent friction.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                    "command_context": {"type": ["string", "null"]}
+                },
+                "required": ["message"]
+            }
+        }),
+        json!({
+            "name": "feedback_list",
+            "description": "List local SIFS feedback entries.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "minimum": 1, "default": 20}}
             }
         }),
         json!({
@@ -1032,12 +1307,12 @@ mod tests {
     use std::io::{BufReader, Cursor};
 
     #[test]
-    fn default_source_allows_repo_override() {
-        let args = json!({"repo": "/other/repo"});
+    fn default_source_allows_source_override() {
+        let args = json!({"source": "/other/repo"});
 
         assert_eq!(
             selected_source(&args, Some("/default/repo")).unwrap(),
-            Some("/other/repo")
+            Some("/other/repo".to_owned())
         );
     }
 
@@ -1045,7 +1320,7 @@ mod tests {
     fn default_source_is_fallback_when_repo_is_omitted() {
         assert_eq!(
             selected_source(&json!({}), Some("/default/repo")).unwrap(),
-            Some("/default/repo")
+            Some("/default/repo".to_owned())
         );
     }
 
@@ -1125,10 +1400,10 @@ mod tests {
     }
 
     #[test]
-    fn default_source_allows_matching_repo() {
+    fn default_source_allows_matching_source() {
         assert_eq!(
-            selected_source(&json!({"repo": "/default/repo"}), Some("/default/repo")).unwrap(),
-            Some("/default/repo")
+            selected_source(&json!({"source": "/default/repo"}), Some("/default/repo")).unwrap(),
+            Some("/default/repo".to_owned())
         );
     }
 
@@ -1138,18 +1413,24 @@ mod tests {
         let default = temp.path().to_string_lossy().to_string();
         let requested = temp.path().join(".").to_string_lossy().to_string();
         assert_eq!(
-            selected_source(&json!({"repo": requested}), Some(&default)).unwrap(),
-            Some(requested.as_str())
+            selected_source(&json!({"source": requested}), Some(&default)).unwrap(),
+            Some(requested)
         );
     }
 
     #[test]
-    fn missing_default_uses_requested_repo() {
+    fn missing_default_uses_requested_source() {
         assert_eq!(
-            selected_source(&json!({"repo": "/requested/repo"}), None).unwrap(),
-            Some("/requested/repo")
+            selected_source(&json!({"source": "/requested/repo"}), None).unwrap(),
+            Some("/requested/repo".to_owned())
         );
         assert_eq!(selected_source(&json!({}), None).unwrap(), None);
+    }
+
+    #[test]
+    fn repo_argument_is_rejected_in_favor_of_source() {
+        let error = selected_source(&json!({"repo": "/requested/repo"}), None).unwrap_err();
+        assert!(error.contains("use source instead"));
     }
 
     #[test]
@@ -1190,8 +1471,11 @@ mod tests {
         assert!(names.contains(&"index_status"));
         assert!(names.contains(&"refresh_index"));
         assert!(names.contains(&"clear_index"));
-        assert!(names.contains(&"list_indexed_files"));
+        assert!(names.contains(&"list_files"));
         assert!(names.contains(&"get_chunk"));
+        assert!(names.contains(&"agent_context"));
+        assert!(names.contains(&"profile_list"));
+        assert!(names.contains(&"feedback_create"));
         assert!(names.contains(&"init_agent"));
 
         let search = schemas
@@ -1200,6 +1484,8 @@ mod tests {
             .unwrap();
         let props = &search["inputSchema"]["properties"];
         assert!(props.get("alpha").is_some());
+        assert!(props.get("source").is_some());
+        assert!(props.get("limit").is_some());
         assert!(props.get("filter_languages").is_some());
         assert!(props.get("filter_paths").is_some());
     }

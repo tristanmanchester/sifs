@@ -8,20 +8,30 @@ Use `sifs search` to find code by describing what it does or by naming a symbol
 or identifier:
 
 ```bash
-sifs search "authentication flow" ./my-project
-sifs search "save_pretrained" ./my-project
-sifs search "save model to disk" ./my-project --top-k 10
-sifs search "auth flow" ./my-project --mode semantic --encoder hashing
+sifs agent-context --json
+sifs search "authentication flow" --source ./my-project
+sifs search "save_pretrained" --source ./my-project
+sifs search "save model to disk" --source ./my-project --limit 10
+sifs search "auth flow" --source ./my-project --mode semantic --encoder hashing
 ```
 
 Use `sifs find-related` to discover code similar to a known location. Pass
 `file_path` and `line` from a prior search result.
 
 ```bash
-sifs find-related src/auth.py 42 ./my-project
+sifs find-related src/auth.py 42 --source ./my-project
 ```
 
-`path` defaults to the current directory when omitted; git URLs are accepted.
+`--source` defaults to the current directory when omitted; Git URLs are accepted.
+Use `--filter-path` for repository-relative file filters and `--limit` for
+result bounds.
+
+For repeated work, save a profile:
+
+```bash
+sifs profile save current --source ./my-project --mode bm25 --offline --json
+sifs search "startup handshake" --profile current --json
+```
 
 If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 
@@ -29,6 +39,9 @@ If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 
 - Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.
 - Discover related code from a known file and line.
+- Discover the CLI/MCP contract with `sifs agent-context --json`.
+- Save reusable source/search defaults with `sifs profile`.
+- Record local feedback with `sifs feedback create`.
 - Inspect index status, indexed files, and chunk coverage when using the MCP server.
 - Refresh the MCP index after files change in a long-running agent session.
 - Install this generated agent file through `sifs init` or the MCP `init_agent` tool.

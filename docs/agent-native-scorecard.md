@@ -1,63 +1,44 @@
 # Agent-native scorecard
 
-This scorecard defines SIFS' agent-native contract and the evidence used to
-evaluate it. SIFS is a deterministic code search engine with an agent-facing MCP
-workspace. The agent-native surface is the CLI, MCP server, generated agent
-file, and documented Rust API. Low-level search internals such as BM25 postings,
-dense vectors, cache signatures, and chunking heuristics are implementation
-details, not user-editable workspace entities.
-
-## Scoring scope
-
-First-class agent-facing entities:
-
-- Source: a local path or Git URL selected for search.
-- Index: the searchable representation for a source.
-- Chunk: an indexed code/document span.
-- Search request: query plus ranking options and filters.
-- Search result: structured chunk match returned to the agent.
-- Agent file: `.claude/agents/sifs-search.md`.
-- Benchmark run: a CLI evaluation job and output artifact.
-- Embedding diagnostic: a CLI text-to-vector check.
-
-Implementation-only internals:
-
-- `Bm25Index`, `DenseIndex`, `FileSignature`, search caches, ranking constants,
-  tokenizer/model tensors, JSON-RPC framing, and Tree-sitter chunk mechanics.
-
-These internals are intentionally code-defined because they require deterministic
-behavior, precise tests, and stable performance. They are not counted as CRUD or
-prompt-native feature entities.
+This scorecard evaluates SIFS against Trevin Chow's 2026 "10 Principles for
+Agent-Native CLIs". SIFS' agent-facing surface is the CLI, MCP server,
+generated agent guidance, structured diagnostics, profiles, and local feedback
+log. Search ranking internals remain deterministic code-defined engine details.
 
 ## Score summary
 
-| Core Principle | Score | Percentage | Status | Evidence |
-|----------------|-------|------------|--------|----------|
-| Action Parity | 33/33 | 100% | Complete | CLI/library actions are shell- or Rust-composable; MCP covers core search, index inspection, refresh, chunk read, and agent-file creation. |
-| Tools as Primitives | 8/8 | 100% | Complete | MCP tools expose primitive capabilities: search, related lookup, status, refresh, clear, file list, chunk read, and agent install. |
-| Context Injection | 10/10 | 100% | Complete | Dynamic instructions, MCP resources, index status, indexed file inventory, structured results, default source/ref, cache keys, capabilities, and prompt/spec guidance are exposed. |
-| Shared Workspace | 10/10 | 100% | Complete | Local paths share the same source tree while persistent caches default to platform cache directories; project-local `.sifs` is explicit opt-in; MCP refresh/clear handles long-running sessions; Git URL isolation is explicit. |
-| CRUD Completeness | 8/8 | 100% | Complete | Each first-class agent-facing entity has create/read/update/delete or a documented non-mutating equivalent. |
-| UI Integration | 10/10 | 100% | Complete | CLI/MCP actions return visible output, structured content, status, refresh feedback, benchmark progress, and output-write confirmation. |
-| Capability Discovery | 7/7 | 100% | Complete | README/docs, CLI help, `sifs capabilities`, MCP `tools/list`, MCP resources, generated agent capabilities, and empty-state guidance are present. |
-| Prompt-Native Features | 8/8 | 100% | Complete | Agent-facing behavior lives in prompt/spec docs; deterministic engine mechanics remain code-defined by design. |
+| Principle | Status | Evidence |
+|-----------|--------|----------|
+| 1. Non-interactive by default | Complete | `--no-input` is global, commands do not prompt, and mutation bypass uses `--force` rather than interactive confirmation. |
+| 2. Structured, parseable output | Complete | Core, diagnostic, setup, cache/model, daemon, profile, feedback, and dry-run surfaces expose `--json`; JSONL is limited to result streams. |
+| 3. Errors that teach and enumerate | Complete | CLI enum parsing comes from Clap and MCP search mode/limit parsing rejects invalid values instead of silently defaulting. |
+| 4. Safe retries and mutation boundaries | Complete | Cache/project clean, profile delete, init/install replacement, and daemon install flows use explicit `--dry-run` and/or `--force` contracts. |
+| 5. Bounded responses | Complete | Search and file-list payloads include `limit`, `truncated`, warnings, and narrowing hints. |
+| 6. Cross-CLI vocabulary consistency | Complete | Canonical vocabulary uses `source`, `filter-path`, `limit`, `list-files`, `get`, `status`, `--json`, `--force`, and `--dry-run`. |
+| 7. Three-layer introspection | Complete | Human help, `sifs agent-context --json`, MCP `agent_context`, resources, and generated agent guidance cover the three layers. |
+| 8. Async-aware execution | Partial by design | SIFS remains mostly synchronous; timeout/non-interactive behavior is implemented, while a durable jobs ledger is deferred until real job-shaped work exists. |
+| 9. Persistent identity through profiles | Complete | `sifs profile` saves reusable source/search/model/cache defaults and exposes them through `agent-context` and MCP profile tools. |
+| 10. Two-way I/O | Partial | Local-first `sifs feedback` and MCP feedback tools exist. Hosted/upstream feedback delivery is intentionally deferred. |
 
-## CRUD completeness
+## Agent-facing entities
 
-| Entity | Create | Read | Update | Delete / Clear |
-|--------|--------|------|--------|----------------|
-| Source | CLI/MCP `repo` or default source | `index_status` | server restart/config update | `clear_index` removes source from memory cache |
-| Index | implicit first search/status build | `index_status` | `refresh_index` | `clear_index` |
-| Chunk | created by indexing | `get_chunk`, `search`, `find_related` | `refresh_index` from source changes | `clear_index` or source deletion followed by refresh |
-| Search request | `search` tool/CLI invocation | structured response metadata | rerun with changed options | no persisted request state |
-| Search result | produced by `search`/`find_related` | structured content and text output | rerun with changed source/options | no persisted result state |
-| Agent file | `sifs init`, MCP `init_agent` | filesystem/shared workspace | `--force` or `force=true` | filesystem/shared workspace |
-| Benchmark run | `sifs-benchmark` CLI | stdout or output JSON | rerun with changed flags | remove output artifact |
-| Embedding diagnostic | `sifs-embed` CLI | stdout JSON vector | rerun with changed text/model | no persisted state |
+- Source: a local path or Git URL selected with `--source`, MCP `source`, or a
+  profile.
+- Profile: a saved source/search/model/cache context for repeated invocations.
+- Index: the searchable representation for a source.
+- Chunk: an indexed code/document span.
+- Search request: query plus mode, limit, filters, and profile/source context.
+- Search result: structured chunk match returned to CLI or MCP callers.
+- Feedback entry: local JSONL record of agent friction.
+- Agent file: `.claude/agents/sifs-search.md`.
 
-Search requests, search results, benchmark runs, and embedding diagnostics are
-events rather than stored records. Their delete operation is therefore "no
-persisted state" or deletion of the explicitly written artifact.
+## Canonical discovery surfaces
+
+- Human help: `sifs --help` and subcommand help.
+- Structured context: `sifs agent-context --json`.
+- MCP context: `agent_context`, `sifs://agent/context`, `tools/list`, and
+  `resources/list`.
+- Workflow guidance: `src/agents/sifs-search.md` and MCP instructions.
 
 ## Prompt-native boundary
 
@@ -77,17 +58,13 @@ Code-defined engine mechanics:
 - BM25, dense search, hybrid ranking, and reranking.
 - Cache validation and JSON-RPC framing.
 
-Prompt/spec files define outcomes and agent behavior. Rust code preserves
-deterministic retrieval mechanics.
-
 ## Verification commands
 
 Run these before claiming this scorecard is current:
 
 ```bash
 cargo test
-cargo run --bin sifs -- --help
-cargo run --bin sifs -- search --help
-cargo run --bin sifs -- find-related --help
-cargo run --bin sifs -- capabilities
+cargo run --bin sifs -- agent-context --json
+cargo run --bin sifs -- search "agent context" --source . --mode bm25 --json
+cargo run --bin sifs -- mcp doctor --source . --offline --no-cache --json
 ```

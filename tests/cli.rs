@@ -71,7 +71,7 @@ fn mcp_help_documents_server_options() {
     assert!(stdout.contains("--model"));
     assert!(stdout.contains("--offline"));
     assert!(stdout.contains("--no-download"));
-    assert!(stdout.contains("[PATH]"));
+    assert!(stdout.contains("--source"));
 }
 
 #[test]
@@ -157,6 +157,7 @@ fn search_uses_running_daemon_and_populates_status() {
         .args([
             "search",
             "token validation",
+            "--source",
             repo.path().to_str().unwrap(),
             "--mode",
             "bm25",
@@ -333,6 +334,7 @@ fn mcp_doctor_reports_handshake_smoke_separately_from_search() {
         .args([
             "mcp",
             "doctor",
+            "--source",
             dir.path().to_str().unwrap(),
             "--offline",
             "--no-cache",
@@ -360,6 +362,7 @@ fn search_json_is_structured() {
         .args([
             "search",
             "token validation",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "bm25",
@@ -382,12 +385,141 @@ fn search_json_is_structured() {
 }
 
 #[test]
+fn agent_context_json_describes_agent_native_contract() {
+    let output = sifs().args(["agent-context", "--json"]).output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["schema_version"], "1");
+    assert_eq!(value["cli"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(value["commands"]["search"]["flags"]["--source"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--limit"].is_object());
+    assert!(value["commands"]["list-files"].is_object());
+    assert!(
+        value["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "list_files")
+    );
+}
+
+#[test]
+fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
+    let dir = fixture();
+    let home = tempfile::tempdir().unwrap();
+
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "agent-test",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--limit",
+            "3",
+            "--offline",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+    let saved: Value = serde_json::from_slice(&save.stdout).unwrap();
+    assert_eq!(saved["profile"]["name"], "agent-test");
+    assert_eq!(saved["changed"], true);
+
+    let list = sifs()
+        .args(["profile", "list", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        list.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    let listed: Value = serde_json::from_slice(&list.stdout).unwrap();
+    assert_eq!(listed["profiles"][0]["name"], "agent-test");
+
+    let search = sifs()
+        .args([
+            "search",
+            "token validation",
+            "--profile",
+            "agent-test",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
+    assert_eq!(searched["source"], dir.path().to_str().unwrap());
+    assert_eq!(searched["mode"], "bm25");
+    assert_eq!(searched["limit"], 3);
+
+    let feedback = sifs()
+        .args([
+            "feedback",
+            "create",
+            "invalid mode error was useful",
+            "--command-context",
+            "search",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        feedback.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&feedback.stderr)
+    );
+    let created: Value = serde_json::from_slice(&feedback.stdout).unwrap();
+    assert_eq!(created["changed"], true);
+    assert_eq!(
+        created["feedback"]["message"],
+        "invalid mode error was useful"
+    );
+
+    let feedback_list = sifs()
+        .args(["feedback", "list", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        feedback_list.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&feedback_list.stderr)
+    );
+    let entries: Value = serde_json::from_slice(&feedback_list.stdout).unwrap();
+    assert_eq!(entries["total"], 1);
+    assert_eq!(entries["feedback"][0]["command_context"], "search");
+}
+
+#[test]
 fn search_jsonl_is_parseable_without_markdown() {
     let dir = fixture();
     let output = sifs()
         .args([
             "search",
             "token validation",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "bm25",
@@ -420,12 +552,13 @@ fn search_filters_by_language_and_path() {
         .args([
             "search",
             "token",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "bm25",
             "--language",
             "rust",
-            "--path",
+            "--filter-path",
             "src/lib.rs",
             "--json",
         ])
@@ -455,6 +588,7 @@ fn find_related_json_is_structured() {
             "find-related",
             "src/lib.rs",
             "1",
+            "--source",
             dir.path().to_str().unwrap(),
             "--json",
         ])
@@ -477,7 +611,13 @@ fn files_status_and_get_work_against_fixture() {
     let dir = fixture();
 
     let files = sifs()
-        .args(["files", dir.path().to_str().unwrap(), "--format", "compact"])
+        .args([
+            "list-files",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--format",
+            "compact",
+        ])
         .output()
         .unwrap();
     assert!(
@@ -489,7 +629,7 @@ fn files_status_and_get_work_against_fixture() {
     assert!(files_stdout.contains("src/lib.rs"));
 
     let status = sifs()
-        .args(["status", dir.path().to_str().unwrap(), "--json"])
+        .args(["status", "--source", dir.path().to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     assert!(
@@ -510,6 +650,7 @@ fn files_status_and_get_work_against_fixture() {
             "get",
             "src/lib.rs",
             "1",
+            "--source",
             dir.path().to_str().unwrap(),
             "--json",
         ])
@@ -531,6 +672,7 @@ fn json_and_jsonl_conflict() {
         .args([
             "search",
             "token",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "bm25",

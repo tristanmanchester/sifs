@@ -23,6 +23,7 @@ fn run_mcp(input: &[u8]) -> Output {
     let mut child = sifs()
         .args([
             "mcp",
+            "--source",
             dir.path().to_str().unwrap(),
             "--offline",
             "--no-cache",
@@ -218,15 +219,15 @@ fn unknown_method_returns_structured_result_without_corrupting_transport() {
 }
 
 #[test]
-fn empty_repo_argument_is_rejected_instead_of_indexing_cwd() {
+fn empty_source_argument_is_rejected_instead_of_indexing_cwd() {
     let input = json!({
         "jsonrpc": "2.0",
         "id": 7,
-        "method": "tools/call",
-        "params": {
-            "name": "index_status",
-            "arguments": {"repo": ""}
-        }
+            "method": "tools/call",
+            "params": {
+                "name": "index_status",
+                "arguments": {"source": ""}
+            }
     })
     .to_string()
         + "\n";
@@ -246,6 +247,39 @@ fn empty_repo_argument_is_rejected_instead_of_indexing_cwd() {
         response["result"]["content"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("repo must not be empty")
+            .contains("source must not be empty")
     );
+}
+
+#[test]
+fn invalid_search_mode_returns_actionable_tool_error() {
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {
+                "query": "token validation",
+                "mode": "lexical"
+            }
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp(input.as_bytes());
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 8);
+    assert_eq!(response["result"]["isError"], true);
+    let text = response["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("mode must be one of: hybrid, semantic, bm25"));
+    assert!(text.contains("lexical"));
 }

@@ -1,11 +1,14 @@
+pub mod agent_context;
 pub mod chunker;
 pub mod daemon;
 pub mod dense;
+pub mod feedback;
 pub mod file_walker;
 pub mod index;
 pub mod mcp;
 pub mod metrics;
 pub mod model2vec;
+pub mod profiles;
 pub mod ranking;
 pub mod search;
 pub mod sparse;

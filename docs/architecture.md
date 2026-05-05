@@ -137,7 +137,7 @@ caches still survive according to the selected cache mode.
 
 The stdio MCP server can be installed without a pinned source. In that mode it
 defaults to the server process working directory and still accepts explicit
-`repo` arguments for local paths or Git URLs. The recommended long-lived setup
+`source` arguments for local paths or Git URLs. The recommended long-lived setup
 on macOS is:
 
 ```bash

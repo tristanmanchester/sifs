@@ -624,8 +624,7 @@ fn boost_path_intent<S: BuildHasher>(
             {
                 additive += max_score * 6.0;
             }
-            if lowered.contains("column definition")
-                && path_ends_with_ci(&path, "/core/column.kt/")
+            if lowered.contains("column definition") && path_ends_with_ci(&path, "/core/column.kt/")
             {
                 additive += max_score * 6.0;
             }
@@ -725,8 +724,7 @@ fn boost_path_intent<S: BuildHasher>(
             {
                 additive += max_score * 6.0;
             }
-            if lowered.contains("function composition")
-                && path_ends_with_ci(&path, "/compose.ts/")
+            if lowered.contains("function composition") && path_ends_with_ci(&path, "/compose.ts/")
             {
                 additive += max_score * 6.0;
             }
@@ -779,7 +777,8 @@ fn boost_path_intent<S: BuildHasher>(
             {
                 additive += max_score * 6.0;
             }
-            if lowered.contains("debug descriptions") && path_ends_with_ci(&path, "/debugging.swift/")
+            if lowered.contains("debug descriptions")
+                && path_ends_with_ci(&path, "/debugging.swift/")
             {
                 additive += max_score * 6.0;
             }
@@ -794,7 +793,8 @@ fn boost_path_intent<S: BuildHasher>(
             {
                 additive += max_score * 6.0;
             }
-            if lowered.contains("huggingface hub") && path_ends_with_ci(&path, "/persistence/hf.py/")
+            if lowered.contains("huggingface hub")
+                && path_ends_with_ci(&path, "/persistence/hf.py/")
             {
                 additive += max_score * 6.0;
             }
@@ -1455,7 +1455,13 @@ mod tests {
         ];
         let mut scores = HashMap::from([(0usize, 1.0), (1usize, 1.0), (2usize, 1.0)]);
 
-        boost_path_intent(&mut scores, "core Zod v4 schema behavior", 1.0, &chunks, None);
+        boost_path_intent(
+            &mut scores,
+            "core Zod v4 schema behavior",
+            1.0,
+            &chunks,
+            None,
+        );
 
         assert!(scores[&1] > scores[&2]);
         assert!(scores[&2] > scores[&0]);

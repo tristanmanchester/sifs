@@ -333,6 +333,7 @@ fn cli_bm25_offline_succeeds_without_model() {
         .args([
             "search",
             "authenticate_token",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "bm25",
@@ -364,6 +365,7 @@ fn cli_semantic_offline_missing_model_fails_helpfully() {
         .args([
             "search",
             "authentication",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "semantic",
@@ -391,6 +393,7 @@ fn cli_hashing_encoder_supports_semantic_without_model() {
         .args([
             "search",
             "authentication",
+            "--source",
             dir.path().to_str().unwrap(),
             "--mode",
             "semantic",
@@ -415,6 +418,7 @@ fn cli_doctor_reports_hashing_readiness() {
     let output = Command::new(env!("CARGO_BIN_EXE_sifs"))
         .args([
             "doctor",
+            "--source",
             dir.path().to_str().unwrap(),
             "--encoder",
             "hashing",

@@ -10,6 +10,7 @@ use sifs::{
     SearchOptions, SearchResult, SifsIndex, cache_summary, format_results, is_git_url,
     load_model_with_options, model_status, platform_cache_root, resolve_chunk,
 };
+use sifs::{agent_context, feedback, profiles};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,19 @@ use std::time::{Duration, Instant};
     about = "SIFS Is Fast Search: instant local code search for agents."
 )]
 struct Cli {
+    #[arg(
+        long,
+        global = true,
+        help = "Assert non-interactive execution; SIFS never prompts and closes child stdin where applicable."
+    )]
+    no_input: bool,
+    #[arg(
+        long,
+        global = true,
+        default_value_t = 30,
+        help = "Timeout in seconds for daemon, MCP probe, and external client operations."
+    )]
+    timeout: u64,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -34,27 +48,30 @@ enum Command {
     Search {
         #[arg(help = "Natural-language, code, symbol, or literal query to search for.")]
         query: String,
-        #[arg(
-            default_value = ".",
-            help = "Local directory or Git URL to index and search."
-        )]
-        path: String,
+        #[arg(long, help = "Local directory or Git URL to index and search.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source and search defaults.")]
+        profile: Option<String>,
         #[arg(
             short = 'k',
-            long = "top-k",
-            default_value_t = 5,
+            long = "limit",
             help = "Maximum number of ranked chunks to print."
         )]
-        top_k: usize,
-        #[arg(short = 'm', long = "mode", value_enum, default_value_t = ModeArg::Hybrid, help = "Ranking mode: hybrid for most searches, bm25 for exact symbols, semantic for conceptual queries.")]
-        mode: ModeArg,
+        limit: Option<usize>,
+        #[arg(
+            short = 'm',
+            long = "mode",
+            value_enum,
+            help = "Ranking mode: hybrid for most searches, bm25 for exact symbols, semantic for conceptual queries."
+        )]
+        mode: Option<ModeArg>,
         #[arg(
             long = "language",
             help = "Only search chunks with this language label. Repeatable."
         )]
         languages: Vec<String>,
         #[arg(
-            long = "path",
+            long = "filter-path",
             help = "Only search this repository-relative file path. Repeatable."
         )]
         filter_paths: Vec<String>,
@@ -92,18 +109,16 @@ enum Command {
         file_path: String,
         #[arg(help = "One-based line number inside the source chunk.")]
         line: usize,
-        #[arg(
-            default_value = ".",
-            help = "Local directory or Git URL to index and search."
-        )]
-        path: String,
+        #[arg(long, help = "Local directory or Git URL to index and search.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source and search defaults.")]
+        profile: Option<String>,
         #[arg(
             short = 'k',
-            long = "top-k",
-            default_value_t = 5,
+            long = "limit",
             help = "Maximum number of related chunks to print."
         )]
-        top_k: usize,
+        limit: Option<usize>,
         #[command(flatten)]
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -125,8 +140,10 @@ enum Command {
     Mcp {
         #[command(subcommand)]
         command: Option<McpCommand>,
-        #[arg(help = "Local directory or git URL to pre-index.")]
-        path: Option<String>,
+        #[arg(long, help = "Default local directory or Git URL exposed through MCP.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for MCP defaults.")]
+        profile: Option<String>,
         #[arg(long = "ref", help = "Branch or tag to check out for a Git URL.")]
         ref_name: Option<String>,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -148,18 +165,13 @@ enum Command {
         command: DaemonCommand,
     },
     #[command(about = "List repository-relative file paths included in the index.")]
-    Files {
-        #[arg(
-            default_value = ".",
-            help = "Local directory or Git URL to index and inspect."
-        )]
-        path: String,
-        #[arg(
-            long,
-            default_value_t = 200,
-            help = "Maximum number of file paths to print."
-        )]
-        limit: usize,
+    ListFiles {
+        #[arg(long, help = "Local directory or Git URL to index and inspect.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source defaults.")]
+        profile: Option<String>,
+        #[arg(long, help = "Maximum number of file paths to print.")]
+        limit: Option<usize>,
         #[command(flatten)]
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -171,11 +183,10 @@ enum Command {
     },
     #[command(about = "Print index status for a local directory or Git URL.")]
     Status {
-        #[arg(
-            default_value = ".",
-            help = "Local directory or Git URL to index and inspect."
-        )]
-        path: String,
+        #[arg(long, help = "Local directory or Git URL to index and inspect.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source defaults.")]
+        profile: Option<String>,
         #[arg(long, help = "Print structured JSON output.")]
         json: bool,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -191,11 +202,10 @@ enum Command {
         file_path: String,
         #[arg(help = "One-based line number inside the source chunk.")]
         line: usize,
-        #[arg(
-            default_value = ".",
-            help = "Local directory or Git URL to index and inspect."
-        )]
-        path: String,
+        #[arg(long, help = "Local directory or Git URL to index and inspect.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source defaults.")]
+        profile: Option<String>,
         #[command(flatten)]
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -207,11 +217,14 @@ enum Command {
     },
     #[command(about = "Remove SIFS cache artifacts from a local directory.")]
     Clean {
-        #[arg(
-            default_value = ".",
-            help = "Local directory whose .sifs cache should be removed."
-        )]
-        path: String,
+        #[arg(long, help = "Local directory whose .sifs cache should be removed.")]
+        source: Option<String>,
+        #[arg(long, help = "Preview removal without changing files.")]
+        dry_run: bool,
+        #[arg(long, help = "Required to remove a project-local .sifs cache.")]
+        force: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
     },
     #[command(about = "Inspect or clean SIFS persistent index caches.")]
     Cache {
@@ -224,11 +237,10 @@ enum Command {
         model: Option<String>,
         #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec)]
         encoder: EncoderArg,
-        #[arg(
-            default_value = ".",
-            help = "Local directory to inspect for cache readiness."
-        )]
-        path: String,
+        #[arg(long, help = "Local directory to inspect for cache readiness.")]
+        source: Option<String>,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
         #[arg(long, help = "Disable model downloads and remote Git sources.")]
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
@@ -243,9 +255,29 @@ enum Command {
     Init {
         #[arg(long, help = "Overwrite an existing generated agent file.")]
         force: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
     },
     #[command(about = "Print SIFS agent, CLI, and MCP capabilities.")]
-    Capabilities,
+    Capabilities {
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
+    #[command(about = "Print the machine-readable SIFS agent-native contract.")]
+    AgentContext {
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
+    #[command(about = "Manage persistent SIFS profiles.")]
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
+    #[command(about = "Record and list local agent feedback.")]
+    Feedback {
+        #[command(subcommand)]
+        command: FeedbackCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -285,14 +317,15 @@ enum McpCommand {
             help = "Print commands and config without changing client state."
         )]
         dry_run: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
     },
     #[command(about = "Inspect local MCP install readiness.")]
     Doctor {
-        #[arg(
-            default_value = ".",
-            help = "Local directory or Git URL the MCP server would expose."
-        )]
-        source: String,
+        #[arg(long, help = "Local directory or Git URL the MCP server would expose.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source defaults.")]
+        profile: Option<String>,
         #[arg(
             long = "ref",
             help = "Branch or tag to check out for a Git URL source."
@@ -308,6 +341,8 @@ enum McpCommand {
         no_cache: bool,
         #[arg(long, help = "Use a project-local .sifs cache.")]
         project_cache: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
     },
 }
 
@@ -322,7 +357,10 @@ enum DaemonCommand {
         replace_existing_socket: bool,
     },
     #[command(about = "Ping the running SIFS daemon.")]
-    Ping,
+    Ping {
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
+    },
     #[command(about = "Print daemon process and cached-index status.")]
     Status {
         #[arg(long, help = "Print structured JSON output.")]
@@ -334,11 +372,15 @@ enum DaemonCommand {
         dry_run: bool,
         #[arg(long, help = "Replace an existing SIFS LaunchAgent plist.")]
         force: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
     },
     #[command(about = "Remove the macOS LaunchAgent for the SIFS daemon.")]
     UninstallAgent {
         #[arg(long, help = "Print what would be removed without changing files.")]
         dry_run: bool,
+        #[arg(long, help = "Print structured JSON output.")]
+        json: bool,
     },
 }
 
@@ -348,11 +390,15 @@ enum ModelCommand {
     Pull {
         #[arg(long)]
         model: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
     #[command(about = "Alias for `pull`: download or validate the embedding model.")]
     Fetch {
         #[arg(long)]
         model: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
     #[command(about = "Report whether the embedding model is available locally.")]
     Status {
@@ -378,6 +424,80 @@ enum CacheCommand {
         cache_dir: Option<PathBuf>,
         #[arg(long)]
         dry_run: bool,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommand {
+    #[command(about = "Save a persistent SIFS profile.")]
+    Save {
+        name: String,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long = "ref")]
+        ref_name: Option<String>,
+        #[arg(long, value_enum)]
+        mode: Option<ModeArg>,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, value_enum)]
+        encoder: Option<EncoderArg>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        offline: bool,
+        #[arg(long = "no-download")]
+        no_download: bool,
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+        #[arg(long)]
+        no_cache: bool,
+        #[arg(long)]
+        project_cache: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List saved profiles.")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Show one saved profile.")]
+    Show {
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Delete one saved profile.")]
+    Delete {
+        name: String,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum FeedbackCommand {
+    #[command(about = "Record local feedback for SIFS maintainers.")]
+    Create {
+        message: String,
+        #[arg(long)]
+        command_context: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List local feedback entries.")]
+    List {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -437,11 +557,14 @@ impl From<ModeArg> for SearchMode {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let timeout = Duration::from_secs(cli.timeout);
+    let _no_input = cli.no_input;
     match cli.command {
         Some(Command::Search {
             query,
-            path,
-            top_k,
+            source,
+            profile,
+            limit,
             mode,
             languages,
             filter_paths,
@@ -455,27 +578,41 @@ fn main() -> Result<()> {
             cache_dir,
             no_cache,
             project_cache,
-        }) => run_search(SearchCommand {
-            query,
-            path,
-            top_k,
-            mode: SearchMode::from(mode),
-            languages,
-            filter_paths,
-            context_lines,
-            explain,
-            output,
-            model,
-            encoder,
-            offline,
-            no_download,
-            cache: cache_config(cache_dir, no_cache, project_cache),
-        })?,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                mode,
+                limit,
+                model,
+                encoder,
+                offline,
+                no_download,
+                cache_config(cache_dir, no_cache, project_cache),
+            )?;
+            run_search(SearchCommand {
+                query,
+                source: resolved.source,
+                limit: resolved.limit,
+                mode: resolved.mode,
+                languages,
+                filter_paths,
+                context_lines,
+                explain,
+                output,
+                model: resolved.model,
+                encoder: resolved.encoder,
+                offline: resolved.offline,
+                no_download: resolved.no_download,
+                cache: resolved.cache,
+            })?
+        }
         Some(Command::FindRelated {
             file_path,
             line,
-            path,
-            top_k,
+            source,
+            profile,
+            limit,
             output,
             model,
             encoder,
@@ -485,22 +622,33 @@ fn main() -> Result<()> {
             no_cache,
             project_cache,
         }) => {
-            if let Some(result) = try_daemon_find_related(
-                &path,
-                &file_path,
-                line,
-                top_k,
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                None,
+                limit,
+                model,
                 encoder,
-                model.as_deref(),
                 offline,
                 no_download,
-                cache_config(cache_dir.clone(), no_cache, project_cache),
+                cache_config(cache_dir, no_cache, project_cache),
+            )?;
+            if let Some(result) = try_daemon_find_related(
+                &resolved.source,
+                &file_path,
+                line,
+                resolved.limit,
+                resolved.encoder,
+                resolved.model.as_deref(),
+                resolved.offline,
+                resolved.no_download,
+                resolved.cache.clone(),
             )? {
                 print_find_related_output(
                     &result.source.source,
                     &file_path,
                     line,
-                    top_k,
+                    resolved.limit,
                     result.stats,
                     u128::from(result.elapsed_ms),
                     &result.results,
@@ -508,25 +656,25 @@ fn main() -> Result<()> {
                 )?;
                 return Ok(());
             }
-            let policy = model_policy(offline, no_download);
+            let policy = model_policy(resolved.offline, resolved.no_download);
             let started = Instant::now();
             let index = build_hybrid_index(
-                &path,
-                encoder_spec(encoder, model.as_deref(), policy),
-                cache_config(cache_dir, no_cache, project_cache),
-                offline,
+                &resolved.source,
+                encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+                resolved.cache,
+                resolved.offline,
             )?;
             let Some(chunk) = resolve_chunk(&index.chunks, &file_path, line) else {
                 eprintln!("No chunk found at {file_path}:{line}.");
                 std::process::exit(1);
             };
-            let results = index.find_related(&chunk, top_k)?;
+            let results = index.find_related(&chunk, resolved.limit)?;
             let elapsed_ms = started.elapsed().as_millis();
             print_find_related_output(
-                &path,
+                &resolved.source,
                 &file_path,
                 line,
-                top_k,
+                resolved.limit,
                 index.stats(),
                 elapsed_ms,
                 &results,
@@ -538,19 +686,22 @@ fn main() -> Result<()> {
         Some(Command::Doctor {
             model,
             encoder,
-            path,
+            source,
+            json,
             offline,
             no_download,
         }) => run_doctor(
-            &path,
+            source.as_deref().unwrap_or("."),
             encoder,
             model.as_deref(),
             model_policy(offline, no_download),
             offline,
+            json,
         )?,
         Some(Command::Mcp {
             command,
-            path,
+            source,
+            profile,
             ref_name,
             model,
             offline,
@@ -572,6 +723,7 @@ fn main() -> Result<()> {
                 project_cache,
                 force,
                 dry_run,
+                json,
             }) => run_mcp_install(McpInstallOptions {
                 client,
                 scope,
@@ -585,69 +737,154 @@ fn main() -> Result<()> {
                 project_cache,
                 force,
                 dry_run,
+                json,
             })?,
             Some(McpCommand::Doctor {
                 source,
+                profile,
                 ref_name,
                 offline,
                 no_download,
                 cache_dir,
                 no_cache,
                 project_cache,
+                json,
             }) => run_mcp_doctor(McpDoctorOptions {
                 source,
+                profile,
                 ref_name,
                 offline,
                 no_download,
                 cache_dir,
                 no_cache,
                 project_cache,
+                json,
+                timeout,
             })?,
             None => {
-                let policy = model_policy(offline, no_download);
-                if offline
-                    && let Some(path) = &path
-                    && is_git_url(path)
-                {
+                let resolved = resolve_invocation(
+                    profile.as_deref(),
+                    source,
+                    None,
+                    None,
+                    model,
+                    EncoderArg::Model2Vec,
+                    offline,
+                    no_download,
+                    cache_config(cache_dir, no_cache, project_cache),
+                )?;
+                let policy = model_policy(resolved.offline, resolved.no_download);
+                if offline && is_git_url(&resolved.source) {
                     bail!("--offline does not allow remote Git sources");
                 }
                 sifs::mcp::serve_with_options(
-                    path,
+                    Some(resolved.source),
                     ref_name,
-                    ModelOptions::new(model.as_deref(), policy),
-                    cache_config(cache_dir, no_cache, project_cache),
-                    offline,
+                    ModelOptions::new(resolved.model.as_deref(), policy),
+                    resolved.cache,
+                    resolved.offline,
                 )?;
             }
         },
-        Some(Command::Files {
-            path,
+        Some(Command::ListFiles {
+            source,
+            profile,
             limit,
             output,
             model,
             offline,
             no_download,
-        }) => run_files(&path, limit, output, model, offline, no_download)?,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                None,
+                None,
+                model,
+                EncoderArg::Model2Vec,
+                offline,
+                no_download,
+                CacheConfig::Platform,
+            )?;
+            run_files(
+                &resolved.source,
+                limit.unwrap_or(200),
+                output,
+                resolved.model,
+                resolved.offline,
+                resolved.no_download,
+            )?
+        }
         Some(Command::Status {
-            path,
+            source,
+            profile,
             json,
             model,
             offline,
             no_download,
-        }) => run_status(&path, json, model, offline, no_download)?,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                None,
+                None,
+                model,
+                EncoderArg::Model2Vec,
+                offline,
+                no_download,
+                CacheConfig::Platform,
+            )?;
+            run_status(
+                &resolved.source,
+                json,
+                resolved.model,
+                resolved.offline,
+                resolved.no_download,
+            )?
+        }
         Some(Command::Get {
             file_path,
             line,
-            path,
+            source,
+            profile,
             output,
             model,
             offline,
             no_download,
-        }) => run_get(&file_path, line, &path, output, model, offline, no_download)?,
-        Some(Command::Clean { path }) => run_clean(&path)?,
-        Some(Command::Init { force }) => run_init(force)?,
-        Some(Command::Capabilities) => print_capabilities(),
-        Some(Command::Daemon { command }) => run_daemon_command(command)?,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                None,
+                None,
+                model,
+                EncoderArg::Model2Vec,
+                offline,
+                no_download,
+                CacheConfig::Platform,
+            )?;
+            run_get(
+                &file_path,
+                line,
+                &resolved.source,
+                output,
+                resolved.model,
+                resolved.offline,
+                resolved.no_download,
+            )?
+        }
+        Some(Command::Clean {
+            source,
+            dry_run,
+            force,
+            json,
+        }) => run_clean(source.as_deref().unwrap_or("."), dry_run, force, json)?,
+        Some(Command::Init { force, json }) => run_init(force, json)?,
+        Some(Command::Capabilities { json }) => print_capabilities(json)?,
+        Some(Command::AgentContext { json }) => print_agent_context(json)?,
+        Some(Command::Profile { command }) => run_profile(command)?,
+        Some(Command::Feedback { command }) => run_feedback(command)?,
+        Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
         None => {
             Cli::command().print_help()?;
             println!();
@@ -658,8 +895,8 @@ fn main() -> Result<()> {
 
 struct SearchCommand {
     query: String,
-    path: String,
-    top_k: usize,
+    source: String,
+    limit: usize,
     mode: SearchMode,
     languages: Vec<String>,
     filter_paths: Vec<String>,
@@ -673,13 +910,104 @@ struct SearchCommand {
     cache: CacheConfig,
 }
 
+struct ResolvedInvocation {
+    source: String,
+    mode: SearchMode,
+    limit: usize,
+    model: Option<String>,
+    encoder: EncoderArg,
+    offline: bool,
+    no_download: bool,
+    cache: CacheConfig,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_invocation(
+    profile_name: Option<&str>,
+    source: Option<String>,
+    mode: Option<ModeArg>,
+    limit: Option<usize>,
+    model: Option<String>,
+    encoder: EncoderArg,
+    offline: bool,
+    no_download: bool,
+    cache: CacheConfig,
+) -> Result<ResolvedInvocation> {
+    let profile = match profile_name {
+        Some(name) => Some(profiles::get_profile(&platform_cache_root()?, name)?),
+        None => None,
+    };
+    let source = source
+        .or_else(|| std::env::var("SIFS_SOURCE").ok())
+        .or_else(|| profile.as_ref().and_then(|profile| profile.source.clone()))
+        .unwrap_or_else(|| ".".to_owned());
+    let mode = mode
+        .map(SearchMode::from)
+        .or_else(|| profile.as_ref().and_then(|profile| profile.mode))
+        .unwrap_or(SearchMode::Hybrid);
+    let limit = limit
+        .or_else(|| profile.as_ref().and_then(|profile| profile.limit))
+        .unwrap_or(5);
+    if limit == 0 {
+        bail!("--limit must be at least 1");
+    }
+    let model = model.or_else(|| profile.as_ref().and_then(|profile| profile.model.clone()));
+    let encoder = profile
+        .as_ref()
+        .and_then(|profile| profile.encoder.as_deref())
+        .and_then(parse_encoder_name)
+        .unwrap_or(encoder);
+    let offline = offline
+        || profile
+            .as_ref()
+            .and_then(|profile| profile.offline)
+            .unwrap_or(false);
+    let no_download = no_download
+        || profile
+            .as_ref()
+            .and_then(|profile| profile.no_download)
+            .unwrap_or(false);
+    let cache = match profile.as_ref() {
+        Some(profile) if matches!(cache, CacheConfig::Platform) => {
+            if profile.no_cache.unwrap_or(false) {
+                CacheConfig::Disabled
+            } else if profile.project_cache.unwrap_or(false) {
+                CacheConfig::Project
+            } else if let Some(path) = &profile.cache_dir {
+                CacheConfig::Custom(path.clone())
+            } else {
+                cache
+            }
+        }
+        _ => cache,
+    };
+    Ok(ResolvedInvocation {
+        source,
+        mode,
+        limit,
+        model,
+        encoder,
+        offline,
+        no_download,
+        cache,
+    })
+}
+
+fn parse_encoder_name(value: &str) -> Option<EncoderArg> {
+    match value {
+        "model2vec" => Some(EncoderArg::Model2Vec),
+        "hashing" => Some(EncoderArg::Hashing),
+        _ => None,
+    }
+}
+
 fn run_search(command: SearchCommand) -> Result<()> {
     if let Some(result) = try_daemon_search(&command)? {
         print_search_output(
             &result.query,
             &result.source.source,
             &SearchOptions {
-                top_k: command.top_k,
+                top_k: command.limit,
                 mode: result.mode,
                 alpha: None,
                 filter_languages: command.languages.clone(),
@@ -700,22 +1028,25 @@ fn run_search(command: SearchCommand) -> Result<()> {
     let policy = model_policy(command.offline, command.no_download);
     let started = Instant::now();
     let index = build_index_for_mode(
-        &command.path,
+        &command.source,
         command.mode,
         encoder_spec(command.encoder, command.model.as_deref(), policy),
         command.cache,
         command.offline,
     )?;
-    let mut options = SearchOptions::new(command.top_k).with_mode(command.mode);
+    let warnings = search_warnings(&index, &command.filter_paths, &command.languages)
+        .into_iter()
+        .chain(context_warnings(&command.source, command.context_lines))
+        .collect::<Vec<_>>();
+    let mut options = SearchOptions::new(command.limit).with_mode(command.mode);
     options.filter_languages = command.languages;
     options.filter_paths = command.filter_paths;
     let results = index.search_with(&command.query, &options)?;
     let elapsed_ms = started.elapsed().as_millis();
-    let warnings = context_warnings(&command.path, command.context_lines);
 
     print_search_output(
         &command.query,
-        &command.path,
+        &command.source,
         &options,
         index.stats(),
         elapsed_ms,
@@ -797,7 +1128,7 @@ fn try_daemon_search(
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
-    let source = SourceSpec::resolve(&command.path, None, command.offline)?;
+    let source = SourceSpec::resolve(&command.source, None, command.offline)?;
     let policy = model_policy(command.offline, command.no_download);
     let runtime_options = match command.mode {
         SearchMode::Bm25 => IndexRuntimeOptions::sparse(command.cache.clone()),
@@ -806,7 +1137,7 @@ fn try_daemon_search(
             command.cache.clone(),
         ),
     };
-    let mut search = SearchOptions::new(command.top_k).with_mode(command.mode);
+    let mut search = SearchOptions::new(command.limit).with_mode(command.mode);
     search.filter_languages = command.languages.clone();
     search.filter_paths = command.filter_paths.clone();
     match client.send(DaemonRequest::Search {
@@ -866,7 +1197,7 @@ fn print_find_related_output(
         "source": source,
         "file_path": file_path,
         "line": line,
-        "top_k": top_k,
+        "limit": top_k,
         "index_stats": stats,
         "elapsed_ms": elapsed_ms,
         "results": structured_results(source, results, 0),
@@ -881,7 +1212,7 @@ fn print_find_related_output(
                     "source": source,
                     "file_path": file_path,
                     "line": line,
-                    "top_k": top_k,
+                    "limit": top_k,
                     "elapsed_ms": elapsed_ms,
                     "result": structured_result(source, result, 0),
                 }))?
@@ -1028,6 +1359,8 @@ fn print_files_output(
         "source": source,
         "total": total,
         "limit": limit,
+        "truncated": total > shown.len(),
+        "hint": if total > shown.len() { Some("Increase --limit or narrow by source to inspect more indexed files.") } else { None },
         "elapsed_ms": elapsed_ms,
         "files": shown,
     });
@@ -1231,7 +1564,9 @@ fn run_get(
         offline,
     )?;
     let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
-        eprintln!("No chunk found at {file_path}:{line}. Use `sifs files` to check indexed paths.");
+        eprintln!(
+            "No chunk found at {file_path}:{line}. Use `sifs list-files` to check indexed paths."
+        );
         std::process::exit(1);
     };
     print_get_output(path, &chunk, output)
@@ -1297,17 +1632,55 @@ fn try_daemon_get_chunk(
     }
 }
 
-fn run_clean(path: &str) -> Result<()> {
+fn run_clean(path: &str, dry_run: bool, force: bool, json_output: bool) -> Result<()> {
     if is_git_url(path) {
         bail!("clean only supports local directories");
     }
     let cache_dir = Path::new(path).join(".sifs");
-    if cache_dir.exists() {
+    if dry_run {
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "dry_run": true,
+                    "would_change": cache_dir.exists(),
+                    "cache_dir": cache_dir,
+                }))?
+            );
+        } else if cache_dir.exists() {
+            println!("Would remove {}", cache_dir.display());
+        } else {
+            println!("No SIFS cache found at {}", cache_dir.display());
+        }
+    } else if cache_dir.exists() {
+        if !force {
+            bail!("clean requires --force; run with --dry-run to preview");
+        }
         fs::remove_dir_all(&cache_dir)
             .with_context(|| format!("remove SIFS cache {}", cache_dir.display()))?;
-        println!("Removed {}", cache_dir.display());
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "changed": true,
+                    "cache_dir": cache_dir,
+                }))?
+            );
+        } else {
+            println!("Removed {}", cache_dir.display());
+        }
     } else {
-        println!("No SIFS cache found at {}", cache_dir.display());
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "changed": false,
+                    "cache_dir": cache_dir,
+                }))?
+            );
+        } else {
+            println!("No SIFS cache found at {}", cache_dir.display());
+        }
     }
     Ok(())
 }
@@ -1327,12 +1700,14 @@ fn search_payload(
         "query": query,
         "mode": options.mode.to_string(),
         "source": source,
-        "top_k": options.top_k,
         "filter_languages": options.filter_languages,
         "filter_paths": options.filter_paths,
         "index_stats": stats,
         "elapsed_ms": elapsed_ms,
         "warnings": warnings,
+        "limit": options.top_k,
+        "truncated": results.len() >= options.top_k,
+        "hint": if results.len() >= options.top_k { Some("Increase --limit or add --language/--filter-path to narrow the search.") } else { None },
         "results": structured_results(source, results, context_lines),
     })
 }
@@ -1350,7 +1725,7 @@ fn search_result_record(
         "query": query,
         "mode": options.mode.to_string(),
         "source": source,
-        "top_k": options.top_k,
+        "limit": options.top_k,
         "filter_languages": options.filter_languages,
         "filter_paths": options.filter_paths,
         "elapsed_ms": elapsed_ms,
@@ -1432,6 +1807,46 @@ fn context_warnings(source: &str, context_lines: usize) -> Vec<String> {
     }
 }
 
+fn search_warnings(
+    index: &SifsIndex,
+    filter_paths: &[String],
+    filter_languages: &[String],
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if !filter_paths.is_empty() {
+        let indexed_files = index.indexed_files();
+        for path in filter_paths {
+            if !indexed_files.iter().any(|indexed| indexed == path) {
+                let normalized = path.strip_prefix("./").unwrap_or(path);
+                let suggestion = indexed_files
+                    .iter()
+                    .find(|indexed| indexed.as_str() == normalized);
+                if let Some(suggestion) = suggestion {
+                    warnings.push(format!(
+                        "No indexed file exactly matched filter-path {path:?}. Did you mean {suggestion:?}?"
+                    ));
+                } else {
+                    warnings.push(format!(
+                        "No indexed file matched filter-path {path:?}. Use `sifs list-files --json` to inspect indexed paths."
+                    ));
+                }
+            }
+        }
+    }
+    if !filter_languages.is_empty() {
+        let languages = index.stats().languages;
+        for language in filter_languages {
+            if !languages.contains_key(language) {
+                let valid = languages.keys().cloned().collect::<Vec<_>>().join(", ");
+                warnings.push(format!(
+                    "No indexed chunks matched language {language:?}. Valid indexed languages: {valid}"
+                ));
+            }
+        }
+    }
+    warnings
+}
+
 fn print_explanation(
     query: &str,
     source: &str,
@@ -1440,7 +1855,7 @@ fn print_explanation(
     warnings: &[String],
 ) {
     println!(
-        "Query: {query:?}; source: {source}; mode: {}; top_k: {}; languages: [{}]; paths: [{}]; elapsed_ms: {elapsed_ms}",
+        "Query: {query:?}; source: {source}; mode: {}; limit: {}; languages: [{}]; paths: [{}]; elapsed_ms: {elapsed_ms}",
         options.mode,
         options.top_k,
         options.filter_languages.join(", "),
@@ -1497,7 +1912,7 @@ fn encoder_spec(encoder: EncoderArg, model: Option<&str>, policy: ModelLoadPolic
     }
 }
 
-fn run_daemon_command(command: DaemonCommand) -> Result<()> {
+fn run_daemon_command(command: DaemonCommand, timeout: Duration) -> Result<()> {
     match command {
         DaemonCommand::Run {
             replace_existing_socket,
@@ -1509,18 +1924,28 @@ fn run_daemon_command(command: DaemonCommand) -> Result<()> {
                 replace_existing_socket,
             })
         }
-        DaemonCommand::Ping => {
-            let client = DaemonClient::new(default_daemon_paths()?);
+        DaemonCommand::Ping { json } => {
+            let client = DaemonClient::new(default_daemon_paths()?).with_timeout(timeout);
             match client.send(DaemonRequest::Ping)? {
                 DaemonResult::Pong { version } => {
-                    println!("SIFS daemon is running: {version}");
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({
+                                "status": "running",
+                                "version": version,
+                            }))?
+                        );
+                    } else {
+                        println!("SIFS daemon is running: {version}");
+                    }
                     Ok(())
                 }
                 other => bail!("unexpected daemon response: {other:?}"),
             }
         }
         DaemonCommand::Status { json } => {
-            let client = DaemonClient::new(default_daemon_paths()?);
+            let client = DaemonClient::new(default_daemon_paths()?).with_timeout(timeout);
             match client.send(DaemonRequest::Status)? {
                 DaemonResult::Status(status) => {
                     if json {
@@ -1550,12 +1975,16 @@ fn run_daemon_command(command: DaemonCommand) -> Result<()> {
                 other => bail!("unexpected daemon response: {other:?}"),
             }
         }
-        DaemonCommand::InstallAgent { dry_run, force } => install_launch_agent(dry_run, force),
-        DaemonCommand::UninstallAgent { dry_run } => uninstall_launch_agent(dry_run),
+        DaemonCommand::InstallAgent {
+            dry_run,
+            force,
+            json,
+        } => install_launch_agent(dry_run, force, json),
+        DaemonCommand::UninstallAgent { dry_run, json } => uninstall_launch_agent(dry_run, json),
     }
 }
 
-fn install_launch_agent(dry_run: bool, force: bool) -> Result<()> {
+fn install_launch_agent(dry_run: bool, force: bool, json_output: bool) -> Result<()> {
     let exe = std::env::current_exe().context("resolve current sifs executable")?;
     warn_if_development_binary(&exe);
     if !dry_run && stable_binary_path(&exe) == "no" {
@@ -1567,7 +1996,21 @@ fn install_launch_agent(dry_run: bool, force: bool) -> Result<()> {
     let plist_path = launch_agent_path()?;
     let plist = launch_agent_plist(&exe)?;
     if dry_run {
-        println!("{}", plist);
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "dry_run": true,
+                    "would_change": true,
+                    "plist_path": plist_path,
+                    "plist": plist,
+                    "program": exe,
+                    "args": ["daemon", "run", "--replace-existing-socket"],
+                }))?
+            );
+        } else {
+            println!("{}", plist);
+        }
         return Ok(());
     }
     if plist_path.exists() && !force {
@@ -1589,6 +2032,7 @@ fn install_launch_agent(dry_run: bool, force: bool) -> Result<()> {
             &format!("gui/{}", current_uid_string()),
             plist_path.to_str().unwrap(),
         ])
+        .stdin(Stdio::null())
         .output();
     let output = ProcessCommand::new("launchctl")
         .args([
@@ -1596,6 +2040,7 @@ fn install_launch_agent(dry_run: bool, force: bool) -> Result<()> {
             &format!("gui/{}", current_uid_string()),
             plist_path.to_str().unwrap(),
         ])
+        .stdin(Stdio::null())
         .output()
         .context("run launchctl bootstrap")?;
     if !output.status.success() {
@@ -1604,14 +2049,36 @@ fn install_launch_agent(dry_run: bool, force: bool) -> Result<()> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    println!("Installed SIFS LaunchAgent at {}", plist_path.display());
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "changed": true,
+                "plist_path": plist_path,
+                "program": exe,
+            }))?
+        );
+    } else {
+        println!("Installed SIFS LaunchAgent at {}", plist_path.display());
+    }
     Ok(())
 }
 
-fn uninstall_launch_agent(dry_run: bool) -> Result<()> {
+fn uninstall_launch_agent(dry_run: bool, json_output: bool) -> Result<()> {
     let plist_path = launch_agent_path()?;
     if dry_run {
-        println!("Would unload and remove {}", plist_path.display());
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "dry_run": true,
+                    "would_change": plist_path.exists(),
+                    "plist_path": plist_path,
+                }))?
+            );
+        } else {
+            println!("Would unload and remove {}", plist_path.display());
+        }
         return Ok(());
     }
     if plist_path.exists() {
@@ -1621,12 +2088,33 @@ fn uninstall_launch_agent(dry_run: bool) -> Result<()> {
                 &format!("gui/{}", current_uid_string()),
                 plist_path.to_str().unwrap(),
             ])
+            .stdin(Stdio::null())
             .output();
         fs::remove_file(&plist_path)
             .with_context(|| format!("remove LaunchAgent {}", plist_path.display()))?;
-        println!("Removed SIFS LaunchAgent at {}", plist_path.display());
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "changed": true,
+                    "plist_path": plist_path,
+                }))?
+            );
+        } else {
+            println!("Removed SIFS LaunchAgent at {}", plist_path.display());
+        }
     } else {
-        println!("No SIFS LaunchAgent found at {}", plist_path.display());
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "changed": false,
+                    "plist_path": plist_path,
+                }))?
+            );
+        } else {
+            println!("No SIFS LaunchAgent found at {}", plist_path.display());
+        }
     }
     Ok(())
 }
@@ -1690,10 +2178,24 @@ fn current_uid_string() -> String {
 
 fn run_model(command: ModelCommand) -> Result<()> {
     match command {
-        ModelCommand::Pull { model } | ModelCommand::Fetch { model } => {
+        ModelCommand::Pull { model, json } | ModelCommand::Fetch { model, json } => {
             let options = ModelOptions::new(model.as_deref(), ModelLoadPolicy::AllowDownload);
+            let started = Instant::now();
             load_model_with_options(&options)?;
-            println!("Model is available: {}", options.model);
+            let status = model_status(Some(&options.model));
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "model": options.model,
+                        "available": status.available(),
+                        "elapsed_ms": started.elapsed().as_millis(),
+                        "changed": true,
+                    }))?
+                );
+            } else {
+                println!("Model is available: {}", options.model);
+            }
         }
         ModelCommand::Status { model, json } => {
             let status = model_status(model.as_deref());
@@ -1724,7 +2226,63 @@ fn run_doctor(
     model: Option<&str>,
     policy: ModelLoadPolicy,
     offline: bool,
+    json_output: bool,
 ) -> Result<()> {
+    if json_output {
+        let source = if is_git_url(path) {
+            json!({
+                "kind": "git_url",
+                "source": path,
+                "offline_allowed": !offline,
+            })
+        } else {
+            let path_buf = PathBuf::from(path);
+            let cache_dir = path_buf.join(".sifs");
+            json!({
+                "kind": "local_path",
+                "path": path,
+                "exists": path_buf.exists(),
+                "is_directory": path_buf.is_dir(),
+                "cache_dir": cache_dir,
+                "cache_writable": if path_buf.is_dir() {
+                    fs::metadata(if cache_dir.exists() { &cache_dir } else { &path_buf })
+                        .map(|metadata| !metadata.permissions().readonly())
+                        .unwrap_or(false)
+                } else {
+                    false
+                },
+            })
+        };
+        let semantic = match encoder {
+            EncoderArg::Hashing => json!({
+                "encoder": "hashing",
+                "ready": true,
+                "message": "ready without model files",
+            }),
+            EncoderArg::Model2Vec => {
+                let options = ModelOptions::new(model, policy);
+                let status = model_status(Some(&options.model));
+                json!({
+                    "encoder": "model2vec",
+                    "model": status.model,
+                    "available": status.available(),
+                    "tokenizer": status.tokenizer,
+                    "safetensors": status.safetensors,
+                    "config": status.config,
+                    "load_policy": format!("{:?}", policy),
+                })
+            }
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "source": source,
+                "semantic": semantic,
+                "offline": offline,
+            }))?
+        );
+        return Ok(());
+    }
     println!("SIFS doctor");
     println!("Path: {path}");
     if is_git_url(path) {
@@ -1800,16 +2358,20 @@ struct McpInstallOptions {
     project_cache: bool,
     force: bool,
     dry_run: bool,
+    json: bool,
 }
 
 struct McpDoctorOptions {
-    source: String,
+    source: Option<String>,
+    profile: Option<String>,
     ref_name: Option<String>,
     offline: bool,
     no_download: bool,
     cache_dir: Option<PathBuf>,
     no_cache: bool,
     project_cache: bool,
+    json: bool,
+    timeout: Duration,
 }
 
 struct McpConfig {
@@ -1846,26 +2408,68 @@ fn run_mcp_install(options: McpInstallOptions) -> Result<()> {
             config.sifs_path.display()
         );
     }
+    if options.dry_run && options.json {
+        let mut clients = Vec::new();
+        if matches!(options.client, McpClientArg::Codex | McpClientArg::All) {
+            clients.push(json!({
+                "client": "codex",
+                "name": options.name,
+                "commands": [{"program": "codex", "args": codex_add_args(&options.name, &config)}],
+                "fallback_config": {"path_hint": "~/.codex/config.toml", "toml": codex_toml(&options.name, &config)}
+            }));
+        }
+        if matches!(options.client, McpClientArg::Claude | McpClientArg::All) {
+            let scope = options.scope.unwrap_or(McpScopeArg::Local);
+            clients.push(json!({
+                "client": "claude",
+                "name": options.name,
+                "scope": scope_arg(scope),
+                "commands": [{"program": "claude", "args": claude_add_args(&options.name, scope, &config)?}],
+                "fallback_config": {"path_hint": ".mcp.json", "json": serde_json::from_str::<Value>(&claude_project_json(&options.name, &config)?)?}
+            }));
+        }
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "dry_run": true,
+                "would_modify": false,
+                "clients": clients,
+            }))?
+        );
+        return Ok(());
+    }
 
     match options.client {
-        McpClientArg::Codex => {
-            install_codex(&options.name, &config, options.force, options.dry_run)?
-        }
+        McpClientArg::Codex => install_codex(
+            &options.name,
+            &config,
+            options.force,
+            options.dry_run,
+            options.json,
+        )?,
         McpClientArg::Claude => install_claude(
             &options.name,
             options.scope,
             &config,
             options.force,
             options.dry_run,
+            options.json,
         )?,
         McpClientArg::All => {
-            install_codex(&options.name, &config, options.force, options.dry_run)?;
+            install_codex(
+                &options.name,
+                &config,
+                options.force,
+                options.dry_run,
+                options.json,
+            )?;
             install_claude(
                 &options.name,
                 options.scope,
                 &config,
                 options.force,
                 options.dry_run,
+                options.json,
             )?;
         }
     }
@@ -1873,17 +2477,65 @@ fn run_mcp_install(options: McpInstallOptions) -> Result<()> {
 }
 
 fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
-    let source = resolve_mcp_source(Some(&options.source), options.offline)?;
+    let resolved = resolve_invocation(
+        options.profile.as_deref(),
+        options.source,
+        None,
+        None,
+        None,
+        EncoderArg::Model2Vec,
+        options.offline,
+        options.no_download,
+        cache_config(
+            options.cache_dir.clone(),
+            options.no_cache,
+            options.project_cache,
+        ),
+    )?;
+    let source = resolve_mcp_source(Some(&resolved.source), resolved.offline)?;
     let config = McpConfig {
         sifs_path: std::env::current_exe().context("resolve current sifs executable")?,
         source: Some(source),
         ref_name: options.ref_name,
-        offline: options.offline,
-        no_download: options.no_download,
-        cache_dir: options.cache_dir,
-        no_cache: options.no_cache,
-        project_cache: options.project_cache,
+        offline: resolved.offline,
+        no_download: resolved.no_download,
+        cache_dir: match resolved.cache.clone() {
+            CacheConfig::Custom(path) => Some(path),
+            _ => None,
+        },
+        no_cache: matches!(resolved.cache, CacheConfig::Disabled),
+        project_cache: matches!(resolved.cache, CacheConfig::Project),
     };
+    if options.json {
+        let newline =
+            mcp_handshake_smoke(&config, HandshakeFraming::LineDelimited, options.timeout)
+                .map(|elapsed| json!({"status": "passed", "elapsed_ms": elapsed.as_millis()}))
+                .unwrap_or_else(|error| json!({"status": "failed", "error": error.to_string()}));
+        let content_length =
+            mcp_handshake_smoke(&config, HandshakeFraming::ContentLength, options.timeout)
+                .map(|elapsed| json!({"status": "passed", "elapsed_ms": elapsed.as_millis()}))
+                .unwrap_or_else(|error| json!({"status": "failed", "error": error.to_string()}));
+        let bm25_smoke = bm25_smoke_json(&config);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "sifs_executable": config.sifs_path,
+                "stable_install_path": stable_binary_path(&config.sifs_path) == "yes",
+                "clients": {
+                    "codex": {"available": command_path("codex").is_some(), "path": command_path("codex")},
+                    "claude": {"available": command_path("claude").is_some(), "path": command_path("claude")}
+                },
+                "mcp_command": mcp_server_command(&config),
+                "source": config.source,
+                "handshake": {
+                    "newline": newline,
+                    "content_length": content_length,
+                },
+                "bm25_smoke": bm25_smoke,
+            }))?
+        );
+        return Ok(());
+    }
     println!("SIFS MCP doctor");
     println!("SIFS executable: {}", config.sifs_path.display());
     println!(
@@ -1896,8 +2548,8 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
         "MCP command: {}",
         display_command(&mcp_server_command(&config))
     );
-    report_mcp_handshake(&config, HandshakeFraming::LineDelimited);
-    report_mcp_handshake(&config, HandshakeFraming::ContentLength);
+    report_mcp_handshake(&config, HandshakeFraming::LineDelimited, options.timeout);
+    report_mcp_handshake(&config, HandshakeFraming::ContentLength, options.timeout);
 
     if let Some(source) = &config.source
         && !is_git_url(source)
@@ -1906,12 +2558,14 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
             .args([
                 "search",
                 "sifs_mcp_smoke",
+                "--source",
                 source,
                 "--mode",
                 "bm25",
                 "--offline",
                 "--no-cache",
             ])
+            .stdin(Stdio::null())
             .output();
         match smoke {
             Ok(output) if output.status.success() => println!("BM25 smoke: passed"),
@@ -1931,6 +2585,34 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
     Ok(())
 }
 
+fn bm25_smoke_json(config: &McpConfig) -> Value {
+    if let Some(source) = &config.source
+        && !is_git_url(source)
+    {
+        let smoke = ProcessCommand::new(&config.sifs_path)
+            .args([
+                "search",
+                "sifs_mcp_smoke",
+                "--source",
+                source,
+                "--mode",
+                "bm25",
+                "--offline",
+                "--no-cache",
+            ])
+            .stdin(Stdio::null())
+            .output();
+        return match smoke {
+            Ok(output) if output.status.success() => json!({"status": "passed"}),
+            Ok(output) => {
+                json!({"status": "failed", "error": String::from_utf8_lossy(&output.stderr).trim()})
+            }
+            Err(error) => json!({"status": "failed", "error": error.to_string()}),
+        };
+    }
+    json!({"status": "skipped"})
+}
+
 #[derive(Clone, Copy)]
 enum HandshakeFraming {
     LineDelimited,
@@ -1946,8 +2628,8 @@ impl HandshakeFraming {
     }
 }
 
-fn report_mcp_handshake(config: &McpConfig, framing: HandshakeFraming) {
-    match mcp_handshake_smoke(config, framing) {
+fn report_mcp_handshake(config: &McpConfig, framing: HandshakeFraming, timeout: Duration) {
+    match mcp_handshake_smoke(config, framing, timeout) {
         Ok(elapsed) => println!(
             "MCP handshake ({}): passed ({} ms)",
             framing.label(),
@@ -1957,10 +2639,14 @@ fn report_mcp_handshake(config: &McpConfig, framing: HandshakeFraming) {
     }
 }
 
-fn mcp_handshake_smoke(config: &McpConfig, framing: HandshakeFraming) -> Result<Duration> {
+fn mcp_handshake_smoke(
+    config: &McpConfig,
+    framing: HandshakeFraming,
+    timeout: Duration,
+) -> Result<Duration> {
     let input = mcp_initialize_probe(framing)?;
     let started = Instant::now();
-    let output = run_mcp_probe(config, &input, Duration::from_secs(5))?;
+    let output = run_mcp_probe(config, &input, timeout)?;
     let elapsed = started.elapsed();
     if !output.status.success() {
         bail!(
@@ -2083,8 +2769,34 @@ fn parse_content_length_response(stdout: &[u8]) -> Result<Value> {
     serde_json::from_slice(&stdout[body_start..body_end]).context("parse Content-Length body")
 }
 
-fn install_codex(name: &str, config: &McpConfig, force: bool, dry_run: bool) -> Result<()> {
+fn install_codex(
+    name: &str,
+    config: &McpConfig,
+    force: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
     let add_args = codex_add_args(name, config);
+    if dry_run && json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "client": "codex",
+                "name": name,
+                "dry_run": true,
+                "would_modify": false,
+                "commands": [{
+                    "program": "codex",
+                    "args": add_args,
+                }],
+                "fallback_config": {
+                    "path_hint": "~/.codex/config.toml",
+                    "toml": codex_toml(name, config),
+                }
+            }))?
+        );
+        return Ok(());
+    }
     println!("Codex MCP:");
     println!(
         "  {}",
@@ -2119,9 +2831,31 @@ fn install_claude(
     config: &McpConfig,
     force: bool,
     dry_run: bool,
+    json_output: bool,
 ) -> Result<()> {
     let scope = scope.unwrap_or(McpScopeArg::Local);
     let add_args = claude_add_args(name, scope, config)?;
+    if dry_run && json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "client": "claude",
+                "name": name,
+                "scope": scope_arg(scope),
+                "dry_run": true,
+                "would_modify": false,
+                "commands": [{
+                    "program": "claude",
+                    "args": add_args,
+                }],
+                "fallback_config": {
+                    "path_hint": ".mcp.json",
+                    "json": serde_json::from_str::<Value>(&claude_project_json(name, config)?)?,
+                }
+            }))?
+        );
+        return Ok(());
+    }
     println!("Claude Code MCP:");
     println!(
         "  {}",
@@ -2194,6 +2928,7 @@ fn resolve_mcp_source(source: Option<&str>, offline: bool) -> Result<String> {
 fn mcp_args(config: &McpConfig) -> Vec<String> {
     let mut args = vec!["mcp".to_owned()];
     if let Some(source) = &config.source {
+        args.push("--source".to_owned());
         args.push(source.clone());
     }
     if let Some(ref_name) = &config.ref_name {
@@ -2297,6 +3032,7 @@ fn mcp_server_exists(command: &str, name: &str, _scope: Option<McpScopeArg>) -> 
     let args = vec!["mcp".to_owned(), "get".to_owned(), name.to_owned()];
     let output = ProcessCommand::new(command)
         .args(&args)
+        .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {command} {}", args.join(" ")))?;
     Ok(output.status.success())
@@ -2305,6 +3041,7 @@ fn mcp_server_exists(command: &str, name: &str, _scope: Option<McpScopeArg>) -> 
 fn run_checked(command: &str, args: &[&str]) -> Result<()> {
     let output = ProcessCommand::new(command)
         .args(args)
+        .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {command} {}", args.join(" ")))?;
     if !output.status.success() {
@@ -2323,6 +3060,7 @@ fn run_checked(command: &str, args: &[&str]) -> Result<()> {
 fn run_checked_owned(command: &str, args: &[String]) -> Result<()> {
     let output = ProcessCommand::new(command)
         .args(args)
+        .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run {command} {}", args.join(" ")))?;
     if !output.status.success() {
@@ -2419,19 +3157,52 @@ fn run_cache(command: CacheCommand) -> Result<()> {
                 println!("Bytes: {}", summary.bytes);
             }
         }
-        CacheCommand::Clean { cache_dir, dry_run } => {
+        CacheCommand::Clean {
+            cache_dir,
+            dry_run,
+            force,
+            json,
+        } => {
             let root = cache_dir.unwrap_or(platform_cache_root()?);
             let summary = cache_summary(&root);
             if dry_run {
-                println!(
-                    "Would remove {} files ({} bytes) from {}.",
-                    summary.files,
-                    summary.bytes,
-                    summary.root.display()
-                );
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "dry_run": true,
+                            "would_change": summary.exists,
+                            "root": summary.root,
+                            "files": summary.files,
+                            "bytes": summary.bytes,
+                        }))?
+                    );
+                } else {
+                    println!(
+                        "Would remove {} files ({} bytes) from {}.",
+                        summary.files,
+                        summary.bytes,
+                        summary.root.display()
+                    );
+                }
             } else {
+                if !force {
+                    bail!("cache clean requires --force; run with --dry-run to preview");
+                }
                 remove_cache_root(&root)?;
-                println!("Removed cache: {}", root.display());
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "changed": summary.exists,
+                            "root": root,
+                            "files_removed": summary.files,
+                            "bytes_removed": summary.bytes,
+                        }))?
+                    );
+                } else {
+                    println!("Removed cache: {}", root.display());
+                }
             }
         }
     }
@@ -2445,7 +3216,7 @@ fn remove_cache_root(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn run_init(force: bool) -> Result<()> {
+fn run_init(force: bool, json_output: bool) -> Result<()> {
     let dest = PathBuf::from(".claude")
         .join("agents")
         .join("sifs-search.md");
@@ -2458,30 +3229,224 @@ fn run_init(force: bool) -> Result<()> {
     }
     fs::create_dir_all(dest.parent().unwrap())?;
     fs::write(&dest, include_str!("agents/sifs-search.md"))?;
-    println!("Created {}", dest.display());
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "changed": true,
+                "destination": dest,
+                "force": force,
+            }))?
+        );
+    } else {
+        println!("Created {}", dest.display());
+    }
     Ok(())
 }
 
-fn print_capabilities() {
+fn print_capabilities(json_output: bool) -> Result<()> {
+    let capabilities = [
+        "SIFS capabilities:",
+        "- Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.",
+        "- Print structured CLI output with `--json` and result streams with `--jsonl`.",
+        "- Inspect indexes with `sifs list-files`, `sifs status`, `sifs get`, and cache commands.",
+        "- Find related code from a known file and one-based line.",
+        "- Run `sifs mcp` as an MCP server with search, find_related, index_status, refresh_index, clear_index, list_files, get_chunk, profile, feedback, and init_agent tools.",
+        "- Discover the machine-readable agent contract with `sifs agent-context --json`.",
+        "- Save reusable source/search defaults with `sifs profile`.",
+        "- Record local agent feedback with `sifs feedback`.",
+        "- Run BM25 search without loading or downloading an embedding model.",
+        "- Manage embedding models with `sifs model pull` and `sifs model status`.",
+        "- Generate a Claude agent file with `sifs init`.",
+        "- Use `sifs-benchmark` for quality and latency benchmarks.",
+        "- Use `sifs-embed` for embedding diagnostics.",
+        "",
+        "Discovery:",
+        "- `sifs --help` and subcommand help show CLI usage.",
+        "- MCP clients can call `tools/list` and read `sifs://server/context`.",
+    ];
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "capabilities": capabilities,
+                "agent_context": "sifs agent-context --json",
+                "profiles": "sifs profile list --json",
+                "feedback": "sifs feedback list --json",
+            }))?
+        );
+    } else {
+        println!("{}", capabilities.join("\n"));
+    }
+    Ok(())
+}
+
+fn print_agent_context(json_output: bool) -> Result<()> {
+    if !json_output {
+        bail!("agent-context is machine-readable; rerun with --json");
+    }
+    let names = profiles::profile_names(&platform_cache_root()?).unwrap_or_default();
     println!(
         "{}",
-        [
-            "SIFS capabilities:",
-            "- Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.",
-            "- Print structured CLI output with `--json`, `--jsonl`, or `--format compact`.",
-            "- Inspect indexes with `sifs files`, `sifs status`, `sifs get`, and `sifs clean`.",
-            "- Find related code from a known file and one-based line.",
-            "- Run `sifs mcp` as an MCP server with search, find_related, index_status, refresh_index, clear_index, list_indexed_files, get_chunk, and init_agent tools.",
-            "- Run BM25 search without loading or downloading an embedding model.",
-            "- Manage embedding models with `sifs model pull` and `sifs model status`.",
-            "- Generate a Claude agent file with `sifs init`.",
-            "- Use `sifs-benchmark` for quality and latency benchmarks.",
-            "- Use `sifs-embed` for embedding diagnostics.",
-            "",
-            "Discovery:",
-            "- `sifs --help` and subcommand help show CLI usage.",
-            "- MCP clients can call `tools/list` and read `sifs://server/context`.",
-        ]
-        .join("\n")
+        serde_json::to_string_pretty(&agent_context::agent_context(names, true))?
     );
+    Ok(())
+}
+
+fn run_profile(command: ProfileCommand) -> Result<()> {
+    let root = platform_cache_root()?;
+    match command {
+        ProfileCommand::Save {
+            name,
+            source,
+            ref_name,
+            mode,
+            limit,
+            encoder,
+            model,
+            offline,
+            no_download,
+            cache_dir,
+            no_cache,
+            project_cache,
+            json,
+        } => {
+            if let Some(limit) = limit
+                && limit == 0
+            {
+                bail!("--limit must be at least 1");
+            }
+            let profile = profiles::Profile {
+                name: name.clone(),
+                source,
+                ref_name,
+                mode: mode.map(SearchMode::from),
+                limit,
+                encoder: encoder.map(|encoder| match encoder {
+                    EncoderArg::Model2Vec => "model2vec".to_owned(),
+                    EncoderArg::Hashing => "hashing".to_owned(),
+                }),
+                model,
+                offline: offline.then_some(true),
+                no_download: no_download.then_some(true),
+                cache_dir,
+                no_cache: no_cache.then_some(true),
+                project_cache: project_cache.then_some(true),
+            };
+            profiles::save_profile(&root, profile.clone())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "changed": true,
+                        "profile": profile,
+                        "path": profiles::profile_store_path(&root),
+                    }))?
+                );
+            } else {
+                println!("Saved profile {name:?}.");
+            }
+        }
+        ProfileCommand::List { json } => {
+            let list = profiles::load_profiles(&root)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "profiles": list,
+                        "total": list.len(),
+                        "path": profiles::profile_store_path(&root),
+                    }))?
+                );
+            } else {
+                for profile in list {
+                    println!("{}", profile.name);
+                }
+            }
+        }
+        ProfileCommand::Show { name, json } => {
+            let profile = profiles::get_profile(&root, &name)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "profile": profile,
+                        "path": profiles::profile_store_path(&root),
+                    }))?
+                );
+            } else {
+                println!("{}", serde_json::to_string_pretty(&profile)?);
+            }
+        }
+        ProfileCommand::Delete { name, force, json } => {
+            if !force {
+                bail!("profile delete requires --force");
+            }
+            let removed = profiles::delete_profile(&root, &name)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "changed": removed,
+                        "profile": name,
+                        "path": profiles::profile_store_path(&root),
+                    }))?
+                );
+            } else if removed {
+                println!("Deleted profile {name:?}.");
+            } else {
+                println!("No profile named {name:?}.");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_feedback(command: FeedbackCommand) -> Result<()> {
+    let root = platform_cache_root()?;
+    match command {
+        FeedbackCommand::Create {
+            message,
+            command_context,
+            json,
+        } => {
+            let entry = feedback::create_feedback(&root, &message, command_context)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "changed": true,
+                        "feedback": entry,
+                        "path": feedback::feedback_log_path(&root),
+                    }))?
+                );
+            } else {
+                println!("Feedback recorded locally: {}", entry.id);
+            }
+        }
+        FeedbackCommand::List { limit, json } => {
+            if limit == 0 {
+                bail!("--limit must be at least 1");
+            }
+            let (entries, total) = feedback::list_feedback(&root, limit)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "feedback": entries,
+                        "total": total,
+                        "limit": limit,
+                        "truncated": total > limit,
+                        "hint": if total > limit { Some("Increase --limit to inspect more local feedback entries.") } else { None },
+                        "path": feedback::feedback_log_path(&root),
+                    }))?
+                );
+            } else {
+                for entry in entries {
+                    println!("{}\t{}", entry.id, entry.message);
+                }
+            }
+        }
+    }
+    Ok(())
 }

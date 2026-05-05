@@ -9,8 +9,29 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added `sifs agent-context --json` and MCP `agent_context` discovery so
+  agents can inspect the CLI/MCP contract without scraping help text.
+- Added persistent `sifs profile` commands for saved source/search/model/cache
+  defaults.
+- Added local-first `sifs feedback` commands and MCP feedback tools for agent
+  friction reports.
+
 ### Changed
 
+- Redesigned the greenfield CLI/MCP vocabulary around explicit agent-native
+  names: `--source`, `--filter-path`, `--limit`, `list-files`, MCP `source`,
+  MCP `limit`, and MCP `list_files`.
+- Added JSON output to diagnostic, setup, install dry-run, daemon, model, cache,
+  init, capabilities, profile, and feedback surfaces.
+- Added bounded-output metadata such as `limit`, `truncated`, and narrowing
+  hints to search and file-list payloads.
+- Updated CLI, MCP, generated agent guidance, and the agent-native scorecard for
+  the new Trevin Chow 10-principle contract.
+- Added a plan for a breaking agent-native CLI/MCP redesign covering
+  `agent-context`, canonical source/filter vocabulary, uniform JSON diagnostics,
+  strict validation, profiles, feedback, and contract-level tests.
 - Refreshed benchmark result artifacts and comparison graphs from the latest
   full benchmark run.
 - Tuned natural-language ranking to use file-stem and parent-directory matches
@@ -31,8 +52,11 @@ versioning where practical.
 
 ### Fixed
 
-- Rejected empty MCP `repo` arguments so tool calls no longer silently index the
-  server working directory instead of the intended source.
+- Rejected invalid MCP search modes and invalid limits instead of silently
+  defaulting to hybrid search.
+- Rejected stale MCP `repo` arguments and empty MCP `source` arguments so tool
+  calls no longer silently index the server working directory instead of the
+  intended source.
 
 ## 0.2.1 - 2026-05-04
 

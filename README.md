@@ -23,22 +23,13 @@ SIFS indexes a repo in **6.5 ms**, answers queries in **0.376 ms**, and hits **N
 
 ```bash
 cargo install --locked sifs
-sifs search "authentication flow" /path/to/project
+sifs search "authentication flow" --source /path/to/project
+sifs search "parse JWT claims" --source /path/to/project --mode bm25 --offline --limit 10
+sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
 ```
 
-That's it. The default mode is `hybrid` (semantic + BM25). For a fully offline, model-free search, drop in `--mode bm25`:
-
-```bash
-sifs search "parse JWT claims" /path/to/project --mode bm25 --offline -k 10
-```
-
-To find code similar to a known location:
-
-```bash
-sifs find-related src/auth/session.rs 42 /path/to/project -k 8
-```
-
-The `path` argument defaults to the current directory, and git URLs work anywhere a path does.
+The default mode is `hybrid` (semantic + BM25). Omit `--source` to search the
+current directory, or pass a local path or Git URL explicitly.
 
 ## Features
 
@@ -46,8 +37,13 @@ The `path` argument defaults to the current directory, and git URLs work anywher
 - **State-of-the-art quality.** NDCG@10 of 0.8641 across 63 repositories and 19 languages. Ahead of CodeRankEmbed Hybrid (0.8617) and Semble (0.8544).
 - **Three search modes.** `hybrid` for most queries, `semantic` for natural language, `bm25` for symbols and identifiers. Switch per query.
 - **Fully offline.** BM25 mode loads nothing — no tokenizers, no model files, no network. Hybrid and semantic modes work offline once the model is cached locally.
-- **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Repos are indexed on demand; local paths are watched for changes.
-- **Local and remote.** Pass a local path or a git URL.
+- **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand; local paths are watched for changes.
+- **Local and remote.** Pass a local path or a Git URL with `--source`.
+- Discover the machine-readable command contract with `sifs agent-context --json`.
+- Save source/search defaults in profiles and record local feedback when agents
+  hit friction.
+- Generate agent files and run benchmark diagnostics for quality and latency
+  checks.
 
 ## Install
 
@@ -60,7 +56,7 @@ brew install tristanmanchester/tap/sifs
 
 # From source
 cargo build --release
-target/release/sifs search "authentication flow" .
+target/release/sifs search "authentication flow" --source .
 ```
 
 The `sifs-benchmark` and `sifs-embed` diagnostic binaries require the `diagnostics` feature:
@@ -84,7 +80,9 @@ sifs daemon install-agent
 sifs mcp install --client all
 ```
 
-This gives every agent client a reusable server that can search any project. Tool calls can pass `repo` to target a specific local checkout or git URL, or omit it to search the client's working directory.
+This installs a reusable MCP server instead of pinning the config to one
+repository. Agent clients can ask SIFS to search the current project, and tool
+calls can pass `source` when they need a specific local checkout or Git URL.
 
 To pin the server to a single source:
 
@@ -94,11 +92,14 @@ sifs mcp install --client codex --source /path/to/project
 sifs mcp install --client claude --scope local --source /path/to/project
 ```
 
-You can also start the server directly:
+You can also start the server directly. Without `--source` it uses the server
+process working directory as the default source. Passing `--source` pins the
+server to that source, so MCP clients can call `search` and `find_related`
+without sending a source on every tool call.
 
 ```bash
-sifs mcp                      # uses the process working directory
-sifs mcp /path/to/project     # pre-indexes that source on startup
+sifs mcp
+sifs mcp --source /path/to/project
 ```
 
 The installer calls the client CLIs when they're available:
@@ -154,20 +155,29 @@ sifs daemon status --json
 # Search the current directory
 sifs search "where is authentication handled"
 
-# Hybrid search with more results
-sifs search "parse oauth callback" /path/to/project --mode hybrid -k 10
+# Search a local project with hybrid ranking
+sifs search "parse oauth callback" --source /path/to/project --mode hybrid --limit 10
 
-# Offline BM25 — no model files needed
-sifs search "SessionToken" /path/to/project --mode bm25 --offline -k 10
+# Use model-free offline BM25 search
+sifs search "SessionToken" --source /path/to/project --mode bm25 --offline --limit 10
 
-# Remote repo (cloned on demand)
-sifs search "stream upload backpressure" https://github.com/owner/project
+# Search a remote Git repository
+sifs search "stream upload backpressure" --source https://github.com/owner/project
 
-# Find code near a known location
-sifs find-related src/auth/session.rs 42 /path/to/project -k 8
+# Find code related to a known location
+sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
 ```
 
-Structured output: `--json`, `--jsonl`, or `--format`. Narrower results: `--language`, `--path`, `--context-lines`.
+Use `--json`, `--jsonl`, or `--format` for structured output. Use
+`--language`, `--filter-path`, and `--context-lines` when an agent needs
+narrower results.
+
+Use profiles for repeated agent sessions:
+
+```bash
+sifs profile save current --source /path/to/project --mode bm25 --offline --json
+sifs search "mcp startup" --profile current --json
+```
 
 Index caches live in platform cache directories by default (`~/Library/Caches/sifs` on macOS, `${XDG_CACHE_HOME:-~/.cache}/sifs` on Linux). Override with `--cache-dir`, disable with `--no-cache`, or opt into a repo-local `.sifs/` cache with `--project-cache`.
 

@@ -1,1 +1,1 @@
-No repo specified and no default index. Pass a git URL or local path as `repo`.
+No source specified and no default index. Pass a Git URL or local path as `source`, or use a profile that defines a source.
