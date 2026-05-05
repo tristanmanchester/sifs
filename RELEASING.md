@@ -28,6 +28,7 @@ Homebrew releases are published from the tap repository at
 4. Run local checks:
 
    ```bash
+   python3 scripts/ci_release_check.py
    cargo fmt --all --check
    cargo test --locked
    cargo build --locked
