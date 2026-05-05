@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.3.1 - 2026-05-05
+
 ### Added
 
 - Added GitHub Actions CI, release-check, and benchmark workflows for Rust
