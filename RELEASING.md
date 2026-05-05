@@ -74,7 +74,7 @@ Homebrew releases are published from the tap repository at
    brew uninstall --ignore-dependencies sifs || true
    brew install --build-from-source /tmp/homebrew-tap/Formula/sifs.rb
    sifs --help
-   sifs search authenticate_token /tmp/tiny-repo --mode bm25 --offline --no-cache
+   sifs search authenticate_token --source /tmp/tiny-repo --mode bm25 --offline --no-cache
    sifs mcp install --dry-run --client codex --source /tmp/tiny-repo --offline
    sifs mcp install --dry-run --client claude --scope local --source /tmp/tiny-repo --offline
    sifs update --check --json
