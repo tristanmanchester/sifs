@@ -181,6 +181,31 @@ fn update_execute_json_reports_runner_failure() {
 }
 
 #[test]
+fn cache_clean_reports_missing_cache_without_claiming_removal() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache_dir = dir.path().join("missing-cache");
+    let output = sifs()
+        .args([
+            "cache",
+            "clean",
+            "--cache-dir",
+            cache_dir.to_str().unwrap(),
+            "--force",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("No SIFS cache found"));
+    assert!(!stdout.contains("Removed cache"));
+}
+
+#[test]
 fn mcp_help_documents_server_options() {
     let output = sifs().args(["mcp", "--help"]).output().unwrap();
 

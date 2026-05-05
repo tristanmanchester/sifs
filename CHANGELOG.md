@@ -11,6 +11,8 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed `sifs cache clean --force` so the human-readable output no longer
+  claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
   dependencies, keeping ClawHub workflow Cargo commands locked, and making
   update-command tests independent of runner `CARGO_HOME`.

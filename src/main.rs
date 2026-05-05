@@ -3323,8 +3323,10 @@ fn run_cache(command: CacheCommand) -> Result<()> {
                             "bytes_removed": summary.bytes,
                         }))?
                     );
-                } else {
+                } else if summary.exists {
                     println!("Removed cache: {}", root.display());
+                } else {
+                    println!("No SIFS cache found at {}", root.display());
                 }
             }
         }
