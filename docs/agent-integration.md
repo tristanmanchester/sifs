@@ -99,7 +99,7 @@ as a self-contained folder with:
 Before publishing, run the local readiness checks:
 
 ```bash
-cargo test --test skill_parity
+cargo test --locked --test skill_parity
 python3 scripts/clawhub_skill_sync.py check
 ```
 

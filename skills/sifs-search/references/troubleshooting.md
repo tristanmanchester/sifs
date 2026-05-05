@@ -19,7 +19,7 @@ sifs --version
 On systems without Homebrew, use Cargo when Rust is available:
 
 ```bash
-cargo install sifs
+cargo install --locked sifs
 sifs --version
 ```
 

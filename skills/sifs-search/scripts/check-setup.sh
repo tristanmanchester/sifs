@@ -11,7 +11,7 @@ Install on macOS with:
   brew install tristanmanchester/tap/sifs
 
 Or install with Cargo when Rust is available:
-  cargo install sifs
+  cargo install --locked sifs
 
 After installation, verify with:
   sifs --version
