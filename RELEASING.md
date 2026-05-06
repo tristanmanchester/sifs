@@ -53,10 +53,10 @@ Homebrew releases are published from the tap repository at
    gh release create vX.Y.Z --repo tristanmanchester/sifs --title "sifs vX.Y.Z" --generate-notes
    ```
 
-8. Compute the GitHub source tarball checksum:
+8. Compute the crates.io tarball checksum:
 
    ```bash
-   curl -L https://github.com/tristanmanchester/sifs/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256
+   curl -L https://crates.io/api/v1/crates/sifs/X.Y.Z/download | shasum -a 256
    ```
 
 9. Update `tristanmanchester/homebrew-tap`:
@@ -66,8 +66,8 @@ Homebrew releases are published from the tap repository at
    cp packaging/homebrew/sifs.rb /tmp/homebrew-tap/Formula/sifs.rb
    ```
 
-   Update the copied formula so `url` points at the new tag and `sha256` is the
-   checksum from the previous step.
+   Update the copied formula so `url` points at the crates.io download URL for
+   the new version and `sha256` is the checksum from the previous step.
 
 10. Validate the tap formula:
 
