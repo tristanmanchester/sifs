@@ -32,8 +32,7 @@ impl DaemonClient {
         let envelope = DaemonRequestEnvelope::new(request_id.clone(), request);
         let mut stream = UnixStream::connect(&self.paths.socket)
             .with_context(|| format!("connect SIFS daemon at {}", self.paths.socket.display()))?;
-        stream.set_read_timeout(Some(self.timeout)).ok();
-        stream.set_write_timeout(Some(self.timeout)).ok();
+        configure_stream_timeout(&stream, self.timeout)?;
         serde_json::to_writer(&mut stream, &envelope)?;
         stream.write_all(b"\n")?;
         stream.flush()?;
@@ -65,6 +64,19 @@ impl DaemonClient {
     }
 }
 
+fn configure_stream_timeout(stream: &UnixStream, timeout: Duration) -> Result<()> {
+    if timeout.is_zero() {
+        return Ok(());
+    }
+    stream
+        .set_read_timeout(Some(timeout))
+        .with_context(|| format!("set daemon socket read timeout to {timeout:?}"))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .with_context(|| format!("set daemon socket write timeout to {timeout:?}"))?;
+    Ok(())
+}
+
 fn error_into_anyhow(error: DaemonError) -> anyhow::Error {
     anyhow::anyhow!("{}: {}", error.code, error.message)
 }
@@ -74,4 +86,32 @@ fn now_nanos() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configure_stream_timeout;
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    #[test]
+    fn zero_timeout_is_explicitly_left_unset() {
+        let (stream, _peer) = UnixStream::pair().unwrap();
+
+        configure_stream_timeout(&stream, Duration::ZERO).unwrap();
+
+        assert_eq!(stream.read_timeout().unwrap(), None);
+        assert_eq!(stream.write_timeout().unwrap(), None);
+    }
+
+    #[test]
+    fn nonzero_timeout_is_applied() {
+        let (stream, _peer) = UnixStream::pair().unwrap();
+        let timeout = Duration::from_millis(250);
+
+        configure_stream_timeout(&stream, timeout).unwrap();
+
+        assert_eq!(stream.read_timeout().unwrap(), Some(timeout));
+        assert_eq!(stream.write_timeout().unwrap(), Some(timeout));
+    }
 }
