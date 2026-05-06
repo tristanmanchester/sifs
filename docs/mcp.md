@@ -116,8 +116,8 @@ Fields:
 - `source` is optional when the server has a default source or `profile`
   provides one.
 - `profile` is optional and uses saved source/search defaults.
-- `mode` is `hybrid`, `semantic`, or `bm25`.
-- `limit` defaults to `5`.
+- `mode` is `hybrid`, `semantic`, or `bm25`; defaults to the profile's mode if set, otherwise `hybrid`.
+- `limit` defaults to the profile's limit if set, otherwise `5`.
 - `alpha` optionally controls hybrid semantic weight.
 - `filter_languages` and `filter_paths` narrow the indexed chunks searched.
 
