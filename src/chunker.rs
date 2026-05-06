@@ -79,7 +79,19 @@ fn group_child_nodes(
     let child_count = node.child_count();
     if child_count == 0 {
         let range = node.byte_range();
-        return (vec![vec![range.clone()]], vec![token_count(source, &range)]);
+        let count = token_count(source, &range);
+        if count > chunk_size {
+            let ranges = split_range_by_chars(source, range, chunk_size);
+            let counts = ranges
+                .iter()
+                .map(|range| token_count(source, range))
+                .collect();
+            return (
+                ranges.into_iter().map(|range| vec![range]).collect(),
+                counts,
+            );
+        }
+        return (vec![vec![range.clone()]], vec![count]);
     }
 
     let mut node_groups: Vec<Vec<Range<usize>>> = Vec::new();
@@ -197,6 +209,31 @@ fn token_count(source: &str, range: &Range<usize>) -> usize {
         .unwrap_or(0)
 }
 
+fn split_range_by_chars(source: &str, range: Range<usize>, chunk_size: usize) -> Vec<Range<usize>> {
+    if chunk_size == 0 {
+        return Vec::new();
+    }
+    let Some(text) = source.get(range.clone()) else {
+        return Vec::new();
+    };
+    let mut ranges = Vec::new();
+    let mut chunk_start = range.start;
+    let mut count = 0usize;
+    for (offset, _) in text.char_indices() {
+        if count == chunk_size {
+            let chunk_end = range.start + offset;
+            ranges.push(chunk_start..chunk_end);
+            chunk_start = chunk_end;
+            count = 0;
+        }
+        count += 1;
+    }
+    if chunk_start < range.end {
+        ranges.push(chunk_start..range.end);
+    }
+    ranges
+}
+
 fn line_number_at_byte(source: &str, byte_index: usize) -> usize {
     let index = previous_char_boundary(source, byte_index.min(source.len()));
     source[..index].matches('\n').count() + 1
@@ -240,6 +277,17 @@ mod tests {
         assert_eq!(chunks.first().unwrap().start_line, 1);
         assert!(chunks.windows(2).all(|w| w[0].end_line <= w[1].start_line));
         assert!(chunks.iter().all(|chunk| chunk.content.len() <= 1800));
+    }
+
+    #[test]
+    fn code_chunker_splits_long_leaf_nodes() {
+        let source = format!("VALUE = \"{}\"\n", "x".repeat(2500));
+        let chunks = chunk_source(&source, "long.py", Some("python".to_owned()));
+
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.content.len() <= 1800));
+        assert_eq!(chunks.first().unwrap().start_line, 1);
+        assert_eq!(chunks.last().unwrap().end_line, 1);
     }
 
     #[test]

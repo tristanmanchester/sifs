@@ -17,6 +17,8 @@ versioning where practical.
   remain searchable by their inner token.
 - Fixed profile saves to use a temporary file and rename so a failed write does
   not truncate existing `profiles.json` data.
+- Fixed syntax-aware chunking so oversized leaf nodes such as long string
+  literals are split instead of producing oversized search chunks.
 - Fixed `sifs cache clean --force` so the human-readable output no longer
   claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
