@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.3.2 - 2026-05-06
+
 ### Fixed
 
 - Fixed MCP search and related-code tools so saved profile mode and limit
