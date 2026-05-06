@@ -13,6 +13,8 @@ versioning where practical.
 
 - Fixed MCP search and related-code tools so saved profile mode and limit
   defaults apply when tool calls omit explicit values.
+- Fixed identifier tokenization so names with leading or trailing underscores
+  remain searchable by their inner token.
 - Fixed `sifs cache clean --force` so the human-readable output no longer
   claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser

@@ -15,7 +15,7 @@ pub fn split_identifier(token: &str) -> Vec<String> {
         split_camel(token)
     };
 
-    if parts.len() >= 2 {
+    if parts.iter().any(|part| part != &lower) {
         let mut out = Vec::with_capacity(parts.len() + 1);
         out.push(lower);
         out.extend(parts);
@@ -74,6 +74,11 @@ mod tests {
             vec!["handlerstack", "handler", "stack"]
         );
         assert_eq!(split_identifier("my_func"), vec!["my_func", "my", "func"]);
+        assert_eq!(split_identifier("__init__"), vec!["__init__", "init"]);
+        assert_eq!(split_identifier("_private"), vec!["_private", "private"]);
+        assert_eq!(split_identifier("test_"), vec!["test_", "test"]);
+        assert_eq!(split_identifier("_"), vec!["_"]);
+        assert_eq!(split_identifier("__"), vec!["__"]);
         assert_eq!(
             tokenize("getHTTPResponse my_func"),
             vec![
