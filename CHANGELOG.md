@@ -15,6 +15,8 @@ versioning where practical.
   defaults apply when tool calls omit explicit values.
 - Fixed identifier tokenization so names with leading or trailing underscores
   remain searchable by their inner token.
+- Fixed profile saves to use a temporary file and rename so a failed write does
+  not truncate existing `profiles.json` data.
 - Fixed `sifs cache clean --force` so the human-readable output no longer
   claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
