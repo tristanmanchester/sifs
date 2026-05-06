@@ -74,7 +74,7 @@ fn markdown_code_fence(content: &str) -> String {
             current = 0;
         }
     }
-    "`".repeat(longest.max(3) + 1)
+    "`".repeat((longest + 1).max(3))
 }
 
 #[cfg(test)]
@@ -121,6 +121,13 @@ mod tests {
         let output = format_results("Header", &[result]);
 
         assert!(output.contains("[score=0.500, source=bm25]"));
+    }
+
+    #[test]
+    fn fenced_code_block_uses_standard_fence_for_plain_content() {
+        let block = fenced_code_block(Some("rust"), "fn main() {}");
+
+        assert_eq!(block, "```rust\nfn main() {}\n```");
     }
 
     #[test]

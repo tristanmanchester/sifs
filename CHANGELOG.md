@@ -11,6 +11,8 @@ versioning where practical.
 
 ### Fixed
 
+- Restored standard triple-backtick Markdown fences for search result snippets
+  whose content does not itself contain backtick fences.
 - Fixed the release-check workflow and bundled Homebrew formula so tag builds
   install the current release formula from a temporary local Homebrew tap.
 
