@@ -330,11 +330,15 @@ fn tool_search(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let mode = match parse_mcp_mode(&args) {
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let mode = match parse_mcp_mode(&args, profile.as_ref()) {
         Ok(mode) => mode,
         Err(message) => return ToolText::error(message),
     };
-    let top_k = match parse_mcp_limit(&args, "limit", 5) {
+    let top_k = match parse_mcp_limit(&args, "limit", profile.as_ref().and_then(|p| p.limit), 5) {
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
@@ -429,7 +433,11 @@ fn tool_find_related(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let top_k = match parse_mcp_limit(&args, "limit", 5) {
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let top_k = match parse_mcp_limit(&args, "limit", profile.as_ref().and_then(|p| p.limit), 5) {
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
@@ -581,7 +589,7 @@ fn tool_list_files(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let limit = match parse_mcp_limit(&args, "limit", 200) {
+    let limit = match parse_mcp_limit(&args, "limit", None, 200) {
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
@@ -789,18 +797,41 @@ fn search_options_from_args(args: &Value, top_k: usize, mode: SearchMode) -> Sea
     options
 }
 
-fn parse_mcp_mode(args: &Value) -> std::result::Result<SearchMode, String> {
+fn selected_profile(args: &Value) -> std::result::Result<Option<profiles::Profile>, String> {
+    let Some(profile_name) = args.get("profile").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if profile_name.is_empty() {
+        return Err("profile must not be empty".to_owned());
+    }
+    let root = platform_cache_root().map_err(|err| err.to_string())?;
+    profiles::get_profile(&root, profile_name)
+        .map(Some)
+        .map_err(|err| err.to_string())
+}
+
+fn parse_mcp_mode(
+    args: &Value,
+    profile: Option<&profiles::Profile>,
+) -> std::result::Result<SearchMode, String> {
     match args.get("mode").and_then(Value::as_str) {
         Some(value) => value
             .parse::<SearchMode>()
             .map_err(|_| format!("mode must be one of: hybrid, semantic, bm25 (got {value:?})")),
-        None => Ok(SearchMode::Hybrid),
+        None => Ok(profile
+            .and_then(|profile| profile.mode)
+            .unwrap_or(SearchMode::Hybrid)),
     }
 }
 
-fn parse_mcp_limit(args: &Value, key: &str, default: usize) -> std::result::Result<usize, String> {
+fn parse_mcp_limit(
+    args: &Value,
+    key: &str,
+    profile_default: Option<usize>,
+    default: usize,
+) -> std::result::Result<usize, String> {
     let Some(value) = args.get(key) else {
-        return Ok(default);
+        return Ok(profile_default.unwrap_or(default));
     };
     let Some(limit) = value.as_u64() else {
         return Err(format!("{key} must be an integer >= 1"));
@@ -958,7 +989,7 @@ fn tool_feedback_create(args: Value) -> ToolText {
 }
 
 fn tool_feedback_list(args: Value) -> ToolText {
-    let limit = match parse_mcp_limit(&args, "limit", 20) {
+    let limit = match parse_mcp_limit(&args, "limit", None, 20) {
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
@@ -1413,8 +1444,11 @@ fn write_message(writer: &mut impl Write, message: &Value, framing: MessageFrami
 mod tests {
     use super::{
         IndexCache, MessageFraming, build_instructions, handle_resource_read, handle_tool_call,
-        negotiated_protocol_version, read_message, selected_source, tool_schemas, write_message,
+        negotiated_protocol_version, parse_mcp_limit, parse_mcp_mode, read_message,
+        selected_source, tool_schemas, write_message,
     };
+    use crate::profiles::Profile;
+    use crate::types::SearchMode;
     use serde_json::json;
     use std::io::{BufReader, Cursor};
 
@@ -1543,6 +1577,33 @@ mod tests {
     fn repo_argument_is_rejected_in_favor_of_source() {
         let error = selected_source(&json!({"repo": "/requested/repo"}), None).unwrap_err();
         assert!(error.contains("use source instead"));
+    }
+
+    #[test]
+    fn mcp_search_options_fall_back_to_profile_defaults() {
+        let profile = Profile {
+            name: "agent".to_owned(),
+            mode: Some(SearchMode::Bm25),
+            limit: Some(20),
+            ..Profile::default()
+        };
+
+        assert_eq!(
+            parse_mcp_mode(&json!({}), Some(&profile)).unwrap(),
+            SearchMode::Bm25
+        );
+        assert_eq!(
+            parse_mcp_limit(&json!({}), "limit", profile.limit, 5).unwrap(),
+            20
+        );
+        assert_eq!(
+            parse_mcp_mode(&json!({"mode": "semantic"}), Some(&profile)).unwrap(),
+            SearchMode::Semantic
+        );
+        assert_eq!(
+            parse_mcp_limit(&json!({"limit": 3}), "limit", profile.limit, 5).unwrap(),
+            3
+        );
     }
 
     #[test]
