@@ -52,7 +52,10 @@ jobs:
 
       - name: Build Homebrew formula from source
         if: github.ref_type == 'tag'
-        run: brew install --build-from-source ./packaging/homebrew/sifs.rb
+        run: |
+          brew tap-new local/sifs-release
+          cp packaging/homebrew/sifs.rb "$(brew --repo local/sifs-release)/Formula/sifs.rb"
+          brew install --build-from-source local/sifs-release/sifs
 
       - name: Create tiny repository
         if: github.ref_type == 'tag'

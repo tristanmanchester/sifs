@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed the release-check workflow and bundled Homebrew formula so tag builds
+  install the current release formula from a temporary local Homebrew tap.
+
 ## 0.3.2 - 2026-05-06
 
 ### Fixed
