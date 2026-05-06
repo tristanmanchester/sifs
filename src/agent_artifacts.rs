@@ -100,13 +100,16 @@ pub enum AgentArtifact {
 
 impl AgentArtifact {
     pub fn concrete_artifacts(self, target: AgentTarget) -> Vec<Self> {
-        match self {
+        let artifacts: Vec<Self> = match self {
             Self::All => [Self::Skill, Self::Snippet, Self::Mcp]
                 .into_iter()
-                .filter(|artifact| target.supports_artifact(*artifact))
                 .collect(),
             artifact => vec![artifact],
-        }
+        };
+        artifacts
+            .into_iter()
+            .filter(|artifact| target.supports_artifact(*artifact))
+            .collect()
     }
 
     pub fn as_str(self) -> &'static str {
@@ -116,6 +119,23 @@ impl AgentArtifact {
             Self::Mcp => "mcp",
             Self::All => "all",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentArtifact, AgentTarget};
+
+    #[test]
+    fn specific_artifacts_are_filtered_by_target_support() {
+        assert_eq!(
+            AgentArtifact::Mcp.concrete_artifacts(AgentTarget::Openclaw),
+            Vec::<AgentArtifact>::new()
+        );
+        assert_eq!(
+            AgentArtifact::Mcp.concrete_artifacts(AgentTarget::Codex),
+            vec![AgentArtifact::Mcp]
+        );
     }
 }
 

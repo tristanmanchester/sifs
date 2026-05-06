@@ -25,6 +25,8 @@ versioning where practical.
   triple backticks no longer breaks markdown rendering.
 - Fixed daemon startup checks so symlinked Unix socket paths are probed and
   stale symlinked sockets can be reclaimed.
+- Fixed agent artifact rendering for `--target all --artifact mcp` so targets
+  that do not support MCP are skipped instead of aborting supported output.
 - Fixed `sifs cache clean --force` so the human-readable output no longer
   claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
