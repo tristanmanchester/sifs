@@ -208,12 +208,7 @@ impl Model2VecEncoder {
                 .to_string(false)
                 .map_err(|err| anyhow!("failed to serialize tokenizer: {err}"))?,
         )?;
-        let unk_token = tokenizer_json
-            .get("model")
-            .and_then(|model| model.get("unk_token"))
-            .and_then(Value::as_str)
-            .unwrap_or("[UNK]");
-        let unk_token_id = tokenizer.token_to_id(unk_token);
+        let unk_token_id = validate_unk_token(&tokenizer, &tokenizer_json)?;
 
         let bytes = fs::read(model_path)?;
         let tensors = SafeTensors::deserialize(&bytes)?;
@@ -252,7 +247,7 @@ impl Encoder for Model2VecEncoder {
         let encodings = self
             .tokenizer
             .encode_batch_fast::<String>(truncated, false)
-            .unwrap_or_default();
+            .expect("Model2Vec tokenizer encoding failed after model load validation");
 
         for (row_idx, encoding) in encodings.into_iter().enumerate() {
             let mut token_ids: Vec<u32> = encoding.get_ids().to_vec();
@@ -337,6 +332,22 @@ fn model_files(options: &ModelOptions) -> Result<(PathBuf, PathBuf, PathBuf)> {
 
 fn existing_file(path: PathBuf) -> Option<PathBuf> {
     path.exists().then_some(path)
+}
+
+fn validate_unk_token(tokenizer: &Tokenizer, tokenizer_json: &Value) -> Result<Option<u32>> {
+    let Some(unk_token) = configured_unk_token(tokenizer_json) else {
+        return Ok(None);
+    };
+    tokenizer.token_to_id(unk_token).map(Some).with_context(|| {
+        format!("tokenizer unk_token {unk_token:?} is configured but missing from the vocabulary")
+    })
+}
+
+fn configured_unk_token(tokenizer_json: &Value) -> Option<&str> {
+    tokenizer_json
+        .get("model")
+        .and_then(|model| model.get("unk_token"))
+        .and_then(Value::as_str)
 }
 
 fn hash_file(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
@@ -455,4 +466,19 @@ pub fn normalize_vector(mut vector: Array1<f32>) -> Array1<f32> {
         vector.mapv_inplace(|v| v / norm);
     }
     vector
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configured_unk_token;
+    use serde_json::json;
+
+    #[test]
+    fn configured_unk_token_reads_model_setting_only_when_present() {
+        assert_eq!(
+            configured_unk_token(&json!({"model": {"unk_token": "[UNK]"}})),
+            Some("[UNK]")
+        );
+        assert_eq!(configured_unk_token(&json!({"model": {}})), None);
+    }
 }
