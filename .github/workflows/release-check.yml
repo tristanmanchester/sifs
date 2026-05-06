@@ -54,7 +54,12 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           brew tap-new local/sifs-release
-          cp packaging/homebrew/sifs.rb "$(brew --repo local/sifs-release)/Formula/sifs.rb"
+          tar --exclude .git --exclude target -czf /tmp/sifs-release-source.tar.gz .
+          checksum="$(shasum -a 256 /tmp/sifs-release-source.tar.gz | awk '{print $1}')"
+          export SIFS_LOCAL_SHA256="$checksum"
+          formula="$(brew --repo local/sifs-release)/Formula/sifs.rb"
+          cp packaging/homebrew/sifs.rb "$formula"
+          ruby -0pi -e 'gsub(%r{url ".*"}, "url \"file:///tmp/sifs-release-source.tar.gz\""); gsub(/^  sha256 ".*"$/, "  sha256 \"#{ENV.fetch("SIFS_LOCAL_SHA256")}\"")' "$formula"
           brew install --build-from-source local/sifs-release/sifs
 
       - name: Create tiny repository
