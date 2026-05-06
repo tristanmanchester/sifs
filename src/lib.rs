@@ -31,4 +31,4 @@ pub use model2vec::{
 pub use types::{
     CacheMode, Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult,
 };
-pub use utils::{format_results, is_git_url, resolve_chunk};
+pub use utils::{fenced_code_block, format_results, is_git_url, resolve_chunk};

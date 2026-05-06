@@ -10,8 +10,8 @@ use sifs::daemon::{
 use sifs::update::{UpdateMode, UpdateOptions, run_update};
 use sifs::{
     CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
-    SearchOptions, SearchResult, SifsIndex, cache_summary, format_results, is_git_url,
-    load_model_with_options, model_status, platform_cache_root, resolve_chunk,
+    SearchOptions, SearchResult, SifsIndex, cache_summary, fenced_code_block, format_results,
+    is_git_url, load_model_with_options, model_status, platform_cache_root, resolve_chunk,
 };
 use sifs::{agent_context, feedback, profiles};
 use std::fs;
@@ -1708,10 +1708,9 @@ fn print_get_output(source: &str, chunk: &sifs::Chunk, output: OutputArgs) -> Re
         match output.format {
             TextFormat::Human => {
                 println!(
-                    "{}\n\n```{}\n{}\n```",
+                    "{}\n\n{}",
                     chunk.location(),
-                    chunk.language.clone().unwrap_or_default(),
-                    chunk.content
+                    fenced_code_block(chunk.language.as_deref(), &chunk.content)
                 );
             }
             TextFormat::Compact => {

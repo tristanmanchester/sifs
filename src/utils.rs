@@ -51,17 +51,35 @@ pub fn format_results(header: &str, results: &[SearchResult]) -> String {
             result.score,
             result.source
         ));
-        lines.push("```".to_owned());
-        lines.push(result.chunk.content.trim().to_owned());
-        lines.push("```".to_owned());
+        lines.push(fenced_code_block(None, result.chunk.content.trim()));
         lines.push(String::new());
     }
     lines.join("\n")
 }
 
+pub fn fenced_code_block(language: Option<&str>, content: &str) -> String {
+    let fence = markdown_code_fence(content);
+    let language = language.unwrap_or_default();
+    format!("{fence}{language}\n{content}\n{fence}")
+}
+
+fn markdown_code_fence(content: &str) -> String {
+    let mut longest = 0usize;
+    let mut current = 0usize;
+    for ch in content.chars() {
+        if ch == '`' {
+            current += 1;
+            longest = longest.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    "`".repeat(longest.max(3) + 1)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{format_results, is_git_url, resolve_chunk};
+    use super::{fenced_code_block, format_results, is_git_url, resolve_chunk};
     use crate::types::{Chunk, SearchMode, SearchResult};
 
     fn chunk(file_path: &str, start_line: usize, end_line: usize) -> Chunk {
@@ -103,5 +121,16 @@ mod tests {
         let output = format_results("Header", &[result]);
 
         assert!(output.contains("[score=0.500, source=bm25]"));
+    }
+
+    #[test]
+    fn fenced_code_block_uses_longer_fence_than_content_backticks() {
+        let block = fenced_code_block(
+            Some("markdown"),
+            "before\n```rust\nfn main() {}\n```\nafter",
+        );
+
+        assert!(block.starts_with("````markdown\n"));
+        assert!(block.ends_with("\n````"));
     }
 }

@@ -7,7 +7,7 @@ use crate::daemon::{
 use crate::index::{CacheConfig, IndexOptions};
 use crate::model2vec::{EncoderSpec, ModelOptions};
 use crate::types::{SearchMode, SearchOptions};
-use crate::utils::{format_results, is_git_url, resolve_chunk};
+use crate::utils::{fenced_code_block, format_results, is_git_url, resolve_chunk};
 use crate::{agent_context, feedback, platform_cache_root, profiles};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
@@ -636,10 +636,9 @@ fn tool_get_chunk(
             };
             ToolText::ok_structured(
                 format!(
-                    "{}\n\n```{}\n{}\n```",
+                    "{}\n\n{}",
                     chunk.location(),
-                    chunk.language.clone().unwrap_or_default(),
-                    chunk.content
+                    fenced_code_block(chunk.language.as_deref(), &chunk.content)
                 ),
                 json!({"source": source, "warnings": index_warnings(index), "chunk": chunk}),
             )

@@ -21,6 +21,8 @@ versioning where practical.
   literals are split instead of producing oversized search chunks.
 - Fixed daemon client timeout handling so `--timeout 0` is treated explicitly
   and nonzero socket timeout configuration errors are reported.
+- Fixed human-readable CLI and MCP code blocks so matched content containing
+  triple backticks no longer breaks markdown rendering.
 - Fixed `sifs cache clean --force` so the human-readable output no longer
   claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
