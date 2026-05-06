@@ -50,7 +50,7 @@ fn prepare_socket(paths: &DaemonPaths, replace_existing_socket: bool) -> Result<
             .with_context(|| format!("remove old daemon socket {}", paths.socket.display()))?;
         return Ok(());
     }
-    let metadata = std::fs::symlink_metadata(&paths.socket)
+    let metadata = std::fs::metadata(&paths.socket)
         .with_context(|| format!("inspect daemon socket path {}", paths.socket.display()))?;
     if !metadata.file_type().is_socket() {
         bail!(
@@ -237,4 +237,31 @@ fn is_socket_path(path: &Path) -> bool {
 
 fn elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prepare_socket;
+    use crate::daemon::paths::DaemonPaths;
+    use std::os::unix::fs::symlink;
+    use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn prepare_socket_reclaims_stale_socket_through_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target.sock");
+        let link = temp.path().join("linked.sock");
+        drop(UnixListener::bind(&target).unwrap());
+        symlink(&target, &link).unwrap();
+        let paths = DaemonPaths {
+            runtime_dir: temp.path().to_path_buf(),
+            socket: link.clone(),
+            pid_file: temp.path().join("sifs.pid"),
+            log_file: temp.path().join("sifs.log"),
+        };
+
+        prepare_socket(&paths, false).unwrap();
+
+        assert!(!link.exists());
+    }
 }

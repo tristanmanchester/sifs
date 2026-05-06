@@ -23,6 +23,8 @@ versioning where practical.
   and nonzero socket timeout configuration errors are reported.
 - Fixed human-readable CLI and MCP code blocks so matched content containing
   triple backticks no longer breaks markdown rendering.
+- Fixed daemon startup checks so symlinked Unix socket paths are probed and
+  stale symlinked sockets can be reclaimed.
 - Fixed `sifs cache clean --force` so the human-readable output no longer
   claims a missing cache directory was removed.
 - Fixed GitHub Actions CI by aligning the workflow MSRV with current parser
