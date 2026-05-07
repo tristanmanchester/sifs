@@ -38,6 +38,8 @@ versioning where practical.
   hybrid ranking even when sparse or semantic retrieval missed them initially.
 - Made `sifs tune --from-feedback --dry-run` report candidate modes, alpha
   values, and follow-up eval commands instead of only counting feedback cases.
+- Regenerated the full benchmark result artifact, generated figures, and
+  benchmark documentation with reproducibility and first-use latency fields.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
