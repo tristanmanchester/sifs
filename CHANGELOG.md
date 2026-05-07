@@ -34,6 +34,8 @@ versioning where practical.
   arrow-function declaration forms.
 - Documented the current Windows story and added daemon platform support details
   to `sifs doctor --json`.
+- Added generic path-token candidate expansion so strong path matches can enter
+  hybrid ranking even when sparse or semantic retrieval missed them initially.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

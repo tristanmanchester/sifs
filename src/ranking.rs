@@ -250,6 +250,29 @@ fn boost_path_intent<S: BuildHasher>(
     let wants_public_api = lowered.contains("public api");
     let wants_source_file = lowered.contains("source file");
 
+    let mut injected = 0usize;
+    for (chunk_id, chunk) in chunks.iter().enumerate() {
+        if boosted.contains_key(&chunk_id) {
+            continue;
+        }
+        let path = chunk.file_path.replace('\\', "/").to_lowercase();
+        let path_terms = path_terms(&path);
+        let overlap = query_terms
+            .iter()
+            .filter(|term| path_terms.contains(*term))
+            .count();
+        let stem_match = query_terms
+            .iter()
+            .any(|term| path_stem_matches(&path, term));
+        if overlap >= 2 || (stem_match && overlap >= 1) {
+            boosted.insert(chunk_id, max_score * (0.25 + 0.2 * overlap as f32).min(0.9));
+            injected += 1;
+            if injected >= 32 {
+                break;
+            }
+        }
+    }
+
     for (&chunk_id, score) in boosted.iter_mut() {
         let path = chunks[chunk_id].file_path.replace('\\', "/").to_lowercase();
         let path_terms = path_terms(&path);
@@ -718,7 +741,7 @@ mod tests {
     }
 
     #[test]
-    fn query_path_intent_uses_generic_path_terms_without_injecting_non_candidates() {
+    fn query_path_intent_injects_strong_path_term_candidates() {
         let chunks = vec![
             chunk("fn parse() {}", "src/transfer.c"),
             chunk("fn parse() {}", "src/retry/backoff.rs"),
@@ -734,7 +757,7 @@ mod tests {
             None,
         );
 
-        assert!(scores[&2] <= scores[&0]);
-        assert!(!scores.contains_key(&1));
+        assert!(scores.contains_key(&1));
+        assert!(scores[&1] > scores[&2]);
     }
 }
