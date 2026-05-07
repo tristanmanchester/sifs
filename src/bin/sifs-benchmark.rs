@@ -344,7 +344,24 @@ fn main() -> Result<()> {
                         .with_explain(true);
                     diagnostic_options.alpha = args.alpha;
                     let diagnostic_results = index.search_with(&task.query, &diagnostic_options)?;
-                    task_candidate_diagnostics(&diagnostic_results, task)
+                    let bm25_diagnostic_results = index.search_with(
+                        &task.query,
+                        &SearchOptions::new(diagnostic_depth)
+                            .with_mode(SearchMode::Bm25)
+                            .with_cache(false),
+                    )?;
+                    let semantic_diagnostic_results = index.search_with(
+                        &task.query,
+                        &SearchOptions::new(diagnostic_depth)
+                            .with_mode(SearchMode::Semantic)
+                            .with_cache(false),
+                    )?;
+                    task_candidate_diagnostics(
+                        &diagnostic_results,
+                        &bm25_diagnostic_results,
+                        &semantic_diagnostic_results,
+                        task,
+                    )
                 } else {
                     Vec::new()
                 };
@@ -628,26 +645,16 @@ fn target_rank(results: &[sifs::SearchResult], target: &Target) -> Option<usize>
 
 fn task_candidate_diagnostics(
     results: &[sifs::SearchResult],
+    bm25_results: &[sifs::SearchResult],
+    semantic_results: &[sifs::SearchResult],
     task: &Task,
 ) -> Vec<TargetDiagnostic> {
     task.relevant
         .iter()
         .map(|target| {
-            let matched = results.iter().enumerate().find(|(_, result)| {
-                let chunk = &result.chunk;
-                target_matches(&chunk.file_path, chunk.start_line, chunk.end_line, target)
-            });
-            let (target_final_rank, target_bm25_rank, target_semantic_rank) =
-                if let Some((idx, result)) = matched {
-                    let explanation = result.explanation.as_ref();
-                    (
-                        Some(idx + 1),
-                        explanation.and_then(|explanation| explanation.bm25_rank),
-                        explanation.and_then(|explanation| explanation.semantic_rank),
-                    )
-                } else {
-                    (None, None, None)
-                };
+            let target_final_rank = target_rank(results, target);
+            let target_bm25_rank = target_rank(bm25_results, target);
+            let target_semantic_rank = target_rank(semantic_results, target);
             let target_in_candidate_union =
                 target_bm25_rank.is_some() || target_semantic_rank.is_some();
             let failure_stage = match (target_final_rank, target_in_candidate_union) {

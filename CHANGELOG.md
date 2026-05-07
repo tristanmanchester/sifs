@@ -75,6 +75,9 @@ versioning where practical.
 - Added a lightweight file-card candidate generator for architecture and
   natural-language hybrid queries using file paths, languages, symbols, and
   breadcrumbs as file-level retrieval metadata.
+- Made benchmark candidate diagnostics compute BM25 and semantic target ranks
+  from explicit per-mode diagnostic searches instead of only from final hybrid
+  result explanations.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
