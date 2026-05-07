@@ -387,7 +387,7 @@ fn boost_embedded_symbols<S: BuildHasher>(
     max_score: f32,
     chunks: &[Chunk],
 ) {
-    let names: HashSet<String> = EMBEDDED_SYMBOL_RE
+    let mut names: HashSet<String> = EMBEDDED_SYMBOL_RE
         .find_iter(query)
         .map(|m| m.as_str().to_owned())
         .chain(
@@ -399,6 +399,7 @@ fn boost_embedded_symbols<S: BuildHasher>(
     if names.is_empty() {
         return;
     }
+    expand_embedded_symbol_suffixes(query, &mut names);
     let matchers = definition_matchers(&names);
     let boost_unit = max_score * 3.0 * 0.5;
     for chunk_id in boosted.keys().copied().collect::<Vec<_>>() {
@@ -426,6 +427,22 @@ fn boost_embedded_symbols<S: BuildHasher>(
                 boosted.insert(chunk_id, tier);
             }
         }
+    }
+}
+
+fn expand_embedded_symbol_suffixes(query: &str, names: &mut HashSet<String>) {
+    let lowered = query.to_lowercase();
+    if !lowered.contains("attribute") {
+        return;
+    }
+    let suffix = "Attribute";
+    let suffixed: HashSet<String> = names
+        .iter()
+        .filter(|name| !name.ends_with(suffix))
+        .map(|name| format!("{name}{suffix}"))
+        .collect();
+    if !suffixed.is_empty() {
+        *names = suffixed;
     }
 }
 
@@ -970,6 +987,28 @@ mod tests {
         let scores = HashMap::from([(0usize, 0.8), (1usize, 1.0)]);
 
         let boosted = apply_query_boost(&scores, "app.set and settings storage", &chunks);
+
+        assert!(boosted[&0] > boosted[&1]);
+    }
+
+    #[test]
+    fn embedded_symbol_attribute_queries_boost_attribute_definitions() {
+        let attribute = chunk(
+            "public sealed class JsonPropertyAttribute : Attribute {}",
+            "JsonPropertyAttribute.cs",
+        );
+        let property = chunk(
+            "public sealed class JsonProperty {}",
+            "Serialization/JsonProperty.cs",
+        );
+        let chunks = vec![attribute, property];
+        let scores = HashMap::from([(0usize, 0.8), (1usize, 1.0)]);
+
+        let boosted = apply_query_boost(
+            &scores,
+            "JsonProperty and JsonObject attribute for controlling serialization",
+            &chunks,
+        );
 
         assert!(boosted[&0] > boosted[&1]);
     }
