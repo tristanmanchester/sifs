@@ -1021,8 +1021,14 @@ fn tool_feedback_create(args: Value) -> ToolText {
         .get("command_context")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    let query = args.get("query").and_then(Value::as_str).map(str::to_owned);
+    let expected = args
+        .get("expected")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     match platform_cache_root().and_then(|root| {
-        feedback::create_feedback(&root, message, command_context).map(|entry| (root, entry))
+        feedback::create_feedback_case(&root, message, command_context, query, expected)
+            .map(|entry| (root, entry))
     }) {
         Ok((root, entry)) => ToolText::ok_structured(
             format!("Feedback recorded locally: {}", entry.id),
@@ -1351,7 +1357,9 @@ fn tool_schemas() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "message": {"type": "string"},
-                    "command_context": {"type": ["string", "null"]}
+                    "command_context": {"type": ["string", "null"]},
+                    "query": {"type": ["string", "null"], "description": "Optional search query for local eval."},
+                    "expected": {"type": ["string", "null"], "description": "Optional expected file path or location prefix for local eval."}
                 },
                 "required": ["message"]
             }

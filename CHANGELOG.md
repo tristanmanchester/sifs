@@ -29,6 +29,8 @@ versioning where practical.
   profile fields for searching documentation and config files explicitly.
 - Added MCP local-index freshness checks that refresh stale cached indexes before
   search and report freshness in structured search responses.
+- Added expected-query feedback fields and `sifs eval --from-feedback` for a
+  local hit-rate regression loop from recorded agent misses.
 
 ### Fixed
 

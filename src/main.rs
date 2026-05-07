@@ -296,6 +296,17 @@ enum Command {
         #[command(subcommand)]
         command: FeedbackCommand,
     },
+    #[command(about = "Evaluate search quality against local feedback cases.")]
+    Eval {
+        #[arg(long)]
+        from_feedback: bool,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Check for or install the latest SIFS release through Cargo or Homebrew.")]
     Update {
         #[arg(
@@ -533,6 +544,10 @@ enum FeedbackCommand {
         message: String,
         #[arg(long)]
         command_context: Option<String>,
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        expected: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -1027,6 +1042,12 @@ fn main() -> Result<()> {
         Some(Command::AgentContext { json }) => print_agent_context(json)?,
         Some(Command::Profile { command }) => run_profile(command)?,
         Some(Command::Feedback { command }) => run_feedback(command)?,
+        Some(Command::Eval {
+            from_feedback,
+            source,
+            limit,
+            json,
+        }) => run_eval(from_feedback, source, limit, json)?,
         Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
         Some(Command::Update {
             check,
@@ -3953,15 +3974,85 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
     Ok(())
 }
 
+fn run_eval(
+    from_feedback: bool,
+    source: Option<String>,
+    limit: usize,
+    json_output: bool,
+) -> Result<()> {
+    if !from_feedback {
+        bail!("eval currently requires --from-feedback");
+    }
+    if limit == 0 {
+        bail!("--limit must be at least 1");
+    }
+    let root = platform_cache_root()?;
+    let (entries, _) = feedback::list_feedback(&root, usize::MAX)?;
+    let cases = entries
+        .into_iter()
+        .filter_map(|entry| Some((entry.query?, entry.expected?)))
+        .collect::<Vec<_>>();
+    let source = source.unwrap_or_else(|| ".".to_owned());
+    let index = build_sparse_index(&source, CacheConfig::Platform, false, true, None)?;
+    let mut hits = 0usize;
+    let mut results = Vec::new();
+    for (query, expected) in &cases {
+        let search = SearchOptions::new(limit).with_mode(SearchMode::Bm25);
+        let found = index.search_with(query, &search)?;
+        let rank = found
+            .iter()
+            .position(|result| {
+                result.chunk.location().starts_with(expected) || result.chunk.file_path == *expected
+            })
+            .map(|idx| idx + 1);
+        if rank.is_some() {
+            hits += 1;
+        }
+        results.push(json!({
+            "query": query,
+            "expected": expected,
+            "rank": rank,
+            "hit": rank.is_some(),
+        }));
+    }
+    let hit_rate = if cases.is_empty() {
+        0.0
+    } else {
+        hits as f64 / cases.len() as f64
+    };
+    let payload = json!({
+        "source": source,
+        "cases": cases.len(),
+        "hits": hits,
+        "hit_rate": hit_rate,
+        "limit": limit,
+        "results": results,
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!(
+            "Feedback eval: {hits}/{} hit@{} ({:.3})",
+            cases.len(),
+            limit,
+            hit_rate
+        );
+    }
+    Ok(())
+}
+
 fn run_feedback(command: FeedbackCommand) -> Result<()> {
     let root = platform_cache_root()?;
     match command {
         FeedbackCommand::Create {
             message,
             command_context,
+            query,
+            expected,
             json,
         } => {
-            let entry = feedback::create_feedback(&root, &message, command_context)?;
+            let entry =
+                feedback::create_feedback_case(&root, &message, command_context, query, expected)?;
             if json {
                 println!(
                     "{}",
