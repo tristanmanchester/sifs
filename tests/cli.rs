@@ -1062,6 +1062,10 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
             "invalid mode error was useful",
             "--command-context",
             "search",
+            "--query",
+            "token validation",
+            "--expected",
+            "src/lib.rs",
             "--json",
         ])
         .env("HOME", home.path())
@@ -1114,6 +1118,21 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     let eval_payload: Value = serde_json::from_slice(&eval.stdout).unwrap();
     assert_eq!(eval_payload["modes"][0]["mode"], "bm25");
     assert!(eval_payload["modes"][0]["mrr"].is_number());
+
+    let tune = sifs()
+        .args(["tune", "--from-feedback", "--dry-run", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        tune.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&tune.stderr)
+    );
+    let tune_payload: Value = serde_json::from_slice(&tune.stdout).unwrap();
+    assert_eq!(tune_payload["cases"], 1);
+    assert!(tune_payload["candidate_alpha_values"].is_array());
+    assert!(tune_payload["next_commands"].as_array().unwrap().len() >= 2);
 }
 
 #[test]

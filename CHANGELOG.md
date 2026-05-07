@@ -36,6 +36,8 @@ versioning where practical.
   to `sifs doctor --json`.
 - Added generic path-token candidate expansion so strong path matches can enter
   hybrid ranking even when sparse or semantic retrieval missed them initially.
+- Made `sifs tune --from-feedback --dry-run` report candidate modes, alpha
+  values, and follow-up eval commands instead of only counting feedback cases.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

@@ -4355,10 +4355,20 @@ fn run_tune(from_feedback: bool, dry_run: bool, json_output: bool) -> Result<()>
         "dry_run": true,
         "cases": cases,
         "changed": false,
+        "candidate_alpha_values": [0.25, 0.45, 0.65, 0.85],
+        "candidate_modes": ["bm25", "semantic", "hybrid"],
+        "next_commands": if cases == 0 {
+            Vec::<String>::new()
+        } else {
+            vec![
+                "sifs eval --from-feedback --all-modes --json".to_owned(),
+                "sifs eval --from-feedback --mode hybrid --json".to_owned(),
+            ]
+        },
         "recommendation": if cases == 0 {
             "Record feedback with --query and --expected before tuning."
         } else {
-            "Run sifs eval --from-feedback to inspect hit-rate before changing ranking weights."
+            "Compare all modes and hybrid alpha candidates against feedback before changing ranking defaults."
         },
     });
     if json_output {
