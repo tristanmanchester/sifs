@@ -72,6 +72,9 @@ versioning where practical.
   code includes checked-in benchmark repository names.
 - Added repo-level benchmark candidate diagnostic summaries for top-10,
   reranking, depth, and candidate-generation failure stages.
+- Added a lightweight file-card candidate generator for architecture and
+  natural-language hybrid queries using file paths, languages, symbols, and
+  breadcrumbs as file-level retrieval metadata.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

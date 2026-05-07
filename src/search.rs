@@ -156,6 +156,7 @@ pub fn search_hybrid(
     add_rrf_scores(&mut combined, semantic_scores, alpha_weight);
     add_rrf_scores(&mut combined, bm25_scores, 1.0 - alpha_weight);
     add_symbol_candidate_scores(&mut combined, query, symbol_mapping, selector);
+    add_file_card_candidate_scores(&mut combined, query, chunks, file_mapping, selector);
     let rrf_explain = explain.then(|| combined.clone());
     #[cfg(feature = "diagnostics")]
     let fuse = start.elapsed();
@@ -284,6 +285,88 @@ fn symbol_query_terms(query: &str) -> Vec<String> {
     terms
 }
 
+fn add_file_card_candidate_scores<S: std::hash::BuildHasher>(
+    combined: &mut HashMap<usize, f32, S>,
+    query: &str,
+    chunks: &[Chunk],
+    file_mapping: Option<&HashMap<String, Vec<usize>>>,
+    selector: Option<&[usize]>,
+) {
+    if !looks_architectural_or_natural_language(query) {
+        return;
+    }
+    let Some(file_mapping) = file_mapping else {
+        return;
+    };
+    let query_terms = crate::tokens::tokenize(query)
+        .into_iter()
+        .filter(|term| term.len() >= 3)
+        .collect::<std::collections::HashSet<_>>();
+    if query_terms.is_empty() {
+        return;
+    }
+    let selector_set = selector.map(|values| {
+        values
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+    });
+    let mut file_scores = Vec::new();
+    for (file_path, chunk_ids) in file_mapping {
+        let file_card_terms = file_card_terms(file_path, chunk_ids, chunks);
+        let overlap = query_terms
+            .iter()
+            .filter(|term| file_card_terms.contains(*term))
+            .count();
+        if overlap == 0 {
+            continue;
+        }
+        let Some(first_allowed_chunk) = chunk_ids.iter().copied().find(|idx| {
+            selector_set
+                .as_ref()
+                .is_none_or(|selector| selector.contains(idx))
+        }) else {
+            continue;
+        };
+        file_scores.push((first_allowed_chunk, overlap as f32));
+    }
+    file_scores.sort_by(|left, right| {
+        right
+            .1
+            .partial_cmp(&left.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for (rank, (chunk_id, score)) in file_scores.into_iter().take(32).enumerate() {
+        *combined.entry(chunk_id).or_default() += score / (RRF_K + rank as f32 + 1.0);
+    }
+}
+
+fn file_card_terms(
+    file_path: &str,
+    chunk_ids: &[usize],
+    chunks: &[Chunk],
+) -> std::collections::HashSet<String> {
+    let mut terms = crate::tokens::tokenize(file_path)
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    for chunk_id in chunk_ids {
+        let Some(chunk) = chunks.get(*chunk_id) else {
+            continue;
+        };
+        if let Some(language) = &chunk.language {
+            terms.extend(crate::tokens::tokenize(language));
+        }
+        for symbol in &chunk.symbols {
+            terms.extend(crate::tokens::tokenize(&symbol.name));
+            terms.extend(crate::tokens::tokenize(&symbol.kind));
+        }
+        for breadcrumb in &chunk.breadcrumbs {
+            terms.extend(crate::tokens::tokenize(breadcrumb));
+        }
+    }
+    terms
+}
+
 fn hybrid_candidate_count(query: &str, top_k: usize) -> usize {
     let top_k = top_k.max(1);
     if is_symbol_query(query) {
@@ -347,8 +430,8 @@ fn add_rrf_scores<S: std::hash::BuildHasher>(
 #[cfg(test)]
 mod tests {
     use super::{
-        add_rrf_scores, add_symbol_candidate_scores, hybrid_candidate_count, search_bm25,
-        search_hybrid, search_semantic,
+        add_file_card_candidate_scores, add_rrf_scores, add_symbol_candidate_scores,
+        hybrid_candidate_count, search_bm25, search_hybrid, search_semantic,
     };
     use crate::dense::DenseIndex;
     use crate::model2vec::Encoder;
@@ -462,5 +545,31 @@ mod tests {
         );
 
         assert!(combined.contains_key(&42));
+    }
+
+    #[test]
+    fn file_card_candidates_are_injected_for_architecture_queries() {
+        let chunks = vec![
+            chunk("fn unrelated() {}", "src/other.rs"),
+            chunk(
+                "pub struct Router {}\npub fn lifecycle() {}",
+                "src/http/router.rs",
+            ),
+        ];
+        let file_mapping = HashMap::from([
+            ("src/other.rs".to_owned(), vec![0]),
+            ("src/http/router.rs".to_owned(), vec![1]),
+        ]);
+        let mut combined = HashMap::new();
+
+        add_file_card_candidate_scores(
+            &mut combined,
+            "how request router lifecycle works",
+            &chunks,
+            Some(&file_mapping),
+            None,
+        );
+
+        assert!(combined.contains_key(&1));
     }
 }
