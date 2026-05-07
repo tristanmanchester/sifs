@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.3.3 - 2026-05-07
+
 ### Added
 
 - Added a Dockerfile for running the SIFS MCP server behind `mcp-proxy` in
