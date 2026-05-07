@@ -1134,9 +1134,7 @@ fn normalize_filter_path(path: &str) -> String {
     parts.join("/")
 }
 
-fn populate_mapping(
-    chunks: &[Chunk],
-) -> ChunkMappings {
+fn populate_mapping(chunks: &[Chunk]) -> ChunkMappings {
     let mut file_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut language_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut symbol_mapping: HashMap<String, Vec<usize>> = HashMap::new();
