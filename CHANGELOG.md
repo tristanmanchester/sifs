@@ -80,6 +80,9 @@ versioning where practical.
   result explanations.
 - Expanded symbol extraction for common visibility/modifier prefixes, C macros,
   C typedef structs/enums, and C-like function declarations.
+- Narrowed file-card candidate expansion to explicit architecture, file, or
+  location-oriented queries so ordinary natural-language searches avoid
+  repository-wide file-card scans.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

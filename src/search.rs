@@ -292,7 +292,7 @@ fn add_file_card_candidate_scores<S: std::hash::BuildHasher>(
     file_mapping: Option<&HashMap<String, Vec<usize>>>,
     selector: Option<&[usize]>,
 ) {
-    if !looks_architectural_or_natural_language(query) {
+    if !looks_file_card_query(query) {
         return;
     }
     let Some(file_mapping) = file_mapping else {
@@ -313,11 +313,7 @@ fn add_file_card_candidate_scores<S: std::hash::BuildHasher>(
     });
     let mut file_scores = Vec::new();
     for (file_path, chunk_ids) in file_mapping {
-        let file_card_terms = file_card_terms(file_path, chunk_ids, chunks);
-        let overlap = query_terms
-            .iter()
-            .filter(|term| file_card_terms.contains(*term))
-            .count();
+        let overlap = file_card_overlap(&query_terms, file_path, chunk_ids, chunks);
         if overlap == 0 {
             continue;
         }
@@ -341,30 +337,54 @@ fn add_file_card_candidate_scores<S: std::hash::BuildHasher>(
     }
 }
 
-fn file_card_terms(
+fn file_card_overlap(
+    query_terms: &std::collections::HashSet<String>,
     file_path: &str,
     chunk_ids: &[usize],
     chunks: &[Chunk],
-) -> std::collections::HashSet<String> {
-    let mut terms = crate::tokens::tokenize(file_path)
+) -> usize {
+    let mut overlap = crate::tokens::tokenize(file_path)
         .into_iter()
+        .filter(|term| query_terms.contains(term))
         .collect::<std::collections::HashSet<_>>();
+    if overlap.len() == query_terms.len() {
+        return overlap.len();
+    }
     for chunk_id in chunk_ids {
         let Some(chunk) = chunks.get(*chunk_id) else {
             continue;
         };
         if let Some(language) = &chunk.language {
-            terms.extend(crate::tokens::tokenize(language));
+            overlap.extend(
+                crate::tokens::tokenize(language)
+                    .into_iter()
+                    .filter(|term| query_terms.contains(term)),
+            );
         }
         for symbol in &chunk.symbols {
-            terms.extend(crate::tokens::tokenize(&symbol.name));
-            terms.extend(crate::tokens::tokenize(&symbol.kind));
+            overlap.extend(
+                crate::tokens::tokenize(&symbol.name)
+                    .into_iter()
+                    .filter(|term| query_terms.contains(term)),
+            );
+            overlap.extend(
+                crate::tokens::tokenize(&symbol.kind)
+                    .into_iter()
+                    .filter(|term| query_terms.contains(term)),
+            );
         }
         for breadcrumb in &chunk.breadcrumbs {
-            terms.extend(crate::tokens::tokenize(breadcrumb));
+            overlap.extend(
+                crate::tokens::tokenize(breadcrumb)
+                    .into_iter()
+                    .filter(|term| query_terms.contains(term)),
+            );
+        }
+        if overlap.len() == query_terms.len() {
+            break;
         }
     }
-    terms
+    overlap.len()
 }
 
 fn hybrid_candidate_count(query: &str, top_k: usize) -> usize {
@@ -393,6 +413,22 @@ fn looks_architectural_or_natural_language(query: &str) -> bool {
         || lowered.contains(" flow")
         || lowered.contains(" lifecycle")
         || lowered.contains(" pipeline")
+}
+
+fn looks_file_card_query(query: &str) -> bool {
+    let lowered = query.trim().to_lowercase();
+    lowered.contains(" architecture")
+        || lowered.contains(" design")
+        || lowered.contains(" flow")
+        || lowered.contains(" lifecycle")
+        || lowered.contains(" pipeline")
+        || lowered.contains(" module")
+        || lowered.contains(" subsystem")
+        || lowered.contains(" package")
+        || lowered.contains(" layer")
+        || lowered.contains(" entry point")
+        || lowered.contains(" where ")
+        || lowered.starts_with("where ")
 }
 
 #[derive(Clone, Copy)]
