@@ -342,8 +342,20 @@ enum Command {
         from_feedback: bool,
         #[arg(long)]
         source: Option<String>,
+        #[arg(long, value_enum)]
+        mode: Option<ModeArg>,
+        #[arg(long, help = "Evaluate bm25, semantic, and hybrid modes.")]
+        all_modes: bool,
         #[arg(long, default_value_t = 10)]
         limit: usize,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec)]
+        encoder: EncoderArg,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
         #[arg(long)]
         json: bool,
     },
@@ -1127,9 +1139,26 @@ fn main() -> Result<()> {
         Some(Command::Eval {
             from_feedback,
             source,
+            mode,
+            all_modes,
             limit,
+            model,
+            encoder,
+            offline,
+            no_download,
             json,
-        }) => run_eval(from_feedback, source, limit, json)?,
+        }) => run_eval(EvalCommand {
+            from_feedback,
+            source,
+            mode,
+            all_modes,
+            limit,
+            model,
+            encoder,
+            offline,
+            no_download,
+            json,
+        })?,
         Some(Command::Tune {
             from_feedback,
             dry_run,
@@ -1186,6 +1215,19 @@ struct ResolvedInvocation {
     cache: CacheConfig,
     include_docs: bool,
     extensions: Vec<String>,
+}
+
+struct EvalCommand {
+    from_feedback: bool,
+    source: Option<String>,
+    mode: Option<ModeArg>,
+    all_modes: bool,
+    limit: usize,
+    model: Option<String>,
+    encoder: EncoderArg,
+    offline: bool,
+    no_download: bool,
+    json: bool,
 }
 
 fn run_pack(
@@ -4153,17 +4195,15 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
     Ok(())
 }
 
-fn run_eval(
-    from_feedback: bool,
-    source: Option<String>,
-    limit: usize,
-    json_output: bool,
-) -> Result<()> {
-    if !from_feedback {
+fn run_eval(command: EvalCommand) -> Result<()> {
+    if !command.from_feedback {
         bail!("eval currently requires --from-feedback");
     }
-    if limit == 0 {
+    if command.limit == 0 {
         bail!("--limit must be at least 1");
+    }
+    if command.all_modes && command.mode.is_some() {
+        bail!("--all-modes cannot be combined with --mode");
     }
     let root = platform_cache_root()?;
     let (entries, _) = feedback::list_feedback(&root, usize::MAX)?;
@@ -4171,51 +4211,106 @@ fn run_eval(
         .into_iter()
         .filter_map(|entry| Some((entry.query?, entry.expected?)))
         .collect::<Vec<_>>();
-    let source = source.unwrap_or_else(|| ".".to_owned());
-    let index = build_sparse_index(&source, CacheConfig::Platform, false, true, None)?;
-    let mut hits = 0usize;
-    let mut results = Vec::new();
-    for (query, expected) in &cases {
-        let search = SearchOptions::new(limit).with_mode(SearchMode::Bm25);
-        let found = index.search_with(query, &search)?;
-        let rank = found
-            .iter()
-            .position(|result| {
-                result.chunk.location().starts_with(expected) || result.chunk.file_path == *expected
-            })
-            .map(|idx| idx + 1);
-        if rank.is_some() {
-            hits += 1;
+    let source = command.source.unwrap_or_else(|| ".".to_owned());
+    let modes = if command.all_modes {
+        vec![SearchMode::Bm25, SearchMode::Semantic, SearchMode::Hybrid]
+    } else {
+        vec![
+            command
+                .mode
+                .map(SearchMode::from)
+                .unwrap_or(SearchMode::Bm25),
+        ]
+    };
+    let policy = model_policy(command.offline, command.no_download);
+    let index = build_index_for_mode(
+        &source,
+        if modes.iter().any(|mode| *mode != SearchMode::Bm25) {
+            SearchMode::Hybrid
+        } else {
+            SearchMode::Bm25
+        },
+        encoder_spec(command.encoder, command.model.as_deref(), policy),
+        CacheConfig::Platform,
+        command.offline,
+        true,
+        None,
+    )?;
+    let mut mode_reports = Vec::new();
+    for mode in modes {
+        let mut hits = 0usize;
+        let mut reciprocal_rank_sum = 0.0;
+        let mut ndcg_sum = 0.0;
+        let mut results = Vec::new();
+        for (query, expected) in &cases {
+            let search = SearchOptions::new(command.limit).with_mode(mode);
+            let found = index.search_with(query, &search)?;
+            let rank = found
+                .iter()
+                .position(|result| {
+                    result.chunk.location().starts_with(expected)
+                        || result.chunk.file_path == *expected
+                })
+                .map(|idx| idx + 1);
+            if let Some(rank) = rank {
+                hits += 1;
+                reciprocal_rank_sum += 1.0 / rank as f64;
+                ndcg_sum += 1.0 / (rank as f64 + 1.0).log2();
+            }
+            results.push(json!({
+                "query": query,
+                "expected": expected,
+                "rank": rank,
+                "hit": rank.is_some(),
+            }));
         }
-        results.push(json!({
-            "query": query,
-            "expected": expected,
-            "rank": rank,
-            "hit": rank.is_some(),
+        let hit_rate = if cases.is_empty() {
+            0.0
+        } else {
+            hits as f64 / cases.len() as f64
+        };
+        let mrr = if cases.is_empty() {
+            0.0
+        } else {
+            reciprocal_rank_sum / cases.len() as f64
+        };
+        let ndcg = if cases.is_empty() {
+            0.0
+        } else {
+            ndcg_sum / cases.len() as f64
+        };
+        mode_reports.push(json!({
+            "mode": mode.to_string(),
+            "cases": cases.len(),
+            "hits": hits,
+            "hit_rate": hit_rate,
+            "mrr": mrr,
+            "ndcg": ndcg,
+            "limit": command.limit,
+            "results": results,
         }));
     }
-    let hit_rate = if cases.is_empty() {
-        0.0
-    } else {
-        hits as f64 / cases.len() as f64
-    };
     let payload = json!({
         "source": source,
         "cases": cases.len(),
-        "hits": hits,
-        "hit_rate": hit_rate,
-        "limit": limit,
-        "results": results,
+        "limit": command.limit,
+        "modes": mode_reports,
     });
-    if json_output {
+    if command.json {
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
-        println!(
-            "Feedback eval: {hits}/{} hit@{} ({:.3})",
-            cases.len(),
-            limit,
-            hit_rate
-        );
+        for report in payload["modes"].as_array().into_iter().flatten() {
+            println!(
+                "Feedback eval ({}) : {}/{} hit@{} ({:.3}), MRR {:.3}, NDCG {:.3}",
+                report["mode"].as_str().unwrap_or("unknown"),
+                report["hits"].as_u64().unwrap_or(0),
+                report["cases"].as_u64().unwrap_or(0),
+                report["limit"].as_u64().unwrap_or(0),
+                report["hit_rate"].as_f64().unwrap_or(0.0),
+                report["mrr"].as_f64().unwrap_or(0.0),
+                report["ndcg"].as_f64().unwrap_or(0.0),
+            );
+        }
     }
     Ok(())
 }

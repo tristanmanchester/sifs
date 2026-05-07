@@ -28,6 +28,8 @@ versioning where practical.
   documented that benchmark runs should use `--no-cache` for cold-index claims.
 - Updated `sifs pack` to use saved profiles and the same mode, cache, model,
   document, and extension indexing options as search.
+- Extended `sifs eval --from-feedback` with `--mode`, `--all-modes`, MRR, and
+  NDCG reporting so feedback evals are no longer BM25-only.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

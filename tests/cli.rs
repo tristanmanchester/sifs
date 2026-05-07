@@ -1066,6 +1066,28 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     let entries: Value = serde_json::from_slice(&feedback_list.stdout).unwrap();
     assert_eq!(entries["total"], 1);
     assert_eq!(entries["feedback"][0]["command_context"], "search");
+
+    let eval = sifs()
+        .args([
+            "eval",
+            "--from-feedback",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        eval.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&eval.stderr)
+    );
+    let eval_payload: Value = serde_json::from_slice(&eval.stdout).unwrap();
+    assert_eq!(eval_payload["modes"][0]["mode"], "bm25");
+    assert!(eval_payload["modes"][0]["mrr"].is_number());
 }
 
 #[test]
