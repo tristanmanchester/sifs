@@ -481,6 +481,13 @@ impl SifsIndex {
         &self.warnings
     }
 
+    pub fn is_fresh(&self) -> Option<bool> {
+        let cache_entry = self.cache_entry.as_ref()?;
+        let signatures = self.signatures.as_ref()?;
+        let current = current_file_signatures(&cache_entry.root, None, None, false).ok()?;
+        Some(&current == signatures)
+    }
+
     pub fn chunks_for_file(&self, file_path: &str) -> Vec<&Chunk> {
         self.file_mapping
             .get(file_path)

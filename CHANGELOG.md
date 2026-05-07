@@ -27,6 +27,8 @@ versioning where practical.
   in BM25 so symbol-bearing chunks are easier to search and inspect.
 - Added `sifs search --include-docs`, repeatable `--extension`, and matching
   profile fields for searching documentation and config files explicitly.
+- Added MCP local-index freshness checks that refresh stale cached indexes before
+  search and report freshness in structured search responses.
 
 ### Fixed
 

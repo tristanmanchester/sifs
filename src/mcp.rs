@@ -168,6 +168,13 @@ impl IndexCache {
                 )?
             };
             self.indexes.insert(key.clone(), index);
+        } else if self
+            .indexes
+            .get(&key)
+            .and_then(SifsIndex::is_fresh)
+            .is_some_and(|fresh| !fresh)
+        {
+            self.refresh(source, ref_name)?;
         }
         Ok(self.indexes.get(&key).unwrap())
     }
@@ -356,6 +363,7 @@ fn tool_search(
             options: &options,
             stats: result.stats,
             warnings: json!([]),
+            fresh: None,
             results: result.results,
         });
     }
@@ -373,6 +381,7 @@ fn tool_search(
                 options: &options,
                 stats: index.stats(),
                 warnings: search_warnings_json(index, &options),
+                fresh: index.is_fresh(),
                 results,
             })
         }
@@ -388,6 +397,7 @@ struct McpSearchPresentation<'a> {
     options: &'a SearchOptions,
     stats: crate::IndexStats,
     warnings: Value,
+    fresh: Option<bool>,
     results: Vec<crate::SearchResult>,
 }
 
@@ -400,6 +410,7 @@ fn mcp_search_result(presentation: McpSearchPresentation<'_>) -> ToolText {
         "filter_languages": presentation.options.filter_languages,
         "filter_paths": presentation.options.filter_paths,
         "stats": presentation.stats,
+        "fresh": presentation.fresh,
         "warnings": presentation.warnings,
         "truncated": presentation.results.len() >= presentation.top_k,
         "hint": if presentation.results.len() >= presentation.top_k { Some("Increase limit or add filter_languages/filter_paths to narrow the search.") } else { None },
