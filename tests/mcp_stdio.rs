@@ -20,17 +20,41 @@ fn fixture() -> tempfile::TempDir {
 
 fn run_mcp(input: &[u8]) -> Output {
     let dir = fixture();
+    run_mcp_for_source(input, dir.path(), &[])
+}
+
+fn run_mcp_for_source(
+    input: &[u8],
+    source: &std::path::Path,
+    envs: &[(&str, &std::path::Path)],
+) -> Output {
     let mut child = sifs()
         .args([
             "mcp",
             "--source",
-            dir.path().to_str().unwrap(),
+            source.to_str().unwrap(),
             "--offline",
             "--no-cache",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .envs(envs.iter().map(|(key, value)| (*key, value)))
+        .spawn()
+        .unwrap();
+
+    child.stdin.as_mut().unwrap().write_all(input).unwrap();
+    drop(child.stdin.take());
+    child.wait_with_output().unwrap()
+}
+
+fn run_mcp_without_source(input: &[u8], envs: &[(&str, &std::path::Path)]) -> Output {
+    let mut child = sifs()
+        .args(["mcp", "--offline", "--no-cache"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .envs(envs.iter().map(|(key, value)| (*key, value)))
         .spawn()
         .unwrap();
 
@@ -282,4 +306,73 @@ fn invalid_search_mode_returns_actionable_tool_error() {
     let text = response["result"]["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("mode must be one of: hybrid, semantic, bm25"));
     assert!(text.contains("lexical"));
+}
+
+#[test]
+fn profile_search_applies_document_and_extension_index_options() {
+    let repo = fixture();
+    fs::write(
+        repo.path().join("release-notes.md"),
+        "# Release notes\n\nThe zephyr changelog explains the MCP profile docs contract.\n",
+    )
+    .unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "agent-docs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--include-docs",
+            "--extension",
+            "MD",
+            "--no-cache",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {
+                "profile": "agent-docs",
+                "query": "zephyr changelog"
+            }
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp_without_source(input.as_bytes(), &[("HOME", home.path())]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 9);
+    let results = response["result"]["structuredContent"]["results"]
+        .as_array()
+        .unwrap();
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|result| result["file_path"] == "release-notes.md")
+    );
 }

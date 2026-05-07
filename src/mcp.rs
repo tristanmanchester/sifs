@@ -5,13 +5,13 @@ use crate::daemon::{
     default_daemon_paths,
 };
 use crate::index::{CacheConfig, IndexOptions};
-use crate::model2vec::{EncoderSpec, ModelOptions};
+use crate::model2vec::{EncoderSpec, ModelLoadPolicy, ModelOptions};
 use crate::types::{SearchMode, SearchOptions};
 use crate::utils::{fenced_code_block, format_results, is_git_url, resolve_chunk};
 use crate::{agent_context, feedback, platform_cache_root, profiles};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -134,39 +134,38 @@ impl IndexCache {
         }
     }
 
-    fn key_for(source: &str, ref_name: Option<&str>) -> Result<String> {
-        if is_git_url(source) {
-            Ok(ref_name
+    fn source_key(source: &str, ref_name: Option<&str>) -> Result<String> {
+        let source_key = if is_git_url(source) {
+            ref_name
                 .map(|r| format!("{source}@{r}"))
-                .unwrap_or_else(|| source.to_owned()))
+                .unwrap_or_else(|| source.to_owned())
         } else {
-            Ok(Path::new(source)
+            Path::new(source)
                 .canonicalize()?
                 .to_string_lossy()
-                .to_string())
-        }
+                .to_string()
+        };
+        Ok(source_key)
     }
 
-    fn get(&mut self, source: &str, ref_name: Option<&str>) -> Result<&SifsIndex> {
-        let key = Self::key_for(source, ref_name)?;
+    fn key_for(source: &str, ref_name: Option<&str>, options: &McpIndexOptions) -> Result<String> {
+        Ok(format!(
+            "{}|{}",
+            Self::source_key(source, ref_name)?,
+            options.cache_key()
+        ))
+    }
+
+    fn get(
+        &mut self,
+        source: &str,
+        ref_name: Option<&str>,
+        options: &McpIndexOptions,
+    ) -> Result<&SifsIndex> {
+        let key = Self::key_for(source, ref_name, options)?;
         if !self.indexes.contains_key(&key) {
-            let index = if is_git_url(source) {
-                if self.offline {
-                    anyhow::bail!("--offline does not allow remote Git sources");
-                }
-                SifsIndex::from_git_with_index_options(
-                    source,
-                    ref_name,
-                    IndexOptions::new(self.model_options.clone())
-                        .with_cache(self.cache_config.clone()),
-                )?
-            } else {
-                SifsIndex::from_path_with_index_options(
-                    &key,
-                    IndexOptions::new(self.model_options.clone())
-                        .with_cache(self.cache_config.clone()),
-                )?
-            };
+            let source_key = Self::source_key(source, ref_name)?;
+            let index = self.build_index(source, ref_name, &source_key, options)?;
             self.indexes.insert(key.clone(), index);
         } else if self
             .indexes
@@ -174,40 +173,59 @@ impl IndexCache {
             .and_then(SifsIndex::is_fresh)
             .is_some_and(|fresh| !fresh)
         {
-            self.refresh(source, ref_name)?;
+            self.refresh(source, ref_name, options)?;
         }
         Ok(self.indexes.get(&key).unwrap())
     }
 
-    fn refresh(&mut self, source: &str, ref_name: Option<&str>) -> Result<&SifsIndex> {
-        let key = Self::key_for(source, ref_name)?;
-        let index = if is_git_url(source) {
-            if self.offline {
-                anyhow::bail!("--offline does not allow remote Git sources");
-            }
-            SifsIndex::from_git_with_index_options(
-                source,
-                ref_name,
-                IndexOptions::new(self.model_options.clone()).with_cache(self.cache_config.clone()),
-            )?
-        } else {
-            SifsIndex::from_path_with_index_options(
-                &key,
-                IndexOptions::new(self.model_options.clone()).with_cache(self.cache_config.clone()),
-            )?
-        };
+    fn refresh(
+        &mut self,
+        source: &str,
+        ref_name: Option<&str>,
+        options: &McpIndexOptions,
+    ) -> Result<&SifsIndex> {
+        let key = Self::key_for(source, ref_name, options)?;
+        let source_key = Self::source_key(source, ref_name)?;
+        let index = self.build_index(source, ref_name, &source_key, options)?;
         self.indexes.insert(key.clone(), index);
         Ok(self.indexes.get(&key).unwrap())
     }
 
+    fn build_index(
+        &self,
+        source: &str,
+        ref_name: Option<&str>,
+        source_key: &str,
+        options: &McpIndexOptions,
+    ) -> Result<SifsIndex> {
+        let index = if is_git_url(source) {
+            if self.offline || options.offline {
+                anyhow::bail!("--offline does not allow remote Git sources");
+            }
+            SifsIndex::from_git_with_index_options(source, ref_name, options.index_options())?
+        } else {
+            SifsIndex::from_path_with_index_options(source_key, options.index_options())?
+        };
+        Ok(index)
+    }
+
     fn remove(&mut self, source: &str, ref_name: Option<&str>) -> Result<bool> {
-        let key = Self::key_for(source, ref_name)?;
-        Ok(self.indexes.remove(&key).is_some())
+        let source_key = Self::source_key(source, ref_name)?;
+        let prefix = format!("{source_key}|");
+        let original_len = self.indexes.len();
+        self.indexes
+            .retain(|key, _| key != &source_key && !key.starts_with(&prefix));
+        Ok(self.indexes.len() != original_len)
     }
 
     fn contains_source(&self, source: &str, ref_name: Option<&str>) -> bool {
-        Self::key_for(source, ref_name)
-            .map(|key| self.indexes.contains_key(&key))
+        Self::source_key(source, ref_name)
+            .map(|source_key| {
+                let prefix = format!("{source_key}|");
+                self.indexes
+                    .keys()
+                    .any(|key| key == &source_key || key.starts_with(&prefix))
+            })
             .unwrap_or(false)
     }
 
@@ -223,19 +241,19 @@ impl IndexCache {
         ref_name: Option<&str>,
         query: &str,
         options: &SearchOptions,
+        index_options: &McpIndexOptions,
     ) -> Option<crate::daemon::protocol::SearchResultSet> {
         let paths = default_daemon_paths().ok()?;
         if !paths.socket.exists() {
             return None;
         }
-        let source = SourceSpec::resolve(source, ref_name.map(str::to_owned), self.offline).ok()?;
-        let runtime_options = match options.mode {
-            SearchMode::Bm25 => IndexRuntimeOptions::sparse(self.cache_config.clone()),
-            SearchMode::Semantic | SearchMode::Hybrid => IndexRuntimeOptions::with_encoder(
-                EncoderSpec::Model2Vec(self.model_options.clone()),
-                self.cache_config.clone(),
-            ),
-        };
+        let source = SourceSpec::resolve(
+            source,
+            ref_name.map(str::to_owned),
+            self.offline || index_options.offline,
+        )
+        .ok()?;
+        let runtime_options = index_options.runtime_options(options.mode);
         match DaemonClient::new(paths).send(DaemonRequest::Search {
             source,
             options: runtime_options,
@@ -245,6 +263,110 @@ impl IndexCache {
             Ok(DaemonResult::Search(result)) => Some(result),
             _ => None,
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct McpIndexOptions {
+    encoder_spec: EncoderSpec,
+    cache_config: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<Vec<String>>,
+}
+
+impl McpIndexOptions {
+    fn from_cache(cache: &IndexCache, profile: Option<&profiles::Profile>) -> Self {
+        let offline = cache.offline || profile.and_then(|profile| profile.offline).unwrap_or(false);
+        let no_download = profile
+            .and_then(|profile| profile.no_download)
+            .unwrap_or(false);
+        let policy = if offline {
+            ModelLoadPolicy::Offline
+        } else if no_download {
+            ModelLoadPolicy::NoDownload
+        } else {
+            cache.model_options.policy
+        };
+        let model = profile
+            .and_then(|profile| profile.model.as_deref())
+            .unwrap_or(cache.model_options.model.as_str());
+        let encoder_spec = match profile
+            .and_then(|profile| profile.encoder.as_deref())
+            .unwrap_or("model2vec")
+        {
+            "hashing" => EncoderSpec::hashing(),
+            _ => EncoderSpec::model2vec(Some(model), policy),
+        };
+        let cache_config = profile
+            .and_then(|profile| {
+                if profile.no_cache.unwrap_or(false) {
+                    Some(CacheConfig::Disabled)
+                } else if profile.project_cache.unwrap_or(false) {
+                    Some(CacheConfig::Project)
+                } else {
+                    profile.cache_dir.clone().map(CacheConfig::Custom)
+                }
+            })
+            .unwrap_or_else(|| cache.cache_config.clone());
+        let include_docs = profile
+            .and_then(|profile| profile.include_docs)
+            .unwrap_or(false);
+        let extensions = normalized_extensions(
+            profile
+                .and_then(|profile| profile.extensions.as_deref())
+                .unwrap_or(&[]),
+        );
+        Self {
+            encoder_spec,
+            cache_config,
+            offline,
+            include_docs,
+            extensions,
+        }
+    }
+
+    fn index_options(&self) -> IndexOptions {
+        IndexOptions::new(match &self.encoder_spec {
+            EncoderSpec::Model2Vec(options) => options.clone(),
+            EncoderSpec::Hashing { .. } => ModelOptions::default(),
+        })
+        .with_encoder_spec(self.encoder_spec.clone())
+        .with_cache(self.cache_config.clone())
+        .with_include_text_files(self.include_docs)
+        .with_extensions(self.extension_set())
+    }
+
+    fn runtime_options(&self, mode: SearchMode) -> IndexRuntimeOptions {
+        let mut options = match mode {
+            SearchMode::Bm25 => IndexRuntimeOptions::sparse(self.cache_config.clone()),
+            SearchMode::Semantic | SearchMode::Hybrid => IndexRuntimeOptions::with_encoder(
+                self.encoder_spec.clone(),
+                self.cache_config.clone(),
+            ),
+        };
+        options.include_text_files = self.include_docs;
+        options.extensions = self.extensions.clone();
+        options
+    }
+
+    fn extension_set(&self) -> Option<HashSet<String>> {
+        self.extensions
+            .as_ref()
+            .map(|values| values.iter().cloned().collect())
+    }
+
+    fn cache_key(&self) -> String {
+        format!(
+            "encoder={:?};cache={:?};include_docs={};extensions={}",
+            self.encoder_spec,
+            self.cache_config,
+            self.include_docs,
+            self.extensions
+                .as_ref()
+                .map(|values| values.join(","))
+                .unwrap_or_default()
+        )
     }
 }
 
@@ -354,7 +476,8 @@ fn tool_search(
         Ok(options) => options,
         Err(message) => return ToolText::error(message),
     };
-    if let Some(result) = cache.daemon_search(&source, ref_name, query, &options) {
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    if let Some(result) = cache.daemon_search(&source, ref_name, query, &options, &index_options) {
         return mcp_search_result(McpSearchPresentation {
             source: &source,
             query,
@@ -367,7 +490,7 @@ fn tool_search(
             results: result.results,
         });
     }
-    match cache.get(&source, ref_name) {
+    match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let results = match index.search_with(query, &options) {
                 Ok(results) => results,
@@ -456,7 +579,8 @@ fn tool_find_related(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
-    match cache.get(&source, ref_name) {
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
                 return ToolText::ok(format!(
@@ -508,7 +632,12 @@ fn tool_index_status(
         Err(message) => return ToolText::error(message),
     };
     let was_cached = cache.contains_source(&source, ref_name);
-    match cache.get(&source, ref_name) {
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let stats = index.stats();
             let structured = json!({
@@ -552,7 +681,12 @@ fn tool_refresh_index(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    match cache.refresh(&source, ref_name) {
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.refresh(&source, ref_name, &index_options) {
         Ok(index) => {
             let stats = index.stats();
             ToolText::ok_structured(
@@ -608,7 +742,12 @@ fn tool_list_files(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
-    match cache.get(&source, ref_name) {
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let files = index.indexed_files();
             let shown: Vec<_> = files.iter().take(limit).cloned().collect();
@@ -642,7 +781,12 @@ fn tool_get_chunk(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    match cache.get(&source, ref_name) {
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
                 return ToolText::ok(format!(
@@ -894,6 +1038,22 @@ fn string_array_arg(args: &Value, key: &str) -> std::result::Result<Vec<String>,
                 .ok_or_else(|| format!("{key} must contain only strings"))
         })
         .collect()
+}
+
+fn normalized_extensions(values: &[String]) -> Option<Vec<String>> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut values = values
+        .iter()
+        .filter_map(|value| {
+            let value = value.trim().trim_start_matches('.').to_lowercase();
+            (!value.is_empty()).then(|| format!(".{value}"))
+        })
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    (!values.is_empty()).then_some(values)
 }
 
 fn structured_results(results: &[crate::types::SearchResult]) -> Value {
