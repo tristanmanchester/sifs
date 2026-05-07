@@ -38,6 +38,9 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed daemon-backed search so `--include-docs` and repeatable `--extension`
+  use the same index filters as direct CLI search, including case-insensitive
+  extension normalization.
 - Fixed local index freshness checks to compare against the indexed source
   directory and indexing options instead of the persistent cache directory.
 - Switched persistent index cache keys and model fingerprints from

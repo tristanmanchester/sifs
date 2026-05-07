@@ -343,6 +343,56 @@ fn search_uses_running_daemon_and_populates_status() {
     assert_eq!(value["indexes"].as_array().unwrap().len(), 1);
 }
 
+#[test]
+fn daemon_search_honors_document_and_extension_filters() {
+    let repo = fixture();
+    fs::write(
+        repo.path().join("release-notes.md"),
+        "# Release notes\n\nThe zephyr changelog explains the agent-facing docs contract.\n",
+    )
+    .unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    let socket = runtime.path().join("sifs.sock");
+    let child = sifs()
+        .args(["daemon", "run", "--replace-existing-socket"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .spawn()
+        .unwrap();
+    let _guard = ChildGuard(child);
+    wait_for_daemon(&socket);
+
+    let output = sifs()
+        .args([
+            "search",
+            "zephyr changelog",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--include-docs",
+            "--extension",
+            "MD",
+            "--json",
+        ])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let results = value["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert!(
+        results
+            .iter()
+            .any(|result| result["file_path"] == "release-notes.md")
+    );
+}
+
 fn wait_for_daemon(socket: &std::path::Path) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {

@@ -1428,13 +1428,17 @@ fn try_daemon_search(
     };
     let source = SourceSpec::resolve(&command.source, None, command.offline)?;
     let policy = model_policy(command.offline, command.no_download);
-    let runtime_options = match command.mode {
-        SearchMode::Bm25 => IndexRuntimeOptions::sparse(command.cache.clone()),
-        SearchMode::Semantic | SearchMode::Hybrid => IndexRuntimeOptions::with_encoder(
-            encoder_spec(command.encoder, command.model.as_deref(), policy),
-            command.cache.clone(),
-        ),
-    };
+    let runtime_options = with_index_filters(
+        match command.mode {
+            SearchMode::Bm25 => IndexRuntimeOptions::sparse(command.cache.clone()),
+            SearchMode::Semantic | SearchMode::Hybrid => IndexRuntimeOptions::with_encoder(
+                encoder_spec(command.encoder, command.model.as_deref(), policy),
+                command.cache.clone(),
+            ),
+        },
+        command.include_docs,
+        &command.extensions,
+    );
     let mut search = SearchOptions::new(command.limit).with_mode(command.mode);
     search.filter_languages = command.languages.clone();
     search.filter_paths = command.filter_paths.clone();
@@ -1448,6 +1452,32 @@ fn try_daemon_search(
         Ok(other) => bail!("unexpected daemon response: {other:?}"),
         Err(_) => Ok(None),
     }
+}
+
+fn with_index_filters(
+    mut options: IndexRuntimeOptions,
+    include_docs: bool,
+    extensions: &[String],
+) -> IndexRuntimeOptions {
+    options.include_text_files = include_docs;
+    options.extensions = normalized_extensions(extensions);
+    options
+}
+
+fn normalized_extensions(values: &[String]) -> Option<Vec<String>> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut values = values
+        .iter()
+        .filter_map(|value| {
+            let value = value.trim().trim_start_matches('.').to_lowercase();
+            (!value.is_empty()).then(|| format!(".{value}"))
+        })
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    (!values.is_empty()).then_some(values)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1618,18 +1648,7 @@ fn build_hybrid_index(
 }
 
 fn extension_set(values: &[String]) -> Option<std::collections::HashSet<String>> {
-    (!values.is_empty()).then(|| {
-        values
-            .iter()
-            .map(|value| {
-                if value.starts_with('.') {
-                    value.to_owned()
-                } else {
-                    format!(".{value}")
-                }
-            })
-            .collect()
-    })
+    normalized_extensions(values).map(|values| values.into_iter().collect())
 }
 
 fn cache_config(cache_dir: Option<PathBuf>, no_cache: bool, project_cache: bool) -> CacheConfig {
