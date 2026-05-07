@@ -16,6 +16,9 @@ versioning where practical.
 
 ### Changed
 
+- Strengthened top-rank BM25/semantic agreement in hybrid ranking and
+  refreshed the full benchmark baseline to NDCG@10 0.8418 with 4.2 ms warm
+  uncached queries.
 - Updated `sifs agent-context --json` to describe the newer search flags and
   `pack`, `eval`, and `tune` commands for agent integrations.
 - Capped the in-memory per-index query-result cache with

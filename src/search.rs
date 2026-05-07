@@ -504,6 +504,10 @@ fn add_retriever_agreement_scores<S: std::hash::BuildHasher>(
         let agreement = 0.35 / (RRF_K + best_rank + 1.0);
         let balance = 1.0 / (1.0 + (worst_rank - best_rank) / 25.0);
         *combined.entry(*id).or_default() += agreement * balance;
+        if semantic_rank < 5 && bm25_rank < 5 {
+            let strong_agreement = 1.5 / (RRF_K + best_rank + 1.0);
+            *combined.entry(*id).or_default() += strong_agreement * balance;
+        }
     }
 }
 
@@ -614,6 +618,15 @@ mod tests {
 
         assert!(combined[&1] > combined[&2]);
         assert!(combined[&3] > 0.01);
+    }
+
+    #[test]
+    fn retriever_agreement_rewards_top_rank_consensus() {
+        let mut combined = HashMap::from([(1usize, 0.01), (2usize, 0.04)]);
+
+        add_retriever_agreement_scores(&mut combined, &[(1, 0.9)], &[(1, 12.0)]);
+
+        assert!(combined[&1] > combined[&2]);
     }
 
     #[test]
