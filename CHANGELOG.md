@@ -33,6 +33,8 @@ versioning where practical.
   local hit-rate regression loop from recorded agent misses.
 - Added `sifs pack --budget-tokens` for building deduplicated, budgeted context
   bundles from a search query.
+- Added `sifs tune --from-feedback --dry-run` to inspect local feedback-case
+  tuning readiness without mutating ranking behavior.
 
 ### Fixed
 

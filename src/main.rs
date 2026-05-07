@@ -319,6 +319,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    #[command(about = "Inspect tuning opportunities from local feedback.")]
+    Tune {
+        #[arg(long)]
+        from_feedback: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Check for or install the latest SIFS release through Cargo or Homebrew.")]
     Update {
         #[arg(
@@ -1073,6 +1082,11 @@ fn main() -> Result<()> {
             limit,
             json,
         }) => run_eval(from_feedback, source, limit, json)?,
+        Some(Command::Tune {
+            from_feedback,
+            dry_run,
+            json,
+        }) => run_tune(from_feedback, dry_run, json)?,
         Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
         Some(Command::Update {
             check,
@@ -4120,6 +4134,38 @@ fn run_eval(
             limit,
             hit_rate
         );
+    }
+    Ok(())
+}
+
+fn run_tune(from_feedback: bool, dry_run: bool, json_output: bool) -> Result<()> {
+    if !from_feedback {
+        bail!("tune currently requires --from-feedback");
+    }
+    if !dry_run {
+        bail!("tune currently supports --dry-run only");
+    }
+    let root = platform_cache_root()?;
+    let (entries, _) = feedback::list_feedback(&root, usize::MAX)?;
+    let cases = entries
+        .iter()
+        .filter(|entry| entry.query.is_some() && entry.expected.is_some())
+        .count();
+    let payload = json!({
+        "from_feedback": true,
+        "dry_run": true,
+        "cases": cases,
+        "changed": false,
+        "recommendation": if cases == 0 {
+            "Record feedback with --query and --expected before tuning."
+        } else {
+            "Run sifs eval --from-feedback to inspect hit-rate before changing ranking weights."
+        },
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     }
     Ok(())
 }
