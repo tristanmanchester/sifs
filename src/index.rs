@@ -288,7 +288,7 @@ impl SifsIndex {
                 Some(context),
             );
         }
-        let chunks = create_chunks_from_path(
+        let (chunks, warnings) = create_chunks_from_path_with_warnings(
             &root,
             options.extensions,
             options.ignore.as_ref(),
@@ -296,6 +296,7 @@ impl SifsIndex {
             &root,
         )?;
         let mut index = Self::from_chunks_with_semantic_config(options.semantic_config, chunks)?;
+        index.warnings = warnings;
         if let (Some(cache_entry), Some(signatures)) = (cache_entry, signatures) {
             index.attach_cache(cache_entry, signatures, context);
             write_cached_index_payload(&index);
@@ -952,27 +953,63 @@ pub fn create_chunks_from_path(
     include_text_files: bool,
     display_root: &Path,
 ) -> Result<Vec<Chunk>> {
+    Ok(create_chunks_from_path_with_warnings(
+        path,
+        extensions,
+        ignore,
+        include_text_files,
+        display_root,
+    )?
+    .0)
+}
+
+fn create_chunks_from_path_with_warnings(
+    path: &Path,
+    extensions: Option<HashSet<String>>,
+    ignore: Option<&HashSet<String>>,
+    include_text_files: bool,
+    display_root: &Path,
+) -> Result<(Vec<Chunk>, Vec<IndexWarning>)> {
     let extensions = filter_extensions(extensions, include_text_files);
     let files = walk_files(path, &extensions, ignore);
-    let chunks_by_file: Vec<Vec<Chunk>> = files
+    let chunks_by_file: Vec<(Vec<Chunk>, Option<IndexWarning>)> = files
         .par_iter()
         .map(|file_path| {
-            let source = fs::read_to_string(file_path)
-                .with_context(|| format!("read indexed file {}", file_path.display()))?;
             let rel_path: PathBuf = file_path
                 .strip_prefix(display_root)
                 .unwrap_or(file_path)
                 .to_path_buf();
             let chunk_path = rel_path.to_string_lossy().to_string();
+            let source = match fs::read_to_string(file_path) {
+                Ok(source) => source,
+                Err(err) => {
+                    return Ok((
+                        Vec::new(),
+                        Some(IndexWarning {
+                            path: chunk_path,
+                            message: format!("skipped indexed file: {err}"),
+                        }),
+                    ));
+                }
+            };
             let language = language_for_path(file_path).map(str::to_owned);
-            Ok(chunk_source(&source, &chunk_path, language))
+            Ok((chunk_source(&source, &chunk_path, language), None))
         })
         .collect::<Result<Vec<_>>>()?;
-    let chunks: Vec<Chunk> = chunks_by_file.into_iter().flatten().collect();
+    let mut warnings = Vec::new();
+    let chunks: Vec<Chunk> = chunks_by_file
+        .into_iter()
+        .flat_map(|(chunks, warning)| {
+            if let Some(warning) = warning {
+                warnings.push(warning);
+            }
+            chunks
+        })
+        .collect();
     if chunks.is_empty() {
         bail!("No supported files found under {}.", path.display());
     }
-    Ok(chunks)
+    Ok((chunks, warnings))
 }
 
 fn populate_mapping(

@@ -165,6 +165,24 @@ fn from_path_respects_markdown_option() {
 }
 
 #[test]
+fn indexing_skips_non_utf8_files_with_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("valid.rs"), "fn valid_symbol() {}\n").unwrap();
+    fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe, 0xfd]).unwrap();
+
+    let index = SifsIndex::from_path_sparse(dir.path()).unwrap();
+
+    assert_eq!(index.stats().indexed_files, 1);
+    assert!(index.indexed_files().contains(&"valid.rs".to_owned()));
+    assert!(index.warnings().iter().any(|warning| {
+        warning.path == "invalid.rs"
+            && warning
+                .message
+                .contains("stream did not contain valid UTF-8")
+    }));
+}
+
+#[test]
 fn bm25_path_search_is_model_free_with_no_download() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(

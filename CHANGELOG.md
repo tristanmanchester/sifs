@@ -28,6 +28,8 @@ versioning where practical.
 
 ### Fixed
 
+- Skipped unreadable or non-UTF-8 files during indexing with structured
+  warnings instead of aborting the entire index build.
 - Restored standard triple-backtick Markdown fences for search result snippets
   whose content does not itself contain backtick fences.
 - Fixed the release-check workflow and bundled Homebrew formula so tag builds
