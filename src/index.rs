@@ -39,11 +39,11 @@ struct SemanticState {
 }
 
 const EMBED_BATCH_SIZE: usize = 1024;
-const CACHE_VERSION: u32 = 5;
+const CACHE_VERSION: u32 = 6;
 const CACHE_DIR: &str = ".sifs";
 const PLATFORM_CACHE_DIR: &str = "sifs";
-const SPARSE_CACHE_FILE: &str = "index-v5-sparse.bin";
-const SEMANTIC_CACHE_PREFIX: &str = "semantic-v5";
+const SPARSE_CACHE_FILE: &str = "index-v6-sparse.bin";
+const SEMANTIC_CACHE_PREFIX: &str = "semantic-v6";
 const DEFAULT_QUERY_CACHE_ENTRIES: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -995,11 +995,28 @@ fn encode_chunks_batched(model: &dyn Encoder, chunks: &[Chunk]) -> Array2<f32> {
     for (batch_idx, batch) in chunks.chunks(EMBED_BATCH_SIZE).enumerate() {
         let start = batch_idx * EMBED_BATCH_SIZE;
         let end = start + batch.len();
-        let texts: Vec<String> = batch.iter().map(|chunk| chunk.content.clone()).collect();
+        let texts: Vec<String> = batch.iter().map(semantic_text).collect();
         let encoded = model.encode(&texts);
         embeddings.slice_mut(s![start..end, ..]).assign(&encoded);
     }
     embeddings
+}
+
+fn semantic_text(chunk: &Chunk) -> String {
+    let symbols = chunk
+        .symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "path: {}\nlanguage: {}\nsymbols: {}\ncontext: {}\n\n{}",
+        chunk.file_path,
+        chunk.language.as_deref().unwrap_or("unknown"),
+        symbols,
+        chunk.breadcrumbs.join(" > "),
+        chunk.content,
+    )
 }
 
 fn empty_to_none(values: &[String]) -> Option<&[String]> {

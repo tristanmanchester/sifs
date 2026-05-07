@@ -323,7 +323,7 @@ fn semantic_search_writes_and_reuses_dense_cache() {
     assert!(
         cache_files
             .iter()
-            .any(|name| name.starts_with("semantic-v5-"))
+            .any(|name| name.starts_with("semantic-v6-"))
     );
 
     let index = SifsIndex::from_path_with_index_options(

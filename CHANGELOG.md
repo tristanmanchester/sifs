@@ -56,6 +56,9 @@ versioning where practical.
 - Added conservative token expansion for plurals, common verb forms,
   serialise/serialize spelling variants, and code-domain aliases such as
   auth/authentication and req/request.
+- Embedded path, language, symbols, and breadcrumbs alongside chunk content for
+  semantic vectors, with a cache version bump to avoid reusing content-only
+  vectors.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

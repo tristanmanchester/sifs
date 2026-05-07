@@ -2176,7 +2176,7 @@ fn semantic_index_available(path: &str) -> bool {
         entry
             .file_name()
             .to_string_lossy()
-            .starts_with("semantic-v5-")
+            .starts_with("semantic-v6-")
     })
 }
 
