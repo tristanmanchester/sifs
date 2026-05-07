@@ -30,7 +30,7 @@ included in `cold_first_search_ms`.
 |---|---:|---:|---:|---:|
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | **0.8435** | **196.7 ms** | **2.9 ms** | **0.0051 ms** |
+| **SIFS** | **0.8444** | **184.7 ms** | **3.0 ms** | **0.0051 ms** |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
@@ -40,7 +40,7 @@ included in `cold_first_search_ms`.
 SIFS remains substantially faster to build and query than the neural embedding
 baselines while landing behind CodeRankEmbed Hybrid and Semble on raw NDCG@10
 in this regenerated run. The speed story also stays explicit: the meaningful
-warm-query figure is `2.9ms`, not the `0.0051ms` cached repeat path.
+warm-query figure is `3.0ms`, not the `0.0051ms` cached repeat path.
 
 ## Figures
 
@@ -134,9 +134,9 @@ machine.
 
 | Category | NDCG@10 |
 |---|---:|
-| architecture | 0.7732 |
-| semantic | 0.8251 |
-| symbol | 0.9667 |
+| architecture | 0.7848 |
+| semantic | 0.8369 |
+| symbol | 0.9711 |
 
 Symbol lookup is the strongest category. BM25 and query-aware boosts help exact
 identifiers while semantic retrieval handles natural-language discovery.

@@ -18,7 +18,7 @@
   <a href="#benchmarks">Benchmarks</a>
 </p>
 
-SIFS builds a cold sparse index in **196.7 ms**, answers warm queries in **2.9 ms**, and hits **NDCG@10 = 0.8435** across the full benchmark. It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no external services.
+SIFS builds a cold sparse index in **184.7 ms**, answers warm queries in **3.0 ms**, and hits **NDCG@10 = 0.8444** across the full benchmark. It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no external services.
 
 ## Quickstart
 
@@ -54,8 +54,8 @@ Full integration reference: [docs/agent-integration.md](docs/agent-integration.m
 
 ## Features
 
-- **Fast local search.** 196.7 ms cold sparse index, 2.9 ms warm query, 0.0051 ms for cached repeats. Pure Rust, all on CPU.
-- **Strong cross-language quality.** NDCG@10 of 0.8435 across 63 repositories, 19 languages, and 1,251 annotated tasks.
+- **Fast local search.** 184.7 ms cold sparse index, 3.0 ms warm query, 0.0051 ms for cached repeats. Pure Rust, all on CPU.
+- **Strong cross-language quality.** NDCG@10 of 0.8444 across 63 repositories, 19 languages, and 1,251 annotated tasks.
 - **Three search modes.** `hybrid` for most queries, `semantic` for natural language, `bm25` for symbols and identifiers. Switch per query.
 - **Fully offline.** BM25 mode loads nothing — no tokenizers, no model files, no network. Hybrid and semantic modes work offline once the model is cached locally.
 - **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand and can be refreshed explicitly after files change.
@@ -282,7 +282,7 @@ Benchmarks run across 63 pinned open-source repositories, 19 languages, and 1,25
 |---|---:|---:|---:|---:|
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | **0.8435** | **196.7 ms** | **2.9 ms** | **0.0051 ms** |
+| **SIFS** | **0.8444** | **184.7 ms** | **3.0 ms** | **0.0051 ms** |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
@@ -303,9 +303,9 @@ SIFS is strongest on symbol queries but holds up well on semantic and architectu
 
 | Query type | NDCG@10 |
 |---|---:|
-| symbol | 0.9606 |
-| semantic | 0.7872 |
-| architecture | 0.7238 |
+| symbol | 0.9711 |
+| semantic | 0.8369 |
+| architecture | 0.7848 |
 
 ![SIFS quality by query type and search mode](assets/images/query_type_quality_by_mode.png)
 

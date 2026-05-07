@@ -368,7 +368,7 @@ fn boost_symbol_definitions<S: BuildHasher>(
             continue;
         }
         let stem = path_stem_lower(&chunk.file_path);
-        if stem_matches(&stem, &symbol_name.to_lowercase()) {
+        if stem_matches(&stem, &symbol_name.to_lowercase()) || public_api_file(&chunk.file_path) {
             let tier = definition_tier(chunk, &names, &matchers, boost_unit);
             if tier > 0.0 {
                 boosted.insert(chunk_id, tier);
@@ -523,6 +523,7 @@ fn extract_symbol_name(query: &str) -> String {
 struct DefinitionMatcher {
     general: Regex,
     sql: Regex,
+    names: HashSet<String>,
 }
 
 fn definition_matchers(names: &HashSet<String>) -> Vec<DefinitionMatcher> {
@@ -535,6 +536,7 @@ fn definition_matchers(names: &HashSet<String>) -> Vec<DefinitionMatcher> {
             Some(DefinitionMatcher {
                 general: Regex::new(&general_pattern).ok()?,
                 sql: Regex::new(&sql_pattern).ok()?,
+                names: HashSet::from([name.to_owned()]),
             })
         })
         .collect()
@@ -554,9 +556,28 @@ fn definition_pattern(keywords: &[&str], escaped_name: &str, flags: &str) -> Str
 }
 
 fn chunk_defines_symbol(chunk: &Chunk, matchers: &[DefinitionMatcher]) -> bool {
+    let public_surface = public_api_file(&chunk.file_path);
     matchers.iter().any(|matcher| {
-        matcher.general.is_match(&chunk.content) || matcher.sql.is_match(&chunk.content)
+        matcher.general.is_match(&chunk.content)
+            || matcher.sql.is_match(&chunk.content)
+            || (public_surface && rust_public_reexport_matches(&chunk.content, &matcher.names))
     })
+}
+
+fn rust_public_reexport_matches(content: &str, names: &HashSet<String>) -> bool {
+    content
+        .lines()
+        .filter(|line| line.contains("pub use"))
+        .any(|line| {
+            names
+                .iter()
+                .any(|name| rust_use_line_contains_name(line, name))
+        })
+}
+
+fn rust_use_line_contains_name(line: &str, name: &str) -> bool {
+    line.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|part| part == name)
 }
 
 fn definition_tier(
@@ -848,5 +869,21 @@ mod tests {
         );
 
         assert!(!scores.contains_key(&0));
+    }
+
+    #[test]
+    fn symbol_boost_recognizes_public_rust_reexports() {
+        let reexport = chunk(
+            "pub use axum_core::extract::{FromRequest, FromRequestParts};",
+            "src/extract/mod.rs",
+        );
+        let usage = chunk("impl<T> FromRequest for Json<T> {}", "src/json.rs");
+        let chunks = vec![reexport, usage];
+        let scores = HashMap::from([(1usize, 1.0)]);
+
+        let boosted = apply_query_boost(&scores, "FromRequest", &chunks);
+
+        assert!(boosted.contains_key(&0));
+        assert!(boosted[&0] > boosted[&1]);
     }
 }
