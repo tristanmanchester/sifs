@@ -1193,6 +1193,26 @@ fn files_status_and_get_work_against_fixture() {
 }
 
 #[test]
+fn status_reports_project_semantic_v4_cache() {
+    let dir = fixture();
+    fs::create_dir_all(dir.path().join(".sifs")).unwrap();
+    fs::write(dir.path().join(".sifs/semantic-v4-test.bin"), b"cache").unwrap();
+
+    let status = sifs()
+        .args(["status", "--source", dir.path().to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        status.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status_value: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_value["semantic_index_available"], true);
+}
+
+#[test]
 fn json_and_jsonl_conflict() {
     let dir = fixture();
     let output = sifs()
