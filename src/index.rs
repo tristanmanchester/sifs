@@ -48,6 +48,12 @@ const SPARSE_CACHE_FILE: &str = "index-v6-sparse.bin";
 const SEMANTIC_CACHE_PREFIX: &str = "semantic-v6";
 const DEFAULT_QUERY_CACHE_ENTRIES: usize = 256;
 
+type ChunkMappings = (
+    HashMap<String, Vec<usize>>,
+    HashMap<String, Vec<usize>>,
+    HashMap<String, Vec<usize>>,
+);
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {
     #[default]
@@ -1130,11 +1136,7 @@ fn normalize_filter_path(path: &str) -> String {
 
 fn populate_mapping(
     chunks: &[Chunk],
-) -> (
-    HashMap<String, Vec<usize>>,
-    HashMap<String, Vec<usize>>,
-    HashMap<String, Vec<usize>>,
-) {
+) -> ChunkMappings {
     let mut file_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut language_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut symbol_mapping: HashMap<String, Vec<usize>> = HashMap::new();
