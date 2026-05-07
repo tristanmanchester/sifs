@@ -1330,6 +1330,18 @@ fn run_pack(
             "primary",
             format!("ranked by {} for the pack query", invocation.mode),
         );
+        if let Some(header) = file_header_chunk(chunks, &result.chunk) {
+            push_pack_chunk(
+                &mut packed,
+                &mut seen_chunks,
+                &mut remaining_chars,
+                header,
+                None,
+                "file_header".to_owned(),
+                "file_header",
+                format!("file header context for {}", result.chunk.file_path),
+            );
+        }
         if include_neighbors > 0 {
             for neighbor in adjacent_chunks(chunks, &result.chunk, include_neighbors) {
                 if remaining_chars == 0 {
@@ -1387,6 +1399,15 @@ fn run_pack(
         println!("{}", serde_json::to_string_pretty(&payload)?);
     }
     Ok(())
+}
+
+fn file_header_chunk<'a>(chunks: &'a [Chunk], chunk: &Chunk) -> Option<&'a Chunk> {
+    if chunk.start_line == 1 {
+        return None;
+    }
+    chunks
+        .iter()
+        .find(|candidate| candidate.file_path == chunk.file_path && candidate.start_line == 1)
 }
 
 fn push_pack_chunk(

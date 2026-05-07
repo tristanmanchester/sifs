@@ -31,6 +31,8 @@ versioning where practical.
 - Extended `sifs pack` with `--include-neighbors` and
   `--include-symbol-definitions` so context bundles can include adjacent code
   and query-named symbol definitions.
+- Added file-header context to `sifs pack` output when a primary result comes
+  from later in a file and the header chunk fits the remaining budget.
 - Extended `sifs eval --from-feedback` with `--mode`, `--all-modes`, MRR, and
   NDCG reporting so feedback evals are no longer BM25-only.
 - Expanded chunk symbol extraction for common exported, async, Rust `impl`, and

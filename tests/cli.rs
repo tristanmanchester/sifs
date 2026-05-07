@@ -1163,12 +1163,14 @@ fn pack_can_include_symbol_definitions_and_neighbor_context() {
         "pub struct TokenManager;\n\nimpl TokenManager {\n    pub fn new() -> Self { Self }\n    pub fn validate(&self) -> bool { true }\n}\n",
     )
     .unwrap();
-    let guide = (1..=120)
+    let guide = (1..=260)
         .map(|line| {
-            if line == 60 {
+            if line == 200 {
                 "unique neighbor target appears in the middle of this guide\n".to_owned()
             } else {
-                format!("context line {line}\n")
+                format!(
+                    "context line {line} with filler filler filler filler filler filler filler filler filler filler\n"
+                )
             }
         })
         .collect::<String>();
@@ -1231,6 +1233,8 @@ fn pack_can_include_symbol_definitions_and_neighbor_context() {
     let packed: Value = serde_json::from_slice(&output.stdout).unwrap();
     let items = packed["items"].as_array().unwrap();
     assert!(items.iter().any(|item| item["kind"] == "neighbor"));
+    assert!(items.iter().any(|item| item["kind"] == "file_header"
+        && item["file_path"].as_str().unwrap().ends_with("guide.md")));
 }
 
 #[test]
