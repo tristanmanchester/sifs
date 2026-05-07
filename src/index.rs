@@ -24,6 +24,7 @@ pub struct SifsIndex {
     pub chunks: Vec<Chunk>,
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
+    symbol_mapping: HashMap<String, Vec<usize>>,
     search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchResult>>>,
     cache_entry: Option<CacheEntry>,
     signatures: Option<Vec<FileSignature>>,
@@ -416,7 +417,7 @@ impl SifsIndex {
             bail!("No supported files found.");
         }
         let bm25_index = Bm25Index::build_from_chunks(&chunks);
-        let (file_mapping, language_mapping) = populate_mapping(&chunks);
+        let (file_mapping, language_mapping, symbol_mapping) = populate_mapping(&chunks);
         Ok(Self {
             bm25_index,
             semantic_state: Mutex::new(None),
@@ -424,6 +425,7 @@ impl SifsIndex {
             chunks,
             file_mapping,
             language_mapping,
+            symbol_mapping,
             search_cache: Mutex::new(HashMap::new()),
             cache_entry: None,
             signatures: None,
@@ -461,7 +463,7 @@ impl SifsIndex {
             bail!("No supported files found.");
         }
         let signatures = payload.signatures.clone();
-        let (file_mapping, language_mapping) = populate_mapping(&payload.chunks);
+        let (file_mapping, language_mapping, symbol_mapping) = populate_mapping(&payload.chunks);
         Ok(Self {
             bm25_index: payload.bm25_index,
             semantic_state: Mutex::new(None),
@@ -469,6 +471,7 @@ impl SifsIndex {
             chunks: payload.chunks,
             file_mapping,
             language_mapping,
+            symbol_mapping,
             search_cache: Mutex::new(HashMap::new()),
             cache_entry,
             signatures: Some(signatures),
@@ -600,6 +603,7 @@ impl SifsIndex {
                     &self.bm25_index,
                     &self.chunks,
                     Some(&self.file_mapping),
+                    Some(&self.symbol_mapping),
                     options.top_k,
                     options.alpha,
                     selector_ref,
@@ -1094,9 +1098,14 @@ fn normalize_filter_path(path: &str) -> String {
 
 fn populate_mapping(
     chunks: &[Chunk],
-) -> (HashMap<String, Vec<usize>>, HashMap<String, Vec<usize>>) {
+) -> (
+    HashMap<String, Vec<usize>>,
+    HashMap<String, Vec<usize>>,
+    HashMap<String, Vec<usize>>,
+) {
     let mut file_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut language_mapping: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut symbol_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, chunk) in chunks.iter().enumerate() {
         file_mapping
             .entry(chunk.file_path.clone())
@@ -1108,8 +1117,15 @@ fn populate_mapping(
                 .or_default()
                 .push(idx);
         }
+        for symbol in &chunk.symbols {
+            let key = symbol.name.to_ascii_lowercase();
+            let postings = symbol_mapping.entry(key).or_default();
+            if postings.last().copied() != Some(idx) {
+                postings.push(idx);
+            }
+        }
     }
-    (file_mapping, language_mapping)
+    (file_mapping, language_mapping, symbol_mapping)
 }
 
 #[cfg(test)]

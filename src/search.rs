@@ -121,6 +121,7 @@ pub fn search_hybrid(
     bm25_index: &Bm25Index,
     chunks: &[Chunk],
     file_mapping: Option<&HashMap<String, Vec<usize>>>,
+    symbol_mapping: Option<&HashMap<String, Vec<usize>>>,
     top_k: usize,
     alpha: Option<f32>,
     selector: Option<&[usize]>,
@@ -154,6 +155,7 @@ pub fn search_hybrid(
     let mut combined = HashMap::with_capacity(semantic_scores.len() + bm25_scores.len());
     add_rrf_scores(&mut combined, semantic_scores, alpha_weight);
     add_rrf_scores(&mut combined, bm25_scores, 1.0 - alpha_weight);
+    add_symbol_candidate_scores(&mut combined, query, symbol_mapping, selector);
     let rrf_explain = explain.then(|| combined.clone());
     #[cfg(feature = "diagnostics")]
     let fuse = start.elapsed();
@@ -227,6 +229,61 @@ pub fn search_hybrid(
     results
 }
 
+fn add_symbol_candidate_scores<S: std::hash::BuildHasher>(
+    combined: &mut HashMap<usize, f32, S>,
+    query: &str,
+    symbol_mapping: Option<&HashMap<String, Vec<usize>>>,
+    selector: Option<&[usize]>,
+) {
+    let Some(symbol_mapping) = symbol_mapping else {
+        return;
+    };
+    let selector_set = selector.map(|values| {
+        values
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+    });
+    let mut injected = 0usize;
+    for term in symbol_query_terms(query) {
+        let Some(postings) = symbol_mapping.get(&term) else {
+            continue;
+        };
+        for (rank, idx) in postings.iter().copied().enumerate() {
+            if selector_set
+                .as_ref()
+                .is_some_and(|selector| !selector.contains(&idx))
+            {
+                continue;
+            }
+            *combined.entry(idx).or_default() += 1.0 / (RRF_K + rank as f32 + 1.0);
+            injected += 1;
+            if injected >= 64 {
+                return;
+            }
+        }
+    }
+}
+
+fn symbol_query_terms(query: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    for raw in query.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')) {
+        if raw.len() < 2 {
+            continue;
+        }
+        let lowered = raw.to_ascii_lowercase();
+        if !terms.contains(&lowered) {
+            terms.push(lowered);
+        }
+        for part in crate::tokens::split_identifier(raw) {
+            if part.len() >= 2 && !terms.contains(&part) {
+                terms.push(part);
+            }
+        }
+    }
+    terms
+}
+
 fn hybrid_candidate_count(query: &str, top_k: usize) -> usize {
     let top_k = top_k.max(1);
     if is_symbol_query(query) {
@@ -290,7 +347,8 @@ fn add_rrf_scores<S: std::hash::BuildHasher>(
 #[cfg(test)]
 mod tests {
     use super::{
-        add_rrf_scores, hybrid_candidate_count, search_bm25, search_hybrid, search_semantic,
+        add_rrf_scores, add_symbol_candidate_scores, hybrid_candidate_count, search_bm25,
+        search_hybrid, search_semantic,
     };
     use crate::dense::DenseIndex;
     use crate::model2vec::Encoder;
@@ -360,6 +418,7 @@ mod tests {
             &sparse,
             &chunks,
             None,
+            None,
             1,
             None,
             None,
@@ -387,5 +446,21 @@ mod tests {
             hybrid_candidate_count("how request lifecycle works", 10),
             500
         );
+    }
+
+    #[test]
+    fn symbol_candidates_are_injected_from_exact_postings() {
+        let mut symbol_mapping = HashMap::new();
+        symbol_mapping.insert("tokenmanager".to_owned(), vec![42]);
+        let mut combined = HashMap::new();
+
+        add_symbol_candidate_scores(
+            &mut combined,
+            "where TokenManager is used",
+            Some(&symbol_mapping),
+            None,
+        );
+
+        assert!(combined.contains_key(&42));
     }
 }

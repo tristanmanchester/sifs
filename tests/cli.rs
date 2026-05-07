@@ -1202,12 +1202,8 @@ fn pack_can_include_symbol_definitions_and_neighbor_context() {
     assert_eq!(packed["include_symbol_definitions"], true);
     let items = packed["items"].as_array().unwrap();
     assert!(items.iter().any(|item| item["kind"] == "primary"));
-    assert!(
-        items
-            .iter()
-            .any(|item| item["kind"] == "symbol_definition"
-                && item["file_path"].as_str().unwrap().ends_with("defs.rs"))
-    );
+    assert!(items.iter().any(|item| item["kind"] == "symbol_definition"
+        && item["file_path"].as_str().unwrap().ends_with("defs.rs")));
 
     let output = sifs()
         .args([

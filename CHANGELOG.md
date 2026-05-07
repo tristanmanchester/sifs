@@ -51,6 +51,8 @@ versioning where practical.
 - Expanded hybrid candidate pools adaptively so natural-language and
   architecture-style queries retain more BM25 and semantic candidates before
   final reranking.
+- Added exact symbol-definition postings as a first-class hybrid candidate
+  source so query-named symbols can enter the candidate union directly.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

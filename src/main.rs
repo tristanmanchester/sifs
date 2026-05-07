@@ -1405,7 +1405,11 @@ fn push_pack_chunk(
         return;
     }
     let content = if chunk.content.len() > *remaining_chars {
-        chunk.content.chars().take(*remaining_chars).collect::<String>()
+        chunk
+            .content
+            .chars()
+            .take(*remaining_chars)
+            .collect::<String>()
     } else {
         chunk.content.clone()
     };
@@ -4640,8 +4644,7 @@ fn evaluate_feedback_candidate(
         let rank = found
             .iter()
             .position(|result| {
-                result.chunk.location().starts_with(expected)
-                    || result.chunk.file_path == *expected
+                result.chunk.location().starts_with(expected) || result.chunk.file_path == *expected
             })
             .map(|idx| idx + 1);
         if let Some(rank) = rank {
