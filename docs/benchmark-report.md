@@ -145,8 +145,8 @@ identifiers while semantic retrieval handles natural-language discovery.
 
 ## Language relevance work
 
-TypeScript is now the weakest language slice in the full benchmark:
-`NDCG@10=0.6981` across 60 tasks. C is `NDCG@10=0.7454`. A checked-in mini
+C is now the weakest language slice in the full benchmark:
+`NDCG@10=0.7370` across 60 tasks. TypeScript is `NDCG@10=0.7397`. A checked-in mini
 corpus covers React components, hooks, type definitions, barrel exports,
 `.d.ts` declarations, route files, and test/spec files:
 
