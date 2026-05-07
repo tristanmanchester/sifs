@@ -175,7 +175,7 @@ semantic candidates
 
 Then fuse them with RRF. That gives you the benefits of the old path-oracle behaviour without benchmark-specific hard-coding.
 
-Tenth, symbol extraction is useful but still quite shallow. The current line-based extractor in `src/chunker.rs` catches things like `def`, `class`, `fn`, `struct`, `interface`, etc., but it will miss common forms such as `export function`, `export class`, `pub async fn`, `impl Foo`, `const useThing = (...) =>`, decorators, Rust `impl` methods, TypeScript object methods, Python async defs, Java annotations, and so on.
+Tenth, symbol extraction is useful but still quite shallow. The current line-based extractor in `src/chunker.rs` catches things like `def`, `class`, `fn`, `struct`, `interface`, C macros, C typedef structs/enums, and common visibility/modifier prefixes, but it will miss forms such as `impl Foo`, `const useThing = (...) =>`, decorators, Rust `impl` methods, TypeScript object methods, Python async defs, Java annotations, and so on.
 
 The next upgrade is tree-sitter symbol extraction per language. You do not need perfect LSP-level semantics; even a 70% extractor for top languages would improve ranking and context packaging. The stored `Symbol` could become:
 
