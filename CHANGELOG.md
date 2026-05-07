@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added a Dockerfile for running the SIFS MCP server behind `mcp-proxy` in
+  server listing deployments.
+
 ### Fixed
 
 - Restored standard triple-backtick Markdown fences for search result snippets
