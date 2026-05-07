@@ -59,16 +59,26 @@ impl DenseIndex {
                 .collect(),
             None => (0..self.len())
                 .into_par_iter()
-                .map(|idx| {
+                .fold(Vec::new, |mut local, idx| {
                     let row = self.vectors.row(idx);
                     let score = row
                         .iter()
                         .zip(vector.iter())
                         .map(|(a, b)| a * b)
                         .sum::<f32>();
-                    (idx, score)
+                    local.push((idx, score));
+                    if local.len() > k.saturating_mul(2).max(32) {
+                        truncate_top_k(&mut local, k);
+                    }
+                    local
                 })
-                .collect(),
+                .reduce(Vec::new, |mut left, right| {
+                    left.extend(right);
+                    if left.len() > k.saturating_mul(2).max(32) {
+                        truncate_top_k(&mut left, k);
+                    }
+                    left
+                }),
         };
         truncate_top_k(&mut scores, k);
         scores
