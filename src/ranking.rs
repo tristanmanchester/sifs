@@ -16,6 +16,8 @@ static EMBEDDED_SYMBOL_RE: Lazy<Regex> = Lazy::new(|| {
     )
     .unwrap()
 });
+static EMBEDDED_MEMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b[a-z_][A-Za-z0-9_]*(?:\.[a-z_][A-Za-z0-9_]*)+\b").unwrap());
 static TEST_FILE_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?:^|/)(?:test_[^/]*\.py|[^/]*_test\.py|[^/]*_test\.go|[^/]*Tests?\.java|[^/]*Test\.php|[^/]*_spec\.rb|[^/]*_test\.rb|[^/]*\.test\.[jt]sx?|[^/]*\.spec\.[jt]sx?|[^/]*Tests?\.kt|[^/]*Spec\.kt|[^/]*Tests?\.swift|[^/]*Spec\.swift|[^/]*Tests?\.cs|test_[^/]*\.cpp|[^/]*_test\.cpp|test_[^/]*\.c|[^/]*_test\.c|[^/]*Spec\.scala|[^/]*Suite\.scala|[^/]*Test\.scala|[^/]*_test\.dart|test_[^/]*\.dart|[^/]*_spec\.lua|[^/]*_test\.lua|test_[^/]*\.lua|test_helpers?[^/]*\.\w+)$").unwrap()
 });
@@ -193,6 +195,7 @@ fn may_contain_embedded_symbol(query: &str) -> bool {
         .as_bytes()
         .windows(2)
         .any(|pair| pair[0].is_ascii_lowercase() && pair[1].is_ascii_uppercase())
+        || EMBEDDED_MEMBER_RE.is_match(query)
 }
 
 fn stem_boost_query(query: &str) -> bool {
@@ -387,6 +390,11 @@ fn boost_embedded_symbols<S: BuildHasher>(
     let names: HashSet<String> = EMBEDDED_SYMBOL_RE
         .find_iter(query)
         .map(|m| m.as_str().to_owned())
+        .chain(
+            EMBEDDED_MEMBER_RE
+                .find_iter(query)
+                .filter_map(|m| m.as_str().rsplit_once('.').map(|(_, leaf)| leaf.to_owned())),
+        )
         .collect();
     if names.is_empty() {
         return;
@@ -944,6 +952,24 @@ mod tests {
             "standard library type Serialize implementations",
             &chunks,
         );
+
+        assert!(boosted[&0] > boosted[&1]);
+    }
+
+    #[test]
+    fn dotted_member_queries_boost_leaf_definitions() {
+        let setter = chunk(
+            "app.set = function set(setting, val) { return this.settings[setting]; }",
+            "lib/application.js",
+        );
+        let prose = chunk(
+            "settings are initialized during application setup",
+            "lib/init.js",
+        );
+        let chunks = vec![setter, prose];
+        let scores = HashMap::from([(0usize, 0.8), (1usize, 1.0)]);
+
+        let boosted = apply_query_boost(&scores, "app.set and settings storage", &chunks);
 
         assert!(boosted[&0] > boosted[&1]);
     }

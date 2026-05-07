@@ -19,7 +19,8 @@ versioning where practical.
 - Strengthened top-rank BM25/semantic agreement and narrowed path-intent
   candidate injection in hybrid ranking, then recognized public Rust re-export
   surfaces, schema/type API queries, and implementation-to-`impls` path
-  matches, refreshing the full benchmark baseline to NDCG@10 0.8451 with
+  matches, and boosted dotted member references such as `app.set` to their leaf
+  definitions, refreshing the full benchmark baseline to NDCG@10 0.8466 with
   2.7 ms warm uncached queries.
 - Updated `sifs agent-context --json` to describe the newer search flags and
   `pack`, `eval`, and `tune` commands for agent integrations.
