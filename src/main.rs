@@ -1876,6 +1876,8 @@ fn structured_result(source: &str, result: &SearchResult, context_lines: usize) 
         "score": result.score,
         "source": result.source.to_string(),
         "content": result.chunk.content,
+        "symbols": result.chunk.symbols,
+        "breadcrumbs": result.chunk.breadcrumbs,
     });
     if let Some(explanation) = &result.explanation {
         value["explanation"] = serde_json::to_value(explanation).unwrap_or(Value::Null);

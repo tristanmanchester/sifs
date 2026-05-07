@@ -17,6 +17,8 @@ fn chunk(content: &str, file_path: &str) -> Chunk {
         start_line: 1,
         end_line: content.lines().count().max(1),
         language: Some("python".to_owned()),
+        symbols: Vec::new(),
+        breadcrumbs: Vec::new(),
     }
 }
 
@@ -269,7 +271,7 @@ fn semantic_search_writes_and_reuses_dense_cache() {
     assert!(
         cache_files
             .iter()
-            .any(|name| name.starts_with("semantic-v3-"))
+            .any(|name| name.starts_with("semantic-v4-"))
     );
 
     let index = SifsIndex::from_path_with_index_options(

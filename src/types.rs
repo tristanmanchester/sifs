@@ -21,6 +21,17 @@ pub struct Chunk {
     pub start_line: usize,
     pub end_line: usize,
     pub language: Option<String>,
+    #[serde(default)]
+    pub symbols: Vec<Symbol>,
+    #[serde(default)]
+    pub breadcrumbs: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Symbol {
+    pub name: String,
+    pub kind: String,
+    pub line: usize,
 }
 
 impl Chunk {

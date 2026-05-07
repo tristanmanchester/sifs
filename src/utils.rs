@@ -89,6 +89,8 @@ mod tests {
             start_line,
             end_line,
             language: Some("rust".to_owned()),
+            symbols: Vec::new(),
+            breadcrumbs: Vec::new(),
         }
     }
 

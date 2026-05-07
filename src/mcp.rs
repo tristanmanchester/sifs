@@ -870,6 +870,8 @@ fn structured_results(results: &[crate::types::SearchResult]) -> Value {
                 "score": result.score,
                 "source": result.source.to_string(),
                 "content": result.chunk.content,
+                "symbols": result.chunk.symbols,
+                "breadcrumbs": result.chunk.breadcrumbs,
                 "explanation": result.explanation,
             }))
             .collect::<Vec<_>>()

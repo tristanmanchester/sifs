@@ -23,6 +23,8 @@ versioning where practical.
   so cold-index benchmark runs can be reported without persistent cache reuse.
 - Added optional score explanations for CLI, daemon, and MCP search results so
   `--explain` / `explain: true` can show ranking evidence for returned chunks.
+- Added symbol and breadcrumb metadata to code chunks and indexed that metadata
+  in BM25 so symbol-bearing chunks are easier to search and inspect.
 
 ### Fixed
 

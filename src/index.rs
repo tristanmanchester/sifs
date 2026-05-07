@@ -38,11 +38,11 @@ struct SemanticState {
 }
 
 const EMBED_BATCH_SIZE: usize = 1024;
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 const CACHE_DIR: &str = ".sifs";
 const PLATFORM_CACHE_DIR: &str = "sifs";
-const SPARSE_CACHE_FILE: &str = "index-v3-sparse.bin";
-const SEMANTIC_CACHE_PREFIX: &str = "semantic-v3";
+const SPARSE_CACHE_FILE: &str = "index-v4-sparse.bin";
+const SEMANTIC_CACHE_PREFIX: &str = "semantic-v4";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {

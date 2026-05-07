@@ -299,6 +299,8 @@ mod tests {
             start_line: 1,
             end_line: 1,
             language: Some("rust".to_owned()),
+            symbols: Vec::new(),
+            breadcrumbs: Vec::new(),
         }
     }
 

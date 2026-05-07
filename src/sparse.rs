@@ -106,6 +106,15 @@ impl Bm25Index {
 
 fn tokens_for_chunk(chunk: &Chunk) -> Vec<String> {
     let mut tokens = tokenize(&chunk.content);
+    for symbol in &chunk.symbols {
+        let symbol_tokens = tokenize(&symbol.name);
+        tokens.extend(symbol_tokens.iter().cloned());
+        tokens.extend(symbol_tokens);
+        tokens.extend(tokenize(&symbol.kind));
+    }
+    for breadcrumb in &chunk.breadcrumbs {
+        tokens.extend(tokenize(breadcrumb));
+    }
     let path = Path::new(&chunk.file_path);
     if let Some(stem) = path.file_stem().map(|s| s.to_string_lossy()) {
         let stem_tokens = tokenize(&stem);
@@ -144,6 +153,8 @@ mod tests {
             start_line: 1,
             end_line: 1,
             language: Some("rust".to_owned()),
+            symbols: Vec::new(),
+            breadcrumbs: Vec::new(),
         }
     }
 
