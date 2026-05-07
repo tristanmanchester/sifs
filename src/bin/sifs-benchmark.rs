@@ -33,6 +33,10 @@ struct Args {
     output: Option<PathBuf>,
     #[arg(long)]
     include_tasks: bool,
+    #[arg(long, help = "Include per-task candidate-generation diagnostics.")]
+    candidate_diagnostics: bool,
+    #[arg(long, default_value_t = 200)]
+    candidate_diagnostics_depth: usize,
     #[arg(long)]
     alpha: Option<f32>,
     #[arg(long, default_value_t = SearchMode::Hybrid)]
@@ -152,6 +156,8 @@ struct TaskResult {
     ndcg5: f64,
     ndcg10: f64,
     top_results: Vec<TaskHit>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    candidate_diagnostics: Vec<TargetDiagnostic>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,6 +168,16 @@ struct TaskHit {
     end_line: usize,
     tokens: usize,
     relevant: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct TargetDiagnostic {
+    target: String,
+    target_final_rank: Option<usize>,
+    target_bm25_rank: Option<usize>,
+    target_semantic_rank: Option<usize>,
+    target_in_candidate_union: bool,
+    failure_stage: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -291,6 +307,18 @@ fn main() -> Result<()> {
                 .or_default()
                 .push(ndcg10);
             if args.include_tasks {
+                let candidate_diagnostics = if args.candidate_diagnostics {
+                    let diagnostic_depth = args.candidate_diagnostics_depth.max(args.top_k);
+                    let mut diagnostic_options = SearchOptions::new(diagnostic_depth)
+                        .with_mode(args.mode)
+                        .with_cache(false)
+                        .with_explain(true);
+                    diagnostic_options.alpha = args.alpha;
+                    let diagnostic_results = index.search_with(&task.query, &diagnostic_options)?;
+                    task_candidate_diagnostics(&diagnostic_results, task)
+                } else {
+                    Vec::new()
+                };
                 task_results.push(TaskResult {
                     query: task.query.clone(),
                     category: task.category.clone(),
@@ -302,6 +330,7 @@ fn main() -> Result<()> {
                         .iter()
                         .map(|result| task_hit(result, task))
                         .collect(),
+                    candidate_diagnostics,
                 });
             }
         }
@@ -563,6 +592,49 @@ fn target_rank(results: &[sifs::SearchResult], target: &Target) -> Option<usize>
     })
 }
 
+fn task_candidate_diagnostics(
+    results: &[sifs::SearchResult],
+    task: &Task,
+) -> Vec<TargetDiagnostic> {
+    task.relevant
+        .iter()
+        .map(|target| {
+            let matched = results.iter().enumerate().find(|(_, result)| {
+                let chunk = &result.chunk;
+                target_matches(&chunk.file_path, chunk.start_line, chunk.end_line, target)
+            });
+            let (target_final_rank, target_bm25_rank, target_semantic_rank) =
+                if let Some((idx, result)) = matched {
+                    let explanation = result.explanation.as_ref();
+                    (
+                        Some(idx + 1),
+                        explanation.and_then(|explanation| explanation.bm25_rank),
+                        explanation.and_then(|explanation| explanation.semantic_rank),
+                    )
+                } else {
+                    (None, None, None)
+                };
+            let target_in_candidate_union =
+                target_bm25_rank.is_some() || target_semantic_rank.is_some();
+            let failure_stage = match (target_final_rank, target_in_candidate_union) {
+                (Some(rank), _) if rank <= 10 => "top10",
+                (Some(_), _) => "reranking",
+                (None, true) => "reranking_or_depth",
+                (None, false) => "candidate_generation",
+            }
+            .to_owned();
+            TargetDiagnostic {
+                target: target_label(target),
+                target_final_rank,
+                target_bm25_rank,
+                target_semantic_rank,
+                target_in_candidate_union,
+                failure_stage,
+            }
+        })
+        .collect()
+}
+
 fn task_hit(result: &sifs::SearchResult, task: &Task) -> TaskHit {
     let chunk = &result.chunk;
     TaskHit {
@@ -574,6 +646,14 @@ fn task_hit(result: &sifs::SearchResult, task: &Task) -> TaskHit {
         relevant: task.relevant.iter().any(|target| {
             target_matches(&chunk.file_path, chunk.start_line, chunk.end_line, target)
         }),
+    }
+}
+
+fn target_label(target: &Target) -> String {
+    match (target.start_line, target.end_line) {
+        (Some(start), Some(end)) => format!("{}:{start}-{end}", target.path),
+        (Some(start), None) => format!("{}:{start}", target.path),
+        _ => target.path.clone(),
     }
 }
 

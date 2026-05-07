@@ -46,6 +46,8 @@ versioning where practical.
   report.
 - Regenerated the full benchmark result artifact, generated figures, and
   benchmark documentation with reproducibility and first-use latency fields.
+- Added opt-in benchmark candidate diagnostics for distinguishing candidate
+  generation misses from reranking misses in per-task benchmark output.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
