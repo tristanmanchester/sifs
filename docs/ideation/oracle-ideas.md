@@ -1,137 +1,234 @@
-TL;DR: SIFS already has a strong shape: fast local search, CLI-first agent integration, MCP, profiles, feedback, and good docs. The biggest improvement I’d make is to protect trust in the ranking/benchmark story: remove benchmark-looking hard-coded boosts from the default ranker, make the benchmark cache-proof and reproducible, then add explainable scoring so users can see why a result appeared.
+Yes — materially better. The biggest red flag from my first pass looks substantially improved: the benchmark-looking hard-coded ranking boosts are gone from `src/ranking.rs` and replaced with generic symbol, path-token, test/docs/example, stem, and public-API features. That is a big credibility improvement.
 
-I statically inspected the uploaded repo. I couldn’t run the Rust test suite because `cargo` is not installed in this sandbox, so treat this as a code/design review rather than a verified build report.
+I still couldn’t run `cargo test` because this sandbox does not have `cargo`/`rustc`, so this is a static review of the updated zip rather than a verified build.
 
-1. Remove or quarantine benchmark-specific ranking boosts.
+The short version: I’d now shift from “remove suspicious ranking behaviour” to “make the tool internally consistent, cache/freshness-correct, and benchmark-honest”. There are a few likely bugs worth fixing before adding more features.
 
-This is the biggest red flag. `src/ranking.rs` contains a large number of query/path special cases that look tied to benchmark repositories and tasks: phrases such as `zodtype`, `easy handle`, `retry a failed request`, `schemautils`, `fmt::format`, `model fields`, `tokenizer construction`, etc., mapped directly to paths like `/v4/core/schemas.ts/`, `/easy.c/`, `/transfer.c/`, `/core/schemautilityapi.kt/`, `/format.h/`, `/fields.py/`, `/tokenizer/tokenizer.py/`. The path-intent block starts around `src/ranking.rs:220`, and the strongest direct boosts are around `src/ranking.rs:557-823` and `src/ranking.rs:999-1071`.
+The best improvements I saw are:
 
-Steelman: the idea is good. Natural-language code search often needs path-intent features, and “public API”, “schema”, “worker”, “config”, “test file”, “v4”, and similar clues are genuinely useful. Red-team: hard-coding benchmark phrases into the production ranker makes the NDCG claim much less trustworthy and risks poor generalisation.
+Your ranker is much cleaner. I no longer see direct benchmark-task phrases like `zodtype`, `schemautilityapi`, `format.h`, `fields.py`, etc. in production code. The remaining benchmark-ish strings are only in tests/docs, which is fine.
 
-I’d replace these with generic features: path-token overlap, filename/stem overlap, symbol definitions, directory priors, query-token-to-path-token fuzzy matching, test/doc/example intent detection, and maybe a tiny learned linear reranker over these features. Keep the current hard-coded cases only as regression fixtures or behind a `diagnostics`/`benchmark_oracle` feature that is never used in published comparisons.
+The cache story is better. `src/index.rs` now uses SHA-256 for cache keys, and `src/model2vec.rs` fingerprints model files with SHA-256 rather than using `DefaultHasher` for persistent identities.
 
-2. Make the benchmark methodology cache-proof and fully reproducible.
+The CLI now exposes `--include-docs` and repeatable `--extension`, and profiles can store those settings.
 
-The benchmark docs say `cold_index_ms` is a “fresh index, no cache” number, but `src/bin/sifs-benchmark.rs:193-202` builds with `SifsIndex::from_path_with_model_options(...)`, which uses default `IndexOptions::new(...)`; `IndexOptions` defaults to `CacheConfig::Platform` in `src/index.rs:67-74`. That means “cold” may actually mean “loaded from persistent sparse cache” unless the environment is carefully cleaned. The README’s headline `6.5 ms` cold index time is therefore something I’d make more defensive.
+Per-result explanations exist in `SearchExplanation`, and MCP exposes them in structured result payloads when `explain` is set.
 
-I’d add an explicit `--no-cache` flag to `sifs-benchmark`, use `CacheConfig::Disabled` for the cold-index path, and record `cache_mode`, `model_fingerprint`, CPU, OS, Rust version, repo revision, file count, chunk count, and whether semantic cache was pre-existing. Also split benchmark tasks into tune/dev/test sets. If you keep tuning ranking heuristics, only report the held-out test set in the README.
+Chunk metadata now has `symbols` and `breadcrumbs`, and BM25 indexes symbol/path/breadcrumb tokens, which is a good pragmatic step.
 
-3. Add score explanations, not just command explanations.
+Unreadable or non-UTF-8 files are now skipped with `IndexWarning` rather than aborting the whole index.
 
-`--explain` currently prints query/source/mode/filter/elapsed metadata in `src/main.rs:1972-1988`; it does not explain why each result ranked where it did. For a search tool, especially one used by agents, “why this result?” is massively valuable.
+MCP argument validation is tighter: `alpha` bounds, string-array validation, and MCP result structure are all improved.
 
-I’d expose per-result ranking evidence in JSON and MCP: BM25 rank/score, semantic rank/score, RRF contribution, resolved alpha, path-intent contribution, definition boost, test/example penalty, matched query tokens, matched path tokens, and whether the result was injected from a non-candidate path rule. This would also make overfitting easier to spot during development.
+You added `pack`, `eval`, and `tune` scaffolding. Even if they are basic right now, they are the right product direction for agent-native search.
 
-A useful CLI shape would be something like:
+The biggest remaining issues I’d fix next are these.
 
-```bash
-sifs search "where is retry backoff implemented" --source . --json --explain
-```
-
-with each result carrying an `explanation` object. Agents could then decide whether to trust, broaden, or switch to BM25.
-
-4. Make chunking more symbol-aware.
-
-The chunker is clean and fast, but currently it mostly groups Tree-sitter child nodes into roughly 1500-character chunks, with line-based fallback; see `src/chunker.rs:47-72`. The resulting `Chunk` type stores content, file path, line range, and language only; see `src/types.rs:17-24`.
-
-I’d enrich chunks with extracted symbols and structural context: enclosing class/function/module, exported symbols, imports, doc comments, decorators/attributes, route names, test names, and maybe a compact “breadcrumb” such as `src/foo.rs > impl Bar > fn baz`. This would improve symbol queries, natural-language queries, and result presentation.
-
-A practical implementation path:
+First, `SifsIndex::is_fresh()` looks wrong and will probably make MCP freshness misleading. In `src/index.rs:484-489`, it calls:
 
 ```rust
-pub struct Chunk {
-    pub content: String,
-    pub file_path: String,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub language: Option<String>,
-    pub symbols: Vec<Symbol>,
-    pub breadcrumbs: Vec<String>,
+let current = current_file_signatures(&cache_entry.root, None, None, false).ok()?;
+```
+
+But `cache_entry.root` is the cache directory, not the indexed source directory. For a project cache, that is something like `<repo>/.sifs`; for a platform cache, it is under `~/.cache/sifs/...`. So `is_fresh()` is comparing the original source-file signatures against signatures from the cache directory. In practice this likely returns `false` most of the time, which means the MCP `IndexCache` in `src/mcp.rs:171-177` may refresh the index repeatedly and report `"fresh": false` even immediately after refreshing.
+
+I’d store the source root and index options inside `SifsIndex`, then compare against the real source:
+
+```rust
+#[derive(Clone, Debug)]
+struct SourceSignatureContext {
+    root: PathBuf,
+    extensions: Option<HashSet<String>>,
+    ignore: Option<HashSet<String>>,
+    include_text_files: bool,
+}
+
+pub struct SifsIndex {
+    // existing fields...
+    source_signature_context: Option<SourceSignatureContext>,
+}
+
+pub fn is_fresh(&self) -> Option<bool> {
+    let ctx = self.source_signature_context.as_ref()?;
+    let expected = self.signatures.as_ref()?;
+    let current = current_file_signatures(
+        &ctx.root,
+        ctx.extensions.as_ref(),
+        ctx.ignore.as_ref(),
+        ctx.include_text_files,
+    )
+    .ok()?;
+    Some(&current == expected)
 }
 ```
 
-Then index `symbols` and `breadcrumbs` with higher BM25 field weights, and include them in MCP/JSON outputs.
+For Git URLs, I would either return `None` for freshness or store the checked-out revision explicitly and say “fresh against pinned revision”, not “fresh against remote branch”.
 
-5. Add automatic freshness for daemon/MCP indexes.
+Second, daemon and MCP paths appear to ignore the new document/extension settings. The CLI `search` command resolves `include_docs` and `extensions`, but `try_daemon_search()` builds `IndexRuntimeOptions::sparse(...)` or `IndexRuntimeOptions::with_encoder(...)` without setting `include_text_files` or `extensions` in `src/main.rs:1431-1445`. So if the daemon is running, `sifs search ... --include-docs` may silently search a code-only daemon index instead of the requested docs-inclusive index.
 
-The daemon keeps indexes in memory and exposes `refresh_index`, but there is no automatic staleness check on every search. `IndexManager` tracks `last_used` and even has `prune_idle` in `src/daemon/manager.rs:90-99`, but I didn’t see that pruning used. For long-lived agent sessions, stale results are a common failure mode.
+The protocol already has the fields: `IndexRuntimeOptions` includes `extensions` and `include_text_files` in `src/daemon/protocol.rs:192-194`, and `IndexIdentity` includes them in `src/daemon/protocol.rs:250-265`. The missing part is propagation from CLI/MCP into those fields.
 
-I’d add one of these modes:
+I’d add a small builder:
 
-```bash
-sifs daemon run --watch
-sifs mcp --auto-refresh
-sifs search ... --fresh
-```
+```rust
+fn with_index_filters(
+    mut options: IndexRuntimeOptions,
+    include_docs: bool,
+    extensions: Vec<String>,
+) -> IndexRuntimeOptions {
+    options.include_text_files = include_docs;
+    options.extensions = if extensions.is_empty() {
+        None
+    } else {
+        Some(normalize_extensions(extensions))
+    };
+    options
+}
 
-At minimum, store the file-signature fingerprint with each in-memory index and cheaply re-check before search. If it changed, return a structured warning or refresh automatically depending on mode. The MCP response should include `fresh: true/false`, `indexed_at`, and `source_fingerprint`.
-
-6. Harden cache keys and cache validation.
-
-Persistent cache validation currently uses path, length, and modified timestamp in `current_file_signatures`; see `src/index.rs:894-918`. Cache keys and model fingerprints use `DefaultHasher`; see `src/index.rs:888-891` and `src/model2vec.rs:118-128`. That is fast, but I’d avoid it for persistent identities because `DefaultHasher` is not a great semantic contract for stable on-disk cache formats.
-
-I’d switch to SHA-256 or BLAKE3 over canonical serialised data. You already depend on `sha2`, so this can be done without adding a dependency. For file signatures, use a two-tier design: cheap mtime/len first, content hash when changed/ambiguous, or content hash always for smaller repos. Also include the SIFS version, cache schema, chunker version, ranking-index version, model fingerprint, extension set, ignore set, and include-docs flag.
-
-This matters because a stale cache returning wrong search results is worse than a slow cache miss.
-
-7. Treat unreadable and non-UTF-8 files as warnings, not fatal errors.
-
-`create_chunks_from_path` uses `fs::read_to_string(file_path)?` inside a parallel map; see `src/index.rs:951-964`. A single supported-extension file that is unreadable or non-UTF-8 can abort the whole index. The public docs already acknowledge the UTF-8 limitation, but the code has an `IndexWarning` type that appears largely unused for indexing failures.
-
-I’d change indexing to skip bad files and accumulate structured warnings:
-
-```json
-{
-  "kind": "skipped_file",
-  "path": "src/generated/foo.rs",
-  "reason": "not valid UTF-8"
+fn normalize_extensions(values: Vec<String>) -> Vec<String> {
+    let mut values: Vec<_> = values
+        .into_iter()
+        .map(|value| {
+            let value = value.trim().to_lowercase();
+            if value.starts_with('.') {
+                value
+            } else {
+                format!(".{value}")
+            }
+        })
+        .collect();
+    values.sort();
+    values.dedup();
+    values
 }
 ```
 
-That makes the tool more robust in messy real repos. It also gives agents a path to recover: inspect warnings, adjust `--ignore`, or use BM25-only mode.
+Then use it in `try_daemon_search`, `try_daemon_find_related`, `try_daemon_list_files`, `try_daemon_get_chunk`, and MCP daemon delegation.
 
-8. Make document/config indexing first-class in the CLI.
+Third, MCP profiles do not seem to apply full profile indexing options. `selected_profile()` is used for mode/limit/source, but the MCP `IndexCache::get()` always builds `IndexOptions::new(...).with_cache(...)` without profile `include_docs`, `extensions`, `cache_dir`, `encoder`, etc. That means a profile saved with `--include-docs` can work through CLI search but not through MCP search. I’d promote “resolved invocation” into a shared library type and use the same resolution path for CLI, daemon, and MCP.
 
-The README says recognised extensions include Markdown, YAML, TOML, and JSON, but `filter_extensions(None, include_text_files)` excludes document-like files unless `include_text_files` is true; see `src/file_walker.rs:289-300`. The public CLI search path does not appear to expose an obvious `--include-docs` or `--extension` flag in the main `Search` command fields around `src/main.rs:50-108`.
+Fourth, the benchmark story is much better in code, but the checked-in artefacts/docs still look stale or incomplete. `src/bin/sifs-benchmark.rs` now has `--no-cache` and adds `reproducibility` metadata to each repo result, but the checked-in `benchmarks/results/sifs-full.json` does not contain `reproducibility`. Also, `docs/benchmark-report.md:60-67` still shows the benchmark command without `--no-cache`, while the README says `cold_index_ms` means “fresh index, no cache”.
 
-For agents, docs/config are often where architecture decisions, API routes, deployment settings, and conventions live. I’d add:
-
-```bash
-sifs search "deployment secrets" --include-docs
-sifs search "beamline config" --extension .toml --extension .yaml
-sifs profile save current --include-docs
-```
-
-Then include document-file settings in cache keys and `agent-context --json`.
-
-9. Tighten MCP/CLI validation and output budgets.
-
-The MCP schema declares useful constraints, e.g. `alpha` has `minimum: 0`, `maximum: 1`, and `limit` has `minimum: 1`; see `src/mcp.rs:1198-1211`. But the parser does not seem to enforce all of them. `search_options_from_args` accepts `alpha` as any number and casts to `f32`; `string_array_arg` silently drops non-string array entries; see `src/mcp.rs:791-855`.
-
-I’d enforce schema constraints in code, not just in the advertised schema. In particular: reject `alpha < 0` or `alpha > 1`, cap `limit` globally for agent-facing calls, reject malformed `filter_languages`/`filter_paths`, and include a `max_returned_chars` or `budget_tokens` option. Search tools can accidentally flood an agent context with large chunks, especially if `limit` is high.
-
-A particularly useful agent-facing command would be:
+I’d regenerate the checked-in benchmark JSON and docs with something like:
 
 ```bash
-sifs pack "how auth/session expiry works" --budget-tokens 6000 --json
+target/release/sifs-benchmark \
+  --benchmarks-dir /path/to/benchmark-corpus \
+  --bench-root /path/to/pinned-checkouts \
+  --output benchmarks/results/sifs-full.json \
+  --no-download \
+  --no-cache \
+  --include-tasks
 ```
 
-Instead of returning independent chunks, it would produce a deduplicated context pack: top files, selected chunks, adjacent context, and why each piece was included.
+More importantly, I’d add a separate metric for first-use latency. Right now `cold_index_ms` measures construction of the sparse/chunk index, but semantic embeddings are lazy-loaded/built on first semantic or hybrid search. The benchmark then warms the first query before measuring query latency. That is fine as a warm-query benchmark, but it is not the “from nothing to first hybrid result” experience.
 
-10. Turn local feedback into an evaluation and tuning loop.
+I’d report at least these:
 
-You already have `sifs feedback`, MCP feedback tools, and local JSONL-style feedback plumbing. That is a great start, but the next leap is to make feedback operational.
+```text
+cold_sparse_index_ms
+cold_semantic_build_or_load_ms
+cold_first_hybrid_search_ms
+warm_uncached_query_ms
+warm_cached_repeat_query_ms
+```
 
-I’d add commands like:
+That would make the performance claim much harder to misunderstand.
+
+Fifth, `semantic_index_available()` still checks for `semantic-v2-` in `src/main.rs:1855-1868`, while the current semantic cache prefix is `semantic-v4` in `src/index.rs:44`. So `sifs status` can report that a semantic index is unavailable even when the v4 semantic cache exists. The core test already checks for `semantic-v4-`, so the status helper should be updated or, better, replaced with a library method that uses the same `semantic_cache_path()` logic as the cache writer.
+
+Sixth, cached indexes drop warnings. `CachedIndexPayload` stores `chunks` and `bm25_index`, but not `warnings`. If the first index build skipped unreadable/non-UTF-8 files and then wrote a sparse cache, a later cache hit via `from_cached_parts()` returns `warnings: Vec::new()`. I’d add `warnings: Vec<IndexWarning>` to the cache payload and bump the cache version.
+
+Seventh, `pack` is a good start but currently undersells the idea. It is BM25-only, always includes docs, ignores profiles/cache/extension filters, deduplicates by file by taking only the first chunk, and prints JSON even without `--json`. I’d turn it into the agent-native flagship command:
 
 ```bash
-sifs feedback create --query "..." --expected src/foo.rs:120
-sifs eval --from-feedback --source .
-sifs tune --from-feedback --dry-run
+sifs pack "how request auth works" \
+  --source . \
+  --mode hybrid \
+  --budget-tokens 6000 \
+  --include-neighbours 1 \
+  --include-symbol-definitions \
+  --json
 ```
 
-The goal is not necessarily online learning. Even a local regression suite generated from real agent misses would be powerful. Over time, SIFS could report: “your project profile has 37 feedback cases; hybrid NDCG@10 is 0.78; BM25 is 0.71; these 5 queries regressed since v0.3.1.”
+The packer should use hybrid retrieval, select diverse files with maximum marginal relevance, add adjacent chunks when useful, include symbol breadcrumbs/imports, and explain why each chunk was included. For agent work, a high-quality context pack is often more valuable than a ranked list.
 
-Two extra improvements I’d seriously consider after those: Windows support or explicit unsupported-platform messaging, since the daemon is Unix-socket based; and memory-budgeted indexing for large monorepos, since the React smoke test reports roughly 462 MB RSS for about 21k chunks in `docs/benchmark-report.md`.
+Eighth, `eval`/`tune` are promising but currently too BM25-specific. `run_eval()` in `src/main.rs:4093-4098` builds a sparse index and evaluates only BM25. I’d let it evaluate all configured modes and report hit@k, MRR, NDCG, and regressions by category:
 
-My priority order would be: first de-benchmark the ranker, then fix benchmark cache semantics, then add score explanations. Those three will make the tool much more credible without changing its overall architecture.
+```bash
+sifs eval --from-feedback --source . --mode hybrid --limit 10 --json
+sifs eval --from-feedback --source . --all-modes --json
+```
+
+Then `tune --dry-run` could actually do useful work: try alpha values, path-boost weights, test/doc penalties, and rerank settings against local feedback without modifying production defaults.
+
+Ninth, path-intent boosting is now generic, but it may run too broadly. `path_intent_query()` returns true whenever `query_path_terms(lowered).next().is_some()`, which is almost any non-trivial natural-language query. That means most queries get path-token boosting, not just path-intent queries. That may be fine, but I’d rename it conceptually to “path-token feature”, cap its contribution more explicitly, and expose the contribution in explanations.
+
+I’d also add generic candidate expansion for path matches. Right now `boost_path_intent()` boosts only chunks already in the candidate set. If the right file is named `retry/backoff.rs` but BM25/semantic did not retrieve it, the path feature cannot rescue it. A cleaner approach is to retrieve candidates from multiple indexes:
+
+```text
+content BM25 candidates
+symbol/name candidates
+path-token candidates
+semantic candidates
+```
+
+Then fuse them with RRF. That gives you the benefits of the old path-oracle behaviour without benchmark-specific hard-coding.
+
+Tenth, symbol extraction is useful but still quite shallow. The current line-based extractor in `src/chunker.rs` catches things like `def`, `class`, `fn`, `struct`, `interface`, etc., but it will miss common forms such as `export function`, `export class`, `pub async fn`, `impl Foo`, `const useThing = (...) =>`, decorators, Rust `impl` methods, TypeScript object methods, Python async defs, Java annotations, and so on.
+
+The next upgrade is tree-sitter symbol extraction per language. You do not need perfect LSP-level semantics; even a 70% extractor for top languages would improve ranking and context packaging. The stored `Symbol` could become:
+
+```rust
+pub struct Symbol {
+    pub name: String,
+    pub kind: String,
+    pub line: usize,
+    pub end_line: Option<usize>,
+    pub visibility: Option<String>,
+    pub container: Option<String>,
+}
+```
+
+Then breadcrumbs become real structural context rather than “all symbols appearing in this chunk”.
+
+Eleventh, document/config indexing needs guardrails. `--include-docs` currently includes Markdown, JSON, YAML, and TOML. That is useful, but JSON/YAML can include enormous generated files: `package-lock.json`, `pnpm-lock.yaml`, OpenAPI bundles, generated schemas, test fixtures, etc. I’d add default size limits and generated-file exclusions, especially when docs are enabled.
+
+Something like:
+
+```bash
+--max-file-bytes 1_000_000
+--include-lockfiles
+--include-generated
+```
+
+And defaults that skip things like `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, generated schema bundles, coverage files, and minified JSON unless explicitly requested.
+
+Twelfth, the query cache is unbounded. `SifsIndex` has `search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchResult>>>`. In a long-running daemon/MCP session, an agent can easily issue hundreds or thousands of unique queries, and each cached result clones chunks including content. I’d add an LRU or a simple byte/entry cap:
+
+```text
+SIFS_QUERY_CACHE_ENTRIES=256
+SIFS_QUERY_CACHE_BYTES=64MB
+```
+
+For MCP, I’d consider disabling query-cache by default for very large result payloads or caching only chunk IDs/scores rather than full `SearchResult` clones.
+
+Thirteenth, the CLI contract and agent context need updating to match the new surface area. `agent_context.rs` still does not describe `--include-docs`, `--extension`, `--explain`, `pack`, `eval`, or `tune`. Since agents are supposed to use `sifs agent-context --json` as the machine-readable contract, missing flags there will make agent behaviour lag the CLI.
+
+Fourteenth, path and extension normalisation should be stricter. `extension_set()` preserves case, while `walk_files()` lowercases actual file extensions before matching. So `--extension RS` probably will not match `.rs`. I’d normalise user extensions to lowercase, strip whitespace, reject empty values, and maybe reject `*`/glob-looking inputs unless you deliberately support them.
+
+Similarly, `filter_paths` are exact. You already warn if `./src/lib.rs` did not match but `src/lib.rs` exists, but the search still fails. I’d normalise `./`, repeated slashes, and Windows separators before building the selector.
+
+Fifteenth, decide the Windows story. The daemon uses Unix sockets, so Windows support is either absent or partial. If unsupported, make that explicit in README and `doctor`. If you want Windows support, abstract the transport behind a small trait and use named pipes or TCP loopback with a lockfile/token.
+
+My recommended next priority order would be:
+
+Fix `is_fresh()` first, because it can cause repeated MCP refreshes and misleading `"fresh": false` output.
+
+Then make CLI/daemon/MCP honour the same indexing options, especially `include_docs` and `extensions`.
+
+Then regenerate benchmark artefacts with `--no-cache`, add first-use semantic/hybrid latency, and update the README claims accordingly.
+
+Then upgrade `pack` into a proper context-pack generator, because that is likely the most agent-native differentiator.
+
+After that, improve symbol extraction and fielded retrieval. The tool is now in a much more credible place; the remaining work is mostly consistency, evaluation discipline, and turning “search results” into “safe-to-edit context”.
