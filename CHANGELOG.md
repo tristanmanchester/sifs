@@ -14,6 +14,12 @@ versioning where practical.
 - Added a Dockerfile for running the SIFS MCP server behind `mcp-proxy` in
   server listing deployments.
 
+### Changed
+
+- Replaced benchmark-specific ranking path boosts with generic path-token,
+  filename, and intent signals so production scoring no longer contains
+  hard-coded benchmark query and repository paths.
+
 ### Fixed
 
 - Restored standard triple-backtick Markdown fences for search result snippets
