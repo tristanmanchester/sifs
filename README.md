@@ -283,7 +283,9 @@ Benchmarks run across 63 pinned open-source repositories, 19 languages, and 1,25
 
 SIFS reports three timing fields to avoid mixing up caching effects:
 
-- `cold_index_ms` — fresh index, no cache
+- `cold_index_ms` — fresh sparse/chunk index, no persistent cache
+- `cold_semantic_build_or_load_ms` — first semantic embedding build/load cost
+- `cold_first_search_ms` — first search including semantic first-use cost when applicable
 - `warm_uncached_query_ms` — normal query after index exists (use this for comparisons)
 - `warm_cached_repeat_query_ms` — repeated identical query in the same process
 

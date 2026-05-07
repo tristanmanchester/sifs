@@ -648,6 +648,14 @@ impl SifsIndex {
             .unwrap_or(false)
     }
 
+    pub fn warm_semantic(&self) -> Result<bool> {
+        if self.semantic_config.is_none() {
+            return Ok(false);
+        }
+        drop(self.ensure_semantic()?);
+        Ok(true)
+    }
+
     #[cfg(test)]
     fn query_cache_len(&self) -> usize {
         self.search_cache

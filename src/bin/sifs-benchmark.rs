@@ -117,6 +117,8 @@ struct RepoResult {
     ndcg5: f64,
     ndcg10: f64,
     cold_index_ms: f64,
+    cold_semantic_build_or_load_ms: Option<f64>,
+    cold_first_search_ms: f64,
     warm_uncached_query_ms: f64,
     warm_uncached_query_p90_ms: f64,
     warm_cached_repeat_query_ms: f64,
@@ -175,6 +177,8 @@ struct Summary {
     tasks: usize,
     avg_ndcg10: f64,
     avg_cold_index_ms: f64,
+    avg_cold_semantic_build_or_load_ms: f64,
+    avg_cold_first_search_ms: f64,
     avg_warm_uncached_query_ms: f64,
     avg_warm_cached_repeat_query_ms: f64,
 }
@@ -219,6 +223,9 @@ fn main() -> Result<()> {
         let start = Instant::now();
         let index = SifsIndex::from_path_with_index_options(&root, index_options)?;
         let cold_index_ms = elapsed_ms(start);
+        let semantic_start = Instant::now();
+        let cold_semantic_build_or_load_ms =
+            index.warm_semantic()?.then(|| elapsed_ms(semantic_start));
 
         let mut uncached_latencies = Vec::new();
         let mut cached_latencies = Vec::new();
@@ -226,6 +233,18 @@ fn main() -> Result<()> {
         let mut ndcg10_sum = 0.0;
         let mut by_category_scores: HashMap<String, Vec<f64>> = HashMap::new();
         let mut task_results = Vec::new();
+
+        let mut first_options = SearchOptions::new(args.top_k)
+            .with_mode(args.mode)
+            .with_cache(false);
+        first_options.alpha = args.alpha;
+        let first_task = tasks
+            .first()
+            .context("repo benchmark task group was unexpectedly empty")?;
+        let first_start = Instant::now();
+        std::hint::black_box(index.search_with(&first_task.query, &first_options)?);
+        let cold_first_search_ms =
+            cold_semantic_build_or_load_ms.unwrap_or(0.0) + elapsed_ms(first_start);
 
         for (task_idx, task) in tasks.iter().enumerate() {
             eprintln!(
@@ -303,6 +322,8 @@ fn main() -> Result<()> {
             ndcg5: ndcg5_sum / tasks.len() as f64,
             ndcg10: ndcg10_sum / tasks.len() as f64,
             cold_index_ms,
+            cold_semantic_build_or_load_ms,
+            cold_first_search_ms,
             warm_uncached_query_ms: percentile(&uncached_latencies, 0.5),
             warm_uncached_query_p90_ms: percentile(&uncached_latencies, 0.9),
             warm_cached_repeat_query_ms: percentile(&cached_latencies, 0.5),
@@ -337,6 +358,10 @@ fn main() -> Result<()> {
         tasks: total_tasks,
         avg_ndcg10: weighted_mean(&results, |r| r.ndcg10),
         avg_cold_index_ms: weighted_mean(&results, |r| r.cold_index_ms),
+        avg_cold_semantic_build_or_load_ms: weighted_mean(&results, |r| {
+            r.cold_semantic_build_or_load_ms.unwrap_or(0.0)
+        }),
+        avg_cold_first_search_ms: weighted_mean(&results, |r| r.cold_first_search_ms),
         avg_warm_uncached_query_ms: weighted_mean(&results, |r| r.warm_uncached_query_ms),
         avg_warm_cached_repeat_query_ms: weighted_mean(&results, |r| r.warm_cached_repeat_query_ms),
     };

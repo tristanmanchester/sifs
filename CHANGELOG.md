@@ -24,6 +24,8 @@ versioning where practical.
   lockfiles and files larger than 1 MB.
 - Normalized `filter_paths` during search so leading `./`, repeated
   separators, and Windows separators match indexed repository-relative paths.
+- Added first-use semantic/search latency fields to `sifs-benchmark` output and
+  documented that benchmark runs should use `--no-cache` for cold-index claims.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

@@ -12,6 +12,8 @@ and three separate timing fields:
 
 ```text
 cold_index_ms
+cold_semantic_build_or_load_ms
+cold_first_search_ms
 warm_uncached_query_ms
 warm_cached_repeat_query_ms
 ```
@@ -19,6 +21,9 @@ warm_cached_repeat_query_ms
 The uncached warm query number bypasses SIFS's in-process query-result cache and
 is the honest value to compare for normal searches after an index exists. The
 cached repeat number measures identical repeated queries after one warm-up.
+`cold_index_ms` is sparse/chunk index construction only; semantic/hybrid
+first-use cost is reported separately as `cold_semantic_build_or_load_ms` and
+included in `cold_first_search_ms`.
 
 | Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|
@@ -63,7 +68,8 @@ target/release/sifs-benchmark \
   --benchmarks-dir /path/to/benchmark-corpus \
   --bench-root /path/to/pinned-checkouts \
   --output benchmarks/results/sifs-full.json \
-  --no-download
+  --no-download \
+  --no-cache
 ```
 
 The comparison baselines are existing result JSON files from the adjacent Python
@@ -88,6 +94,11 @@ The full SIFS payload is checked in at
 [benchmarks/results/sifs-full.json](../benchmarks/results/sifs-full.json). It
 contains per-repository NDCG, latency, index time, memory, file count, chunk
 count, and category-level scores.
+
+Note: the current benchmark binary also emits `reproducibility`,
+`cold_semantic_build_or_load_ms`, and `cold_first_search_ms`. Checked-in result
+JSON should be regenerated with the command above before using it for fresh
+release claims.
 
 ## SIFS by language
 
