@@ -1006,6 +1006,29 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     assert_eq!(searched["mode"], "bm25");
     assert_eq!(searched["limit"], 3);
 
+    let pack = sifs()
+        .args([
+            "pack",
+            "token validation",
+            "--profile",
+            "agent-test",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        pack.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&pack.stderr)
+    );
+    let packed: Value = serde_json::from_slice(&pack.stdout).unwrap();
+    let packed_source = fs::canonicalize(packed["source"].as_str().unwrap()).unwrap();
+    assert_eq!(packed_source, fs::canonicalize(dir.path()).unwrap());
+    assert_eq!(packed["mode"], "bm25");
+    assert_eq!(packed["limit"], 3);
+    assert!(!packed["items"].as_array().unwrap().is_empty());
+
     let feedback = sifs()
         .args([
             "feedback",

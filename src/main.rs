@@ -121,10 +121,38 @@ enum Command {
         query: String,
         #[arg(long)]
         source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source and search defaults.")]
+        profile: Option<String>,
+        #[arg(long, value_enum)]
+        mode: Option<ModeArg>,
         #[arg(long, default_value_t = 6000)]
         budget_tokens: usize,
-        #[arg(long, default_value_t = 20)]
-        limit: usize,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec, help = "Encoder for semantic and hybrid pack search.")]
+        encoder: EncoderArg,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
         #[arg(long)]
         json: bool,
     },
@@ -776,16 +804,36 @@ fn main() -> Result<()> {
         Some(Command::Pack {
             query,
             source,
+            profile,
+            mode,
             budget_tokens,
             limit,
+            model,
+            encoder,
+            offline,
+            no_download,
+            cache_dir,
+            no_cache,
+            project_cache,
+            include_docs,
+            extensions,
             json,
-        }) => run_pack(
-            query,
-            source.unwrap_or_else(|| ".".to_owned()),
-            budget_tokens,
-            limit,
-            json,
-        )?,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                mode,
+                limit.or_else(|| profile.is_none().then_some(20)),
+                model,
+                encoder,
+                offline,
+                no_download,
+                cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
+            )?;
+            run_pack(query, resolved, budget_tokens, json)?
+        }
         Some(Command::FindRelated {
             file_path,
             line,
@@ -1142,19 +1190,27 @@ struct ResolvedInvocation {
 
 fn run_pack(
     query: String,
-    source: String,
+    invocation: ResolvedInvocation,
     budget_tokens: usize,
-    limit: usize,
     json_output: bool,
 ) -> Result<()> {
     if budget_tokens == 0 {
         bail!("--budget-tokens must be at least 1");
     }
-    if limit == 0 {
+    if invocation.limit == 0 {
         bail!("--limit must be at least 1");
     }
-    let index = build_sparse_index(&source, CacheConfig::Platform, false, true, None)?;
-    let options = SearchOptions::new(limit).with_mode(SearchMode::Bm25);
+    let policy = model_policy(invocation.offline, invocation.no_download);
+    let index = build_index_for_mode(
+        &invocation.source,
+        invocation.mode,
+        encoder_spec(invocation.encoder, invocation.model.as_deref(), policy),
+        invocation.cache,
+        invocation.offline,
+        invocation.include_docs,
+        extension_set(&invocation.extensions),
+    )?;
+    let options = SearchOptions::new(invocation.limit).with_mode(invocation.mode);
     let results = index.search_with(&query, &options)?;
     let mut remaining_chars = budget_tokens.saturating_mul(4);
     let mut seen = std::collections::HashSet::new();
@@ -1179,15 +1235,22 @@ fn run_pack(
             "start_line": result.chunk.start_line,
             "end_line": result.chunk.end_line,
             "score": result.score,
-            "why": "ranked by BM25 for the pack query",
+            "source": result.source.to_string(),
+            "why": format!("ranked by {} for the pack query", invocation.mode),
+            "symbols": result.chunk.symbols,
+            "breadcrumbs": result.chunk.breadcrumbs,
             "content": content,
         }));
     }
     let payload = json!({
         "query": query,
-        "source": source,
+        "source": invocation.source,
+        "mode": invocation.mode.to_string(),
+        "limit": invocation.limit,
         "budget_tokens": budget_tokens,
         "estimated_tokens_used": (budget_tokens.saturating_mul(4).saturating_sub(remaining_chars) + 3) / 4,
+        "stats": index.stats(),
+        "warnings": index.warnings(),
         "items": packed,
     });
     if json_output {

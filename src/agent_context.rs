@@ -51,8 +51,12 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "args": {"query": {"type": "string", "required": true}},
                 "flags": {
                     "--source": {"type": "string", "default": "."},
+                    "--profile": {"type": "string", "required": false},
+                    "--mode": {"type": "enum", "values": ["hybrid", "semantic", "bm25"], "default": "hybrid"},
                     "--budget-tokens": {"type": "integer", "default": 6000, "minimum": 1},
                     "--limit": {"type": "integer", "default": 20, "minimum": 1},
+                    "--include-docs": {"type": "boolean", "default": false},
+                    "--extension": {"type": "string", "repeatable": true},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,

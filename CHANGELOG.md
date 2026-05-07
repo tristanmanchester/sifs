@@ -26,6 +26,8 @@ versioning where practical.
   separators, and Windows separators match indexed repository-relative paths.
 - Added first-use semantic/search latency fields to `sifs-benchmark` output and
   documented that benchmark runs should use `--no-cache` for cold-index claims.
+- Updated `sifs pack` to use saved profiles and the same mode, cache, model,
+  document, and extension indexing options as search.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
