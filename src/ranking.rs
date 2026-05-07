@@ -261,10 +261,7 @@ fn boost_path_intent<S: BuildHasher>(
             .iter()
             .filter(|term| path_terms.contains(*term))
             .count();
-        let stem_match = query_terms
-            .iter()
-            .any(|term| path_stem_matches(&path, term));
-        if overlap >= 2 || (stem_match && overlap >= 1) {
+        if overlap >= 2 {
             boosted.insert(chunk_id, max_score * (0.25 + 0.2 * overlap as f32).min(0.9));
             injected += 1;
             if injected >= 32 {
@@ -832,5 +829,24 @@ mod tests {
 
         assert!(scores.contains_key(&1));
         assert!(scores[&1] > scores[&2]);
+    }
+
+    #[test]
+    fn query_path_intent_does_not_inject_single_term_stem_matches() {
+        let chunks = vec![
+            chunk("fn parse() {}", "src/curl_endian.c"),
+            chunk("fn parse() {}", "src/http.c"),
+        ];
+        let mut scores = HashMap::from([(1usize, 1.0)]);
+
+        boost_path_intent(
+            &mut scores,
+            "how curl checks if HTTP If-Modified-Since condition is met",
+            1.0,
+            &chunks,
+            None,
+        );
+
+        assert!(!scores.contains_key(&0));
     }
 }
