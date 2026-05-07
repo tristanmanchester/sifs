@@ -9,10 +9,9 @@ use anyhow::{Context, Result, bail};
 use ndarray::{Array2, s};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -892,10 +891,10 @@ fn normalized_set(values: &Option<HashSet<String>>) -> Vec<String> {
     values
 }
 
-fn cache_hash<T: Hash>(value: &T) -> String {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+fn cache_hash<T: Serialize>(value: &T) -> String {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    let digest = Sha256::digest(bytes);
+    format!("{digest:x}")
 }
 
 fn current_file_signatures(

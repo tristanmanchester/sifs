@@ -3,6 +3,7 @@ use hf_hub::{Cache, Repo};
 use ndarray::{Array1, Array2};
 use safetensors::{SafeTensors, tensor::Dtype};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -120,12 +121,12 @@ pub fn model_fingerprint(options: &ModelOptions) -> Result<String> {
         return Ok("hashing-fallback-v1".to_owned());
     }
     let (tokenizer_path, model_path, config_path) = model_files(options)?;
-    let mut hasher = DefaultHasher::new();
-    options.model.hash(&mut hasher);
+    let mut hasher = Sha256::new();
+    hasher.update(options.model.as_bytes());
     hash_file(&tokenizer_path, &mut hasher)?;
     hash_file(&model_path, &mut hasher)?;
     hash_file(&config_path, &mut hasher)?;
-    Ok(format!("{:016x}", hasher.finish()))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -350,10 +351,12 @@ fn configured_unk_token(tokenizer_json: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn hash_file(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
+fn hash_file(path: &Path, hasher: &mut Sha256) -> Result<()> {
     let bytes = fs::read(path).with_context(|| format!("read model file {}", path.display()))?;
-    path.file_name().hash(hasher);
-    bytes.hash(hasher);
+    if let Some(file_name) = path.file_name() {
+        hasher.update(file_name.to_string_lossy().as_bytes());
+    }
+    hasher.update(&bytes);
     Ok(())
 }
 

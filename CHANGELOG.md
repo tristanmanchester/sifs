@@ -30,6 +30,8 @@ versioning where practical.
 
 ### Fixed
 
+- Switched persistent index cache keys and model fingerprints from
+  process-random hashers to SHA-256-derived identifiers.
 - Skipped unreadable or non-UTF-8 files during indexing with structured
   warnings instead of aborting the entire index build.
 - Restored standard triple-backtick Markdown fences for search result snippets
