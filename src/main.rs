@@ -116,6 +116,18 @@ enum Command {
         )]
         extensions: Vec<String>,
     },
+    #[command(about = "Build a deduplicated context pack for a query.")]
+    Pack {
+        query: String,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long, default_value_t = 6000)]
+        budget_tokens: usize,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Find chunks related to a known file and one-based line number.")]
     FindRelated {
         #[arg(help = "Repository-relative file path, usually copied from a search result.")]
@@ -752,6 +764,19 @@ fn main() -> Result<()> {
                 extensions: resolved.extensions,
             })?
         }
+        Some(Command::Pack {
+            query,
+            source,
+            budget_tokens,
+            limit,
+            json,
+        }) => run_pack(
+            query,
+            source.unwrap_or_else(|| ".".to_owned()),
+            budget_tokens,
+            limit,
+            json,
+        )?,
         Some(Command::FindRelated {
             file_path,
             line,
@@ -1099,6 +1124,64 @@ struct ResolvedInvocation {
     cache: CacheConfig,
     include_docs: bool,
     extensions: Vec<String>,
+}
+
+fn run_pack(
+    query: String,
+    source: String,
+    budget_tokens: usize,
+    limit: usize,
+    json_output: bool,
+) -> Result<()> {
+    if budget_tokens == 0 {
+        bail!("--budget-tokens must be at least 1");
+    }
+    if limit == 0 {
+        bail!("--limit must be at least 1");
+    }
+    let index = build_sparse_index(&source, CacheConfig::Platform, false, true, None)?;
+    let options = SearchOptions::new(limit).with_mode(SearchMode::Bm25);
+    let results = index.search_with(&query, &options)?;
+    let mut remaining_chars = budget_tokens.saturating_mul(4);
+    let mut seen = std::collections::HashSet::new();
+    let mut packed = Vec::new();
+    for result in results {
+        if remaining_chars == 0 || !seen.insert(result.chunk.file_path.clone()) {
+            continue;
+        }
+        let content = if result.chunk.content.len() > remaining_chars {
+            result
+                .chunk
+                .content
+                .chars()
+                .take(remaining_chars)
+                .collect::<String>()
+        } else {
+            result.chunk.content.clone()
+        };
+        remaining_chars = remaining_chars.saturating_sub(content.len());
+        packed.push(json!({
+            "file_path": result.chunk.file_path,
+            "start_line": result.chunk.start_line,
+            "end_line": result.chunk.end_line,
+            "score": result.score,
+            "why": "ranked by BM25 for the pack query",
+            "content": content,
+        }));
+    }
+    let payload = json!({
+        "query": query,
+        "source": source,
+        "budget_tokens": budget_tokens,
+        "estimated_tokens_used": (budget_tokens.saturating_mul(4).saturating_sub(remaining_chars) + 3) / 4,
+        "items": packed,
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -31,6 +31,8 @@ versioning where practical.
   search and report freshness in structured search responses.
 - Added expected-query feedback fields and `sifs eval --from-feedback` for a
   local hit-rate regression loop from recorded agent misses.
+- Added `sifs pack --budget-tokens` for building deduplicated, budgeted context
+  bundles from a search query.
 
 ### Fixed
 
