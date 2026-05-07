@@ -105,6 +105,28 @@ enum Command {
         no_cache: bool,
         #[arg(long, help = "Use a project-local .sifs cache.")]
         project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
+    },
+    #[command(about = "Build a deduplicated context pack for a query.")]
+    Pack {
+        query: String,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long, default_value_t = 6000)]
+        budget_tokens: usize,
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
     },
     #[command(about = "Find chunks related to a known file and one-based line number.")]
     FindRelated {
@@ -285,6 +307,26 @@ enum Command {
     Feedback {
         #[command(subcommand)]
         command: FeedbackCommand,
+    },
+    #[command(about = "Evaluate search quality against local feedback cases.")]
+    Eval {
+        #[arg(long)]
+        from_feedback: bool,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Inspect tuning opportunities from local feedback.")]
+    Tune {
+        #[arg(long)]
+        from_feedback: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
     },
     #[command(about = "Check for or install the latest SIFS release through Cargo or Homebrew.")]
     Update {
@@ -489,6 +531,10 @@ enum ProfileCommand {
         #[arg(long)]
         project_cache: bool,
         #[arg(long)]
+        include_docs: bool,
+        #[arg(long = "extension")]
+        extensions: Vec<String>,
+        #[arg(long)]
         json: bool,
     },
     #[command(about = "List saved profiles.")]
@@ -519,6 +565,10 @@ enum FeedbackCommand {
         message: String,
         #[arg(long)]
         command_context: Option<String>,
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        expected: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -688,6 +738,8 @@ fn main() -> Result<()> {
             cache_dir,
             no_cache,
             project_cache,
+            include_docs,
+            extensions,
         }) => {
             let resolved = resolve_invocation(
                 profile.as_deref(),
@@ -699,6 +751,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
             )?;
             run_search(SearchCommand {
                 query,
@@ -715,8 +769,23 @@ fn main() -> Result<()> {
                 offline: resolved.offline,
                 no_download: resolved.no_download,
                 cache: resolved.cache,
+                include_docs: resolved.include_docs,
+                extensions: resolved.extensions,
             })?
         }
+        Some(Command::Pack {
+            query,
+            source,
+            budget_tokens,
+            limit,
+            json,
+        }) => run_pack(
+            query,
+            source.unwrap_or_else(|| ".".to_owned()),
+            budget_tokens,
+            limit,
+            json,
+        )?,
         Some(Command::FindRelated {
             file_path,
             line,
@@ -742,6 +811,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 cache_config(cache_dir, no_cache, project_cache),
+                false,
+                Vec::new(),
             )?;
             if let Some(result) = try_daemon_find_related(
                 &resolved.source,
@@ -773,6 +844,8 @@ fn main() -> Result<()> {
                 encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
                 resolved.cache,
                 resolved.offline,
+                resolved.include_docs,
+                extension_set(&resolved.extensions),
             )?;
             let Some(chunk) = resolve_chunk(&index.chunks, &file_path, line) else {
                 eprintln!("No chunk found at {file_path}:{line}.");
@@ -882,6 +955,8 @@ fn main() -> Result<()> {
                     offline,
                     no_download,
                     cache_config(cache_dir, no_cache, project_cache),
+                    false,
+                    Vec::new(),
                 )?;
                 let policy = model_policy(resolved.offline, resolved.no_download);
                 if offline && is_git_url(&resolved.source) {
@@ -915,6 +990,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 CacheConfig::Platform,
+                false,
+                Vec::new(),
             )?;
             run_files(
                 &resolved.source,
@@ -943,6 +1020,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 CacheConfig::Platform,
+                false,
+                Vec::new(),
             )?;
             run_status(
                 &resolved.source,
@@ -972,6 +1051,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 CacheConfig::Platform,
+                false,
+                Vec::new(),
             )?;
             run_get(
                 &file_path,
@@ -995,6 +1076,17 @@ fn main() -> Result<()> {
         Some(Command::AgentContext { json }) => print_agent_context(json)?,
         Some(Command::Profile { command }) => run_profile(command)?,
         Some(Command::Feedback { command }) => run_feedback(command)?,
+        Some(Command::Eval {
+            from_feedback,
+            source,
+            limit,
+            json,
+        }) => run_eval(from_feedback, source, limit, json)?,
+        Some(Command::Tune {
+            from_feedback,
+            dry_run,
+            json,
+        }) => run_tune(from_feedback, dry_run, json)?,
         Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
         Some(Command::Update {
             check,
@@ -1031,6 +1123,8 @@ struct SearchCommand {
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: Vec<String>,
 }
 
 struct ResolvedInvocation {
@@ -1042,6 +1136,66 @@ struct ResolvedInvocation {
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: Vec<String>,
+}
+
+fn run_pack(
+    query: String,
+    source: String,
+    budget_tokens: usize,
+    limit: usize,
+    json_output: bool,
+) -> Result<()> {
+    if budget_tokens == 0 {
+        bail!("--budget-tokens must be at least 1");
+    }
+    if limit == 0 {
+        bail!("--limit must be at least 1");
+    }
+    let index = build_sparse_index(&source, CacheConfig::Platform, false, true, None)?;
+    let options = SearchOptions::new(limit).with_mode(SearchMode::Bm25);
+    let results = index.search_with(&query, &options)?;
+    let mut remaining_chars = budget_tokens.saturating_mul(4);
+    let mut seen = std::collections::HashSet::new();
+    let mut packed = Vec::new();
+    for result in results {
+        if remaining_chars == 0 || !seen.insert(result.chunk.file_path.clone()) {
+            continue;
+        }
+        let content = if result.chunk.content.len() > remaining_chars {
+            result
+                .chunk
+                .content
+                .chars()
+                .take(remaining_chars)
+                .collect::<String>()
+        } else {
+            result.chunk.content.clone()
+        };
+        remaining_chars = remaining_chars.saturating_sub(content.len());
+        packed.push(json!({
+            "file_path": result.chunk.file_path,
+            "start_line": result.chunk.start_line,
+            "end_line": result.chunk.end_line,
+            "score": result.score,
+            "why": "ranked by BM25 for the pack query",
+            "content": content,
+        }));
+    }
+    let payload = json!({
+        "query": query,
+        "source": source,
+        "budget_tokens": budget_tokens,
+        "estimated_tokens_used": (budget_tokens.saturating_mul(4).saturating_sub(remaining_chars) + 3) / 4,
+        "items": packed,
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1055,6 +1209,8 @@ fn resolve_invocation(
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: Vec<String>,
 ) -> Result<ResolvedInvocation> {
     let profile = match profile_name {
         Some(name) => Some(profiles::get_profile(&platform_cache_root()?, name)?),
@@ -1104,6 +1260,19 @@ fn resolve_invocation(
         }
         _ => cache,
     };
+    let include_docs = include_docs
+        || profile
+            .as_ref()
+            .and_then(|profile| profile.include_docs)
+            .unwrap_or(false);
+    let extensions = if extensions.is_empty() {
+        profile
+            .as_ref()
+            .and_then(|profile| profile.extensions.clone())
+            .unwrap_or_default()
+    } else {
+        extensions
+    };
     Ok(ResolvedInvocation {
         source,
         mode,
@@ -1113,6 +1282,8 @@ fn resolve_invocation(
         offline,
         no_download,
         cache,
+        include_docs,
+        extensions,
     })
 }
 
@@ -1136,6 +1307,7 @@ fn run_search(command: SearchCommand) -> Result<()> {
                 filter_languages: command.languages.clone(),
                 filter_paths: command.filter_paths.clone(),
                 use_query_cache: true,
+                explain: command.explain,
             },
             result.stats,
             u128::from(result.elapsed_ms),
@@ -1156,6 +1328,8 @@ fn run_search(command: SearchCommand) -> Result<()> {
         encoder_spec(command.encoder, command.model.as_deref(), policy),
         command.cache,
         command.offline,
+        command.include_docs,
+        extension_set(&command.extensions),
     )?;
     let warnings = search_warnings(&index, &command.filter_paths, &command.languages)
         .into_iter()
@@ -1164,6 +1338,7 @@ fn run_search(command: SearchCommand) -> Result<()> {
     let mut options = SearchOptions::new(command.limit).with_mode(command.mode);
     options.filter_languages = command.languages;
     options.filter_paths = command.filter_paths;
+    options.explain = command.explain;
     let results = index.search_with(&command.query, &options)?;
     let elapsed_ms = started.elapsed().as_millis();
 
@@ -1387,17 +1562,28 @@ fn build_index_for_mode(
     encoder_spec: EncoderSpec,
     cache: CacheConfig,
     offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
 ) -> Result<SifsIndex> {
     match mode {
-        SearchMode::Bm25 => build_sparse_index(path, cache, offline),
+        SearchMode::Bm25 => build_sparse_index(path, cache, offline, include_docs, extensions),
         SearchMode::Semantic | SearchMode::Hybrid => {
-            build_hybrid_index(path, encoder_spec, cache, offline)
+            build_hybrid_index(path, encoder_spec, cache, offline, include_docs, extensions)
         }
     }
 }
 
-fn build_sparse_index(path: &str, cache: CacheConfig, offline: bool) -> Result<SifsIndex> {
-    let options = IndexOptions::sparse().with_cache(cache);
+fn build_sparse_index(
+    path: &str,
+    cache: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
+) -> Result<SifsIndex> {
+    let options = IndexOptions::sparse()
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
     if is_git_url(path) {
         if offline {
             bail!("--offline does not allow remote Git sources");
@@ -1413,10 +1599,14 @@ fn build_hybrid_index(
     encoder_spec: EncoderSpec,
     cache: CacheConfig,
     offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
 ) -> Result<SifsIndex> {
     let options = IndexOptions::sparse()
         .with_encoder_spec(encoder_spec)
-        .with_cache(cache);
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
     if is_git_url(path) {
         if offline {
             bail!("--offline does not allow remote Git sources");
@@ -1425,6 +1615,21 @@ fn build_hybrid_index(
     } else {
         SifsIndex::from_path_with_index_options(path, options)
     }
+}
+
+fn extension_set(values: &[String]) -> Option<std::collections::HashSet<String>> {
+    (!values.is_empty()).then(|| {
+        values
+            .iter()
+            .map(|value| {
+                if value.starts_with('.') {
+                    value.to_owned()
+                } else {
+                    format!(".{value}")
+                }
+            })
+            .collect()
+    })
 }
 
 fn cache_config(cache_dir: Option<PathBuf>, no_cache: bool, project_cache: bool) -> CacheConfig {
@@ -1463,6 +1668,8 @@ fn run_files(
         EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
+        false,
+        None,
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let files = index.indexed_files();
@@ -1576,6 +1783,8 @@ fn run_status(
         EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
+        false,
+        None,
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let stats = index.stats();
@@ -1685,6 +1894,8 @@ fn run_get(
         EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
+        false,
+        None,
     )?;
     let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
         eprintln!(
@@ -1874,7 +2085,12 @@ fn structured_result(source: &str, result: &SearchResult, context_lines: usize) 
         "score": result.score,
         "source": result.source.to_string(),
         "content": result.chunk.content,
+        "symbols": result.chunk.symbols,
+        "breadcrumbs": result.chunk.breadcrumbs,
     });
+    if let Some(explanation) = &result.explanation {
+        value["explanation"] = serde_json::to_value(explanation).unwrap_or(Value::Null);
+    }
     if context_lines > 0
         && let Some(context) = expanded_context(
             source,
@@ -2613,6 +2829,8 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
             options.no_cache,
             options.project_cache,
         ),
+        false,
+        Vec::new(),
     )?;
     let source = resolve_mcp_source(Some(&resolved.source), resolved.offline)?;
     let config = McpConfig {
@@ -3756,6 +3974,8 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
             cache_dir,
             no_cache,
             project_cache,
+            include_docs,
+            extensions,
             json,
         } => {
             if let Some(limit) = limit
@@ -3779,6 +3999,8 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
                 cache_dir,
                 no_cache: no_cache.then_some(true),
                 project_cache: project_cache.then_some(true),
+                include_docs: include_docs.then_some(true),
+                extensions: (!extensions.is_empty()).then_some(extensions),
             };
             profiles::save_profile(&root, profile.clone())?;
             if json {
@@ -3849,15 +4071,117 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
     Ok(())
 }
 
+fn run_eval(
+    from_feedback: bool,
+    source: Option<String>,
+    limit: usize,
+    json_output: bool,
+) -> Result<()> {
+    if !from_feedback {
+        bail!("eval currently requires --from-feedback");
+    }
+    if limit == 0 {
+        bail!("--limit must be at least 1");
+    }
+    let root = platform_cache_root()?;
+    let (entries, _) = feedback::list_feedback(&root, usize::MAX)?;
+    let cases = entries
+        .into_iter()
+        .filter_map(|entry| Some((entry.query?, entry.expected?)))
+        .collect::<Vec<_>>();
+    let source = source.unwrap_or_else(|| ".".to_owned());
+    let index = build_sparse_index(&source, CacheConfig::Platform, false, true, None)?;
+    let mut hits = 0usize;
+    let mut results = Vec::new();
+    for (query, expected) in &cases {
+        let search = SearchOptions::new(limit).with_mode(SearchMode::Bm25);
+        let found = index.search_with(query, &search)?;
+        let rank = found
+            .iter()
+            .position(|result| {
+                result.chunk.location().starts_with(expected) || result.chunk.file_path == *expected
+            })
+            .map(|idx| idx + 1);
+        if rank.is_some() {
+            hits += 1;
+        }
+        results.push(json!({
+            "query": query,
+            "expected": expected,
+            "rank": rank,
+            "hit": rank.is_some(),
+        }));
+    }
+    let hit_rate = if cases.is_empty() {
+        0.0
+    } else {
+        hits as f64 / cases.len() as f64
+    };
+    let payload = json!({
+        "source": source,
+        "cases": cases.len(),
+        "hits": hits,
+        "hit_rate": hit_rate,
+        "limit": limit,
+        "results": results,
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!(
+            "Feedback eval: {hits}/{} hit@{} ({:.3})",
+            cases.len(),
+            limit,
+            hit_rate
+        );
+    }
+    Ok(())
+}
+
+fn run_tune(from_feedback: bool, dry_run: bool, json_output: bool) -> Result<()> {
+    if !from_feedback {
+        bail!("tune currently requires --from-feedback");
+    }
+    if !dry_run {
+        bail!("tune currently supports --dry-run only");
+    }
+    let root = platform_cache_root()?;
+    let (entries, _) = feedback::list_feedback(&root, usize::MAX)?;
+    let cases = entries
+        .iter()
+        .filter(|entry| entry.query.is_some() && entry.expected.is_some())
+        .count();
+    let payload = json!({
+        "from_feedback": true,
+        "dry_run": true,
+        "cases": cases,
+        "changed": false,
+        "recommendation": if cases == 0 {
+            "Record feedback with --query and --expected before tuning."
+        } else {
+            "Run sifs eval --from-feedback to inspect hit-rate before changing ranking weights."
+        },
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    }
+    Ok(())
+}
+
 fn run_feedback(command: FeedbackCommand) -> Result<()> {
     let root = platform_cache_root()?;
     match command {
         FeedbackCommand::Create {
             message,
             command_context,
+            query,
+            expected,
             json,
         } => {
-            let entry = feedback::create_feedback(&root, &message, command_context)?;
+            let entry =
+                feedback::create_feedback_case(&root, &message, command_context, query, expected)?;
             if json {
                 println!(
                     "{}",

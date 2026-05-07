@@ -21,6 +21,17 @@ pub struct Chunk {
     pub start_line: usize,
     pub end_line: usize,
     pub language: Option<String>,
+    #[serde(default)]
+    pub symbols: Vec<Symbol>,
+    #[serde(default)]
+    pub breadcrumbs: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Symbol {
+    pub name: String,
+    pub kind: String,
+    pub line: usize,
 }
 
 impl Chunk {
@@ -67,6 +78,7 @@ pub struct SearchOptions {
     pub filter_languages: Vec<String>,
     pub filter_paths: Vec<String>,
     pub use_query_cache: bool,
+    pub explain: bool,
 }
 
 impl Default for SearchOptions {
@@ -78,6 +90,7 @@ impl Default for SearchOptions {
             filter_languages: Vec::new(),
             filter_paths: Vec::new(),
             use_query_cache: true,
+            explain: false,
         }
     }
 }
@@ -114,6 +127,11 @@ impl SearchOptions {
         self.use_query_cache = use_query_cache;
         self
     }
+
+    pub fn with_explain(mut self, explain: bool) -> Self {
+        self.explain = explain;
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -121,6 +139,20 @@ pub struct SearchResult {
     pub chunk: Chunk,
     pub score: f32,
     pub source: SearchMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<SearchExplanation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SearchExplanation {
+    pub alpha: Option<f32>,
+    pub bm25_rank: Option<usize>,
+    pub bm25_score: Option<f32>,
+    pub semantic_rank: Option<usize>,
+    pub semantic_score: Option<f32>,
+    pub rrf_score: Option<f32>,
+    pub boosted_score: Option<f32>,
+    pub final_score: f32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-use crate::types::Chunk;
+use crate::types::{Chunk, Symbol};
 use std::ops::Range;
 
 pub fn chunk_source(source: &str, file_path: &str, language: Option<String>) -> Vec<Chunk> {
@@ -33,6 +33,8 @@ pub fn chunk_lines(
                 start_line: start + 1,
                 end_line: end,
                 language: language.clone(),
+                symbols: Vec::new(),
+                breadcrumbs: Vec::new(),
             });
         }
         start = if end < lines.len() {
@@ -59,16 +61,80 @@ fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> 
                 return None;
             }
             let end_index = range.end.saturating_sub(1).max(range.start);
+            let start_line = line_number_at_byte(source, range.start);
+            let end_line = line_number_at_byte(source, end_index);
+            let symbols = extract_symbols(&content, start_line);
+            let breadcrumbs = symbols
+                .iter()
+                .map(|symbol| format!("{} {}", symbol.kind, symbol.name))
+                .collect();
             Some(Chunk {
                 content,
                 file_path: file_path.to_owned(),
-                start_line: line_number_at_byte(source, range.start),
-                end_line: line_number_at_byte(source, end_index),
+                start_line,
+                end_line,
                 language: Some(language.clone()),
+                symbols,
+                breadcrumbs,
             })
         })
         .collect();
     (!chunks.is_empty()).then_some(chunks)
+}
+
+fn extract_symbols(content: &str, start_line: usize) -> Vec<Symbol> {
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(offset, line)| extract_symbol(line, start_line + offset))
+        .collect()
+}
+
+fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
+    let trimmed = line.trim_start();
+    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("pub fn ") {
+        ("fn", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("fn ") {
+        ("fn", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("function ") {
+        ("function", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("def ") {
+        ("def", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("class ") {
+        ("class", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("struct ") {
+        ("struct", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("pub struct ") {
+        ("struct", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("enum ") {
+        ("enum", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("pub enum ") {
+        ("enum", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("trait ") {
+        ("trait", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("pub trait ") {
+        ("trait", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("interface ") {
+        ("interface", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("type ") {
+        ("type", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("const ") {
+        ("const", rest)
+    } else {
+        return None;
+    };
+    let name = rest
+        .trim_start()
+        .trim_start_matches("async ")
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .next()
+        .filter(|name| !name.is_empty())?
+        .to_owned();
+    Some(Symbol {
+        name,
+        kind: kind.to_owned(),
+        line: line_number,
+    })
 }
 
 fn group_child_nodes(
@@ -310,6 +376,24 @@ mod tests {
             chunks
                 .iter()
                 .any(|chunk| chunk.content.contains('\u{e007f}'))
+        );
+    }
+
+    #[test]
+    fn code_chunker_extracts_symbols_and_breadcrumbs() {
+        let source = "class SessionStore:\n    pass\n\ndef load_session():\n    return None\n";
+        let chunks = chunk_source(source, "session.py", Some("python".to_owned()));
+        let symbols = chunks
+            .iter()
+            .flat_map(|chunk| chunk.symbols.iter().map(|symbol| symbol.name.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(symbols.contains(&"SessionStore"));
+        assert!(symbols.contains(&"load_session"));
+        assert!(
+            chunks
+                .iter()
+                .any(|chunk| chunk.breadcrumbs.iter().any(|b| b == "class SessionStore"))
         );
     }
 }

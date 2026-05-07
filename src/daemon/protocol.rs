@@ -373,6 +373,8 @@ pub struct SearchOptionsWire {
     pub filter_languages: Vec<String>,
     pub filter_paths: Vec<String>,
     pub use_query_cache: bool,
+    #[serde(default)]
+    pub explain: bool,
 }
 
 impl From<SearchOptions> for SearchOptionsWire {
@@ -384,6 +386,7 @@ impl From<SearchOptions> for SearchOptionsWire {
             filter_languages: value.filter_languages,
             filter_paths: value.filter_paths,
             use_query_cache: value.use_query_cache,
+            explain: value.explain,
         }
     }
 }
@@ -397,6 +400,7 @@ impl From<SearchOptionsWire> for SearchOptions {
             filter_languages: value.filter_languages,
             filter_paths: value.filter_paths,
             use_query_cache: value.use_query_cache,
+            explain: value.explain,
         }
     }
 }

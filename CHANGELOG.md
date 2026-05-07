@@ -9,8 +9,43 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added a Dockerfile for running the SIFS MCP server behind `mcp-proxy` in
+  server listing deployments.
+
+### Changed
+
+- Replaced benchmark-specific ranking path boosts with generic path-token,
+  filename, and intent signals so production scoring no longer contains
+  hard-coded benchmark query and repository paths.
+- Added `sifs-benchmark --no-cache` and per-repository reproducibility metadata
+  so cold-index benchmark runs can be reported without persistent cache reuse.
+- Added optional score explanations for CLI, daemon, and MCP search results so
+  `--explain` / `explain: true` can show ranking evidence for returned chunks.
+- Added symbol and breadcrumb metadata to code chunks and indexed that metadata
+  in BM25 so symbol-bearing chunks are easier to search and inspect.
+- Added `sifs search --include-docs`, repeatable `--extension`, and matching
+  profile fields for searching documentation and config files explicitly.
+- Added MCP local-index freshness checks that refresh stale cached indexes before
+  search and report freshness in structured search responses.
+- Added expected-query feedback fields and `sifs eval --from-feedback` for a
+  local hit-rate regression loop from recorded agent misses.
+- Added `sifs pack --budget-tokens` for building deduplicated, budgeted context
+  bundles from a search query.
+- Added `sifs tune --from-feedback --dry-run` to inspect local feedback-case
+  tuning readiness without mutating ranking behavior.
+
 ### Fixed
 
+- Switched persistent index cache keys and model fingerprints from
+  process-random hashers to SHA-256-derived identifiers.
+- Enforced MCP search validation for `alpha`, `limit`, `filter_languages`, and
+  `filter_paths` instead of only advertising those constraints in the schema.
+- Skipped unreadable or non-UTF-8 files during indexing with structured
+  warnings instead of aborting the entire index build.
+- Restored standard triple-backtick Markdown fences for search result snippets
+  whose content does not itself contain backtick fences.
 - Fixed the release-check workflow and bundled Homebrew formula so tag builds
   install the current release formula from a temporary local Homebrew tap.
 

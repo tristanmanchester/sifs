@@ -19,6 +19,8 @@ pub struct Profile {
     pub cache_dir: Option<PathBuf>,
     pub no_cache: Option<bool>,
     pub project_cache: Option<bool>,
+    pub include_docs: Option<bool>,
+    pub extensions: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

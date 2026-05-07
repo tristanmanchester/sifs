@@ -22,6 +22,7 @@ const FIND_RELATED_DESCRIPTION: &str = include_str!("agents/tools/find-related.m
 const INDEX_STATUS_DESCRIPTION: &str = include_str!("agents/tools/index-status.md");
 const NO_RESULTS_MESSAGE: &str = include_str!("agents/messages/no-results.md");
 const NO_REPO_MESSAGE: &str = include_str!("agents/messages/no-repo.md");
+const MCP_MAX_LIMIT: usize = 50;
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[DEFAULT_PROTOCOL_VERSION];
 
@@ -167,6 +168,13 @@ impl IndexCache {
                 )?
             };
             self.indexes.insert(key.clone(), index);
+        } else if self
+            .indexes
+            .get(&key)
+            .and_then(SifsIndex::is_fresh)
+            .is_some_and(|fresh| !fresh)
+        {
+            self.refresh(source, ref_name)?;
         }
         Ok(self.indexes.get(&key).unwrap())
     }
@@ -342,7 +350,10 @@ fn tool_search(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
-    let options = search_options_from_args(&args, top_k, mode);
+    let options = match search_options_from_args(&args, top_k, mode) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
     if let Some(result) = cache.daemon_search(&source, ref_name, query, &options) {
         return mcp_search_result(McpSearchPresentation {
             source: &source,
@@ -352,6 +363,7 @@ fn tool_search(
             options: &options,
             stats: result.stats,
             warnings: json!([]),
+            fresh: None,
             results: result.results,
         });
     }
@@ -369,6 +381,7 @@ fn tool_search(
                 options: &options,
                 stats: index.stats(),
                 warnings: search_warnings_json(index, &options),
+                fresh: index.is_fresh(),
                 results,
             })
         }
@@ -384,6 +397,7 @@ struct McpSearchPresentation<'a> {
     options: &'a SearchOptions,
     stats: crate::IndexStats,
     warnings: Value,
+    fresh: Option<bool>,
     results: Vec<crate::SearchResult>,
 }
 
@@ -396,6 +410,7 @@ fn mcp_search_result(presentation: McpSearchPresentation<'_>) -> ToolText {
         "filter_languages": presentation.options.filter_languages,
         "filter_paths": presentation.options.filter_paths,
         "stats": presentation.stats,
+        "fresh": presentation.fresh,
         "warnings": presentation.warnings,
         "truncated": presentation.results.len() >= presentation.top_k,
         "hint": if presentation.results.len() >= presentation.top_k { Some("Increase limit or add filter_languages/filter_paths to narrow the search.") } else { None },
@@ -788,12 +803,31 @@ fn selected_source(
     Ok(default_source.map(str::to_owned))
 }
 
-fn search_options_from_args(args: &Value, top_k: usize, mode: SearchMode) -> SearchOptions {
+fn search_options_from_args(
+    args: &Value,
+    top_k: usize,
+    mode: SearchMode,
+) -> std::result::Result<SearchOptions, String> {
     let mut options = SearchOptions::new(top_k).with_mode(mode);
-    options.alpha = args.get("alpha").and_then(Value::as_f64).map(|v| v as f32);
-    options.filter_languages = string_array_arg(args, "filter_languages");
-    options.filter_paths = string_array_arg(args, "filter_paths");
-    options
+    options.alpha = match args.get("alpha") {
+        Some(Value::Null) | None => None,
+        Some(value) => {
+            let Some(alpha) = value.as_f64() else {
+                return Err("alpha must be a number between 0 and 1".to_owned());
+            };
+            if !(0.0..=1.0).contains(&alpha) {
+                return Err("alpha must be between 0 and 1".to_owned());
+            }
+            Some(alpha as f32)
+        }
+    };
+    options.filter_languages = string_array_arg(args, "filter_languages")?;
+    options.filter_paths = string_array_arg(args, "filter_paths")?;
+    options.explain = args
+        .get("explain")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    Ok(options)
 }
 
 fn selected_profile(args: &Value) -> std::result::Result<Option<profiles::Profile>, String> {
@@ -838,20 +872,28 @@ fn parse_mcp_limit(
     if limit == 0 {
         return Err(format!("{key} must be at least 1"));
     }
+    if limit as usize > MCP_MAX_LIMIT {
+        return Err(format!("{key} must be at most {MCP_MAX_LIMIT}"));
+    }
     Ok(limit as usize)
 }
 
-fn string_array_arg(args: &Value, key: &str) -> Vec<String> {
-    args.get(key)
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
+fn string_array_arg(args: &Value, key: &str) -> std::result::Result<Vec<String>, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(Vec::new());
+    };
+    let Some(values) = value.as_array() else {
+        return Err(format!("{key} must be an array of strings"));
+    };
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
                 .map(str::to_owned)
-                .collect()
+                .ok_or_else(|| format!("{key} must contain only strings"))
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn structured_results(results: &[crate::types::SearchResult]) -> Value {
@@ -866,6 +908,9 @@ fn structured_results(results: &[crate::types::SearchResult]) -> Value {
                 "score": result.score,
                 "source": result.source.to_string(),
                 "content": result.chunk.content,
+                "symbols": result.chunk.symbols,
+                "breadcrumbs": result.chunk.breadcrumbs,
+                "explanation": result.explanation,
             }))
             .collect::<Vec<_>>()
     )
@@ -976,8 +1021,14 @@ fn tool_feedback_create(args: Value) -> ToolText {
         .get("command_context")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    let query = args.get("query").and_then(Value::as_str).map(str::to_owned);
+    let expected = args
+        .get("expected")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     match platform_cache_root().and_then(|root| {
-        feedback::create_feedback(&root, message, command_context).map(|entry| (root, entry))
+        feedback::create_feedback_case(&root, message, command_context, query, expected)
+            .map(|entry| (root, entry))
     }) {
         Ok((root, entry)) => ToolText::ok_structured(
             format!("Feedback recorded locally: {}", entry.id),
@@ -1205,7 +1256,8 @@ fn tool_schemas() -> Vec<Value> {
                     "limit": {"type": "integer", "minimum": 1, "default": 5, "description": "Maximum number of ranked chunks to return."},
                     "alpha": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Optional hybrid semantic weight. Omit to let SIFS choose from query shape."},
                     "filter_languages": {"type": "array", "items": {"type": "string"}, "description": "Optional exact language labels to search, such as rust or typescript."},
-                    "filter_paths": {"type": "array", "items": {"type": "string"}, "description": "Optional repository-relative file paths to search."}
+                    "filter_paths": {"type": "array", "items": {"type": "string"}, "description": "Optional repository-relative file paths to search."},
+                    "explain": {"type": "boolean", "default": false, "description": "Include per-result ranking evidence such as BM25 rank, semantic rank, alpha, and boosted score."}
                 },
                 "required": ["query"]
             }
@@ -1305,7 +1357,9 @@ fn tool_schemas() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "message": {"type": "string"},
-                    "command_context": {"type": ["string", "null"]}
+                    "command_context": {"type": ["string", "null"]},
+                    "query": {"type": ["string", "null"], "description": "Optional search query for local eval."},
+                    "expected": {"type": ["string", "null"], "description": "Optional expected file path or location prefix for local eval."}
                 },
                 "required": ["message"]
             }
@@ -1444,7 +1498,7 @@ mod tests {
     use super::{
         IndexCache, MessageFraming, build_instructions, handle_resource_read, handle_tool_call,
         negotiated_protocol_version, parse_mcp_limit, parse_mcp_mode, read_message,
-        selected_source, tool_schemas, write_message,
+        search_options_from_args, selected_source, tool_schemas, write_message,
     };
     use crate::profiles::Profile;
     use crate::types::SearchMode;
@@ -1602,6 +1656,16 @@ mod tests {
         assert_eq!(
             parse_mcp_limit(&json!({"limit": 3}), "limit", profile.limit, 5).unwrap(),
             3
+        );
+        assert!(parse_mcp_limit(&json!({"limit": 51}), "limit", None, 5).is_err());
+        assert!(search_options_from_args(&json!({"alpha": 1.2}), 5, SearchMode::Hybrid).is_err());
+        assert!(
+            search_options_from_args(
+                &json!({"filter_languages": ["rust", 3]}),
+                5,
+                SearchMode::Hybrid
+            )
+            .is_err()
         );
     }
 

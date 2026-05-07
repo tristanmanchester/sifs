@@ -11,6 +11,10 @@ pub struct FeedbackEntry {
     pub version: String,
     pub message: String,
     pub command_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
 }
 
 pub fn feedback_log_path(cache_root: &Path) -> PathBuf {
@@ -21,6 +25,16 @@ pub fn create_feedback(
     cache_root: &Path,
     message: &str,
     command_context: Option<String>,
+) -> Result<FeedbackEntry> {
+    create_feedback_case(cache_root, message, command_context, None, None)
+}
+
+pub fn create_feedback_case(
+    cache_root: &Path,
+    message: &str,
+    command_context: Option<String>,
+    query: Option<String>,
+    expected: Option<String>,
 ) -> Result<FeedbackEntry> {
     if message.trim().is_empty() {
         bail!("feedback message must not be empty");
@@ -34,6 +48,8 @@ pub fn create_feedback(
         version: env!("CARGO_PKG_VERSION").to_owned(),
         message: message.trim().to_owned(),
         command_context,
+        query,
+        expected,
     };
     let path = feedback_log_path(cache_root);
     let mut file = OpenOptions::new()

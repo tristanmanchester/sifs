@@ -9,10 +9,9 @@ use anyhow::{Context, Result, bail};
 use ndarray::{Array2, s};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -38,11 +37,11 @@ struct SemanticState {
 }
 
 const EMBED_BATCH_SIZE: usize = 1024;
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 const CACHE_DIR: &str = ".sifs";
 const PLATFORM_CACHE_DIR: &str = "sifs";
-const SPARSE_CACHE_FILE: &str = "index-v3-sparse.bin";
-const SEMANTIC_CACHE_PREFIX: &str = "semantic-v3";
+const SPARSE_CACHE_FILE: &str = "index-v4-sparse.bin";
+const SEMANTIC_CACHE_PREFIX: &str = "semantic-v4";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {
@@ -162,6 +161,7 @@ struct SearchCacheKey {
     alpha_bits: Option<u32>,
     filter_languages: Option<Vec<String>>,
     filter_paths: Option<Vec<String>>,
+    explain: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -287,7 +287,7 @@ impl SifsIndex {
                 Some(context),
             );
         }
-        let chunks = create_chunks_from_path(
+        let (chunks, warnings) = create_chunks_from_path_with_warnings(
             &root,
             options.extensions,
             options.ignore.as_ref(),
@@ -295,6 +295,7 @@ impl SifsIndex {
             &root,
         )?;
         let mut index = Self::from_chunks_with_semantic_config(options.semantic_config, chunks)?;
+        index.warnings = warnings;
         if let (Some(cache_entry), Some(signatures)) = (cache_entry, signatures) {
             index.attach_cache(cache_entry, signatures, context);
             write_cached_index_payload(&index);
@@ -480,6 +481,13 @@ impl SifsIndex {
         &self.warnings
     }
 
+    pub fn is_fresh(&self) -> Option<bool> {
+        let cache_entry = self.cache_entry.as_ref()?;
+        let signatures = self.signatures.as_ref()?;
+        let current = current_file_signatures(&cache_entry.root, None, None, false).ok()?;
+        Some(&current == signatures)
+    }
+
     pub fn chunks_for_file(&self, file_path: &str) -> Vec<&Chunk> {
         self.file_mapping
             .get(file_path)
@@ -520,6 +528,7 @@ impl SifsIndex {
             alpha_bits: options.alpha.map(f32::to_bits),
             filter_languages: filter_languages.map(<[String]>::to_vec),
             filter_paths: filter_paths.map(<[String]>::to_vec),
+            explain: options.explain,
         };
         if options.use_query_cache
             && let Some(results) = self
@@ -539,6 +548,7 @@ impl SifsIndex {
                 &self.chunks,
                 options.top_k,
                 selector_ref,
+                options.explain,
             ),
             SearchMode::Semantic => {
                 let state = self.ensure_semantic()?;
@@ -550,6 +560,7 @@ impl SifsIndex {
                     &self.chunks,
                     options.top_k,
                     selector_ref,
+                    options.explain,
                 )
             }
             SearchMode::Hybrid => {
@@ -565,6 +576,7 @@ impl SifsIndex {
                     options.top_k,
                     options.alpha,
                     selector_ref,
+                    options.explain,
                 )
             }
         };
@@ -588,6 +600,7 @@ impl SifsIndex {
             &self.chunks,
             top_k + 1,
             selector.as_deref(),
+            false,
         );
         results.retain(|r| r.chunk != *source);
         results.truncate(top_k);
@@ -885,10 +898,10 @@ fn normalized_set(values: &Option<HashSet<String>>) -> Vec<String> {
     values
 }
 
-fn cache_hash<T: Hash>(value: &T) -> String {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+fn cache_hash<T: Serialize>(value: &T) -> String {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    let digest = Sha256::digest(bytes);
+    format!("{digest:x}")
 }
 
 fn current_file_signatures(
@@ -946,27 +959,63 @@ pub fn create_chunks_from_path(
     include_text_files: bool,
     display_root: &Path,
 ) -> Result<Vec<Chunk>> {
+    Ok(create_chunks_from_path_with_warnings(
+        path,
+        extensions,
+        ignore,
+        include_text_files,
+        display_root,
+    )?
+    .0)
+}
+
+fn create_chunks_from_path_with_warnings(
+    path: &Path,
+    extensions: Option<HashSet<String>>,
+    ignore: Option<&HashSet<String>>,
+    include_text_files: bool,
+    display_root: &Path,
+) -> Result<(Vec<Chunk>, Vec<IndexWarning>)> {
     let extensions = filter_extensions(extensions, include_text_files);
     let files = walk_files(path, &extensions, ignore);
-    let chunks_by_file: Vec<Vec<Chunk>> = files
+    let chunks_by_file: Vec<(Vec<Chunk>, Option<IndexWarning>)> = files
         .par_iter()
         .map(|file_path| {
-            let source = fs::read_to_string(file_path)
-                .with_context(|| format!("read indexed file {}", file_path.display()))?;
             let rel_path: PathBuf = file_path
                 .strip_prefix(display_root)
                 .unwrap_or(file_path)
                 .to_path_buf();
             let chunk_path = rel_path.to_string_lossy().to_string();
+            let source = match fs::read_to_string(file_path) {
+                Ok(source) => source,
+                Err(err) => {
+                    return Ok((
+                        Vec::new(),
+                        Some(IndexWarning {
+                            path: chunk_path,
+                            message: format!("skipped indexed file: {err}"),
+                        }),
+                    ));
+                }
+            };
             let language = language_for_path(file_path).map(str::to_owned);
-            Ok(chunk_source(&source, &chunk_path, language))
+            Ok((chunk_source(&source, &chunk_path, language), None))
         })
         .collect::<Result<Vec<_>>>()?;
-    let chunks: Vec<Chunk> = chunks_by_file.into_iter().flatten().collect();
+    let mut warnings = Vec::new();
+    let chunks: Vec<Chunk> = chunks_by_file
+        .into_iter()
+        .flat_map(|(chunks, warning)| {
+            if let Some(warning) = warning {
+                warnings.push(warning);
+            }
+            chunks
+        })
+        .collect();
     if chunks.is_empty() {
         bail!("No supported files found under {}.", path.display());
     }
-    Ok(chunks)
+    Ok((chunks, warnings))
 }
 
 fn populate_mapping(

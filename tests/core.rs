@@ -17,6 +17,8 @@ fn chunk(content: &str, file_path: &str) -> Chunk {
         start_line: 1,
         end_line: content.lines().count().max(1),
         language: Some("python".to_owned()),
+        symbols: Vec::new(),
+        breadcrumbs: Vec::new(),
     }
 }
 
@@ -129,6 +131,7 @@ fn formatted_results_include_source_mode() {
         chunk: chunk("def authenticate(): pass", "auth.py"),
         score: 0.75,
         source: SearchMode::Hybrid,
+        explanation: None,
     }];
 
     let output = format_results("Search results", &results);
@@ -159,6 +162,24 @@ fn from_path_respects_markdown_option() {
     )
     .unwrap();
     assert!(index.chunks.iter().any(|c| c.file_path.ends_with(".md")));
+}
+
+#[test]
+fn indexing_skips_non_utf8_files_with_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("valid.rs"), "fn valid_symbol() {}\n").unwrap();
+    fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe, 0xfd]).unwrap();
+
+    let index = SifsIndex::from_path_sparse(dir.path()).unwrap();
+
+    assert_eq!(index.stats().indexed_files, 1);
+    assert!(index.indexed_files().contains(&"valid.rs".to_owned()));
+    assert!(index.warnings().iter().any(|warning| {
+        warning.path == "invalid.rs"
+            && warning
+                .message
+                .contains("stream did not contain valid UTF-8")
+    }));
 }
 
 #[test]
@@ -268,7 +289,7 @@ fn semantic_search_writes_and_reuses_dense_cache() {
     assert!(
         cache_files
             .iter()
-            .any(|name| name.starts_with("semantic-v3-"))
+            .any(|name| name.starts_with("semantic-v4-"))
     );
 
     let index = SifsIndex::from_path_with_index_options(

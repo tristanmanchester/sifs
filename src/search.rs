@@ -4,7 +4,7 @@ use crate::ranking::{
     apply_query_boost_in_place, boost_multi_chunk_files, rerank_topk, resolve_alpha,
 };
 use crate::sparse::Bm25Index;
-use crate::types::{Chunk, SearchMode, SearchResult};
+use crate::types::{Chunk, SearchExplanation, SearchMode, SearchResult};
 use std::collections::HashMap;
 #[cfg(feature = "diagnostics")]
 use std::sync::{Mutex, OnceLock};
@@ -56,16 +56,28 @@ pub fn search_semantic(
     chunks: &[Chunk],
     top_k: usize,
     selector: Option<&[usize]>,
+    explain: bool,
 ) -> Vec<SearchResult> {
     let encoded = model.encode(&[query.to_owned()]);
     let vector = normalize_vector(encoded.row(0).to_owned());
     semantic_index
         .query(&vector, top_k, selector)
         .into_iter()
-        .map(|(idx, score)| SearchResult {
+        .enumerate()
+        .map(|(rank, (idx, score))| SearchResult {
             chunk: chunks[idx].clone(),
             score,
             source: SearchMode::Semantic,
+            explanation: explain.then(|| SearchExplanation {
+                alpha: None,
+                bm25_rank: None,
+                bm25_score: None,
+                semantic_rank: Some(rank + 1),
+                semantic_score: Some(score),
+                rrf_score: None,
+                boosted_score: None,
+                final_score: score,
+            }),
         })
         .collect()
 }
@@ -76,14 +88,26 @@ pub fn search_bm25(
     chunks: &[Chunk],
     top_k: usize,
     selector: Option<&[usize]>,
+    explain: bool,
 ) -> Vec<SearchResult> {
     bm25_index
         .search(query, top_k, selector)
         .into_iter()
-        .map(|(idx, score)| SearchResult {
+        .enumerate()
+        .map(|(rank, (idx, score))| SearchResult {
             chunk: chunks[idx].clone(),
             score,
             source: SearchMode::Bm25,
+            explanation: explain.then(|| SearchExplanation {
+                alpha: None,
+                bm25_rank: Some(rank + 1),
+                bm25_score: Some(score),
+                semantic_rank: None,
+                semantic_score: None,
+                rrf_score: None,
+                boosted_score: None,
+                final_score: score,
+            }),
         })
         .collect()
 }
@@ -99,6 +123,7 @@ pub fn search_hybrid(
     top_k: usize,
     alpha: Option<f32>,
     selector: Option<&[usize]>,
+    explain: bool,
 ) -> Vec<SearchResult> {
     let alpha_weight = resolve_alpha(query, alpha);
     let candidate_count = top_k.saturating_mul(9).max(top_k).max(1);
@@ -112,12 +137,14 @@ pub fn search_hybrid(
     #[cfg(feature = "diagnostics")]
     let start = Instant::now();
     let semantic_scores = semantic_index.query(&vector, candidate_count, selector);
+    let semantic_explain = explain.then(|| ranked_evidence(&semantic_scores));
     #[cfg(feature = "diagnostics")]
     let dense = start.elapsed();
 
     #[cfg(feature = "diagnostics")]
     let start = Instant::now();
     let bm25_scores = bm25_index.search(query, candidate_count, selector);
+    let bm25_explain = explain.then(|| ranked_evidence(&bm25_scores));
     #[cfg(feature = "diagnostics")]
     let bm25 = start.elapsed();
 
@@ -126,6 +153,7 @@ pub fn search_hybrid(
     let mut combined = HashMap::with_capacity(semantic_scores.len() + bm25_scores.len());
     add_rrf_scores(&mut combined, semantic_scores, alpha_weight);
     add_rrf_scores(&mut combined, bm25_scores, 1.0 - alpha_weight);
+    let rrf_explain = explain.then(|| combined.clone());
     #[cfg(feature = "diagnostics")]
     let fuse = start.elapsed();
 
@@ -138,6 +166,7 @@ pub fn search_hybrid(
     #[cfg(feature = "diagnostics")]
     let start = Instant::now();
     let boosted = apply_query_boost_in_place(combined, query, chunks, file_mapping);
+    let boosted_explain = explain.then(|| boosted.clone());
     #[cfg(feature = "diagnostics")]
     let query_boost = start.elapsed();
 
@@ -155,6 +184,28 @@ pub fn search_hybrid(
             chunk: chunks[idx].clone(),
             score,
             source: SearchMode::Hybrid,
+            explanation: explain.then(|| SearchExplanation {
+                alpha: Some(alpha_weight),
+                bm25_rank: bm25_explain
+                    .as_ref()
+                    .and_then(|scores| scores.get(&idx).map(|evidence| evidence.rank)),
+                bm25_score: bm25_explain
+                    .as_ref()
+                    .and_then(|scores| scores.get(&idx).map(|evidence| evidence.score)),
+                semantic_rank: semantic_explain
+                    .as_ref()
+                    .and_then(|scores| scores.get(&idx).map(|evidence| evidence.rank)),
+                semantic_score: semantic_explain
+                    .as_ref()
+                    .and_then(|scores| scores.get(&idx).map(|evidence| evidence.score)),
+                rrf_score: rrf_explain
+                    .as_ref()
+                    .and_then(|scores| scores.get(&idx).copied()),
+                boosted_score: boosted_explain
+                    .as_ref()
+                    .and_then(|scores| scores.get(&idx).copied()),
+                final_score: score,
+            }),
         })
         .collect();
     #[cfg(feature = "diagnostics")]
@@ -173,6 +224,28 @@ pub fn search_hybrid(
         }
     }
     results
+}
+
+#[derive(Clone, Copy)]
+struct RankEvidence {
+    rank: usize,
+    score: f32,
+}
+
+fn ranked_evidence(scores: &[(usize, f32)]) -> HashMap<usize, RankEvidence> {
+    scores
+        .iter()
+        .enumerate()
+        .map(|(rank, (idx, score))| {
+            (
+                *idx,
+                RankEvidence {
+                    rank: rank + 1,
+                    score: *score,
+                },
+            )
+        })
+        .collect()
 }
 
 fn add_rrf_scores<S: std::hash::BuildHasher>(
@@ -226,6 +299,8 @@ mod tests {
             start_line: 1,
             end_line: 1,
             language: Some("rust".to_owned()),
+            symbols: Vec::new(),
+            breadcrumbs: Vec::new(),
         }
     }
 
@@ -245,8 +320,8 @@ mod tests {
         let dense = DenseIndex::new(vectors);
         let sparse = Bm25Index::build_from_chunks(&chunks);
 
-        let semantic = search_semantic("parse session", &model, &dense, &chunks, 1, None);
-        let bm25 = search_bm25("parse_session_token", &sparse, &chunks, 1, None);
+        let semantic = search_semantic("parse session", &model, &dense, &chunks, 1, None, false);
+        let bm25 = search_bm25("parse_session_token", &sparse, &chunks, 1, None, false);
         let hybrid = search_hybrid(
             "parse session",
             &model,
@@ -257,6 +332,7 @@ mod tests {
             1,
             None,
             None,
+            false,
         );
 
         assert_eq!(semantic[0].source, SearchMode::Semantic);

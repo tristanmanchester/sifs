@@ -3,7 +3,8 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use sifs::search::{hybrid_timing, reset_hybrid_timing};
 use sifs::{
-    ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex, metrics::peak_rss_mb,
+    CacheConfig, IndexOptions, ModelLoadPolicy, ModelOptions, SearchMode, SearchOptions, SifsIndex,
+    encoder_fingerprint, metrics::peak_rss_mb,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -44,6 +45,9 @@ struct Args {
     no_download: bool,
     #[arg(long)]
     hybrid_timing: bool,
+    /// Disable persistent index caches for cold-index timing.
+    #[arg(long)]
+    no_cache: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,9 +122,23 @@ struct RepoResult {
     warm_cached_repeat_query_ms: f64,
     warm_cached_repeat_query_p90_ms: f64,
     peak_rss_mb: f64,
+    reproducibility: BenchmarkMetadata,
     by_category: BTreeMap<String, f64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     task_results: Vec<TaskResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkMetadata {
+    cache_mode: String,
+    sifs_version: String,
+    rustc_version: Option<String>,
+    os: String,
+    cpu: Option<String>,
+    repo_revision: Option<String>,
+    model_fingerprint: Option<String>,
+    indexed_files: usize,
+    indexed_chunks: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -189,17 +207,17 @@ fn main() -> Result<()> {
             root.display(),
             tasks.len()
         );
+        let model_options = ModelOptions::new(
+            args.model.as_deref(),
+            model_policy(args.offline, args.no_download),
+        );
+        let index_options = IndexOptions::new(model_options.clone()).with_cache(if args.no_cache {
+            CacheConfig::Disabled
+        } else {
+            CacheConfig::Platform
+        });
         let start = Instant::now();
-        let index = SifsIndex::from_path_with_model_options(
-            &root,
-            ModelOptions::new(
-                args.model.as_deref(),
-                model_policy(args.offline, args.no_download),
-            ),
-            None,
-            None,
-            false,
-        )?;
+        let index = SifsIndex::from_path_with_index_options(&root, index_options)?;
         let cold_index_ms = elapsed_ms(start);
 
         let mut uncached_latencies = Vec::new();
@@ -290,6 +308,24 @@ fn main() -> Result<()> {
             warm_cached_repeat_query_ms: percentile(&cached_latencies, 0.5),
             warm_cached_repeat_query_p90_ms: percentile(&cached_latencies, 0.9),
             peak_rss_mb: peak_rss_mb(),
+            reproducibility: BenchmarkMetadata {
+                cache_mode: if args.no_cache {
+                    "disabled".to_owned()
+                } else {
+                    "platform".to_owned()
+                },
+                sifs_version: env!("CARGO_PKG_VERSION").to_owned(),
+                rustc_version: command_stdout("rustc", &["--version"]),
+                os: std::env::consts::OS.to_owned(),
+                cpu: cpu_name(),
+                repo_revision: git_revision(&root),
+                model_fingerprint: encoder_fingerprint(&sifs::EncoderSpec::Model2Vec(
+                    model_options,
+                ))
+                .ok(),
+                indexed_files: stats.indexed_files,
+                indexed_chunks: index.chunks.len(),
+            },
             by_category,
             task_results,
         });
@@ -351,6 +387,39 @@ fn model_policy(offline: bool, no_download: bool) -> ModelLoadPolicy {
     } else {
         ModelLoadPolicy::AllowDownload
     }
+}
+
+fn git_revision(root: &Path) -> Option<String> {
+    command_stdout_in(root, "git", &["rev-parse", "HEAD"])
+}
+
+fn cpu_name() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        command_stdout("sysctl", &["-n", "machdep.cpu.brand_string"])
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        command_stdout("uname", &["-m"])
+    }
+}
+
+fn command_stdout(command: &str, args: &[&str]) -> Option<String> {
+    command_stdout_in(Path::new("."), command, args)
+}
+
+fn command_stdout_in(cwd: &Path, command: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(command)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 fn load_specs(args: &Args) -> Result<BTreeMap<String, RepoSpec>> {
