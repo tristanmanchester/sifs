@@ -38,11 +38,11 @@ struct SemanticState {
 }
 
 const EMBED_BATCH_SIZE: usize = 1024;
-const CACHE_VERSION: u32 = 4;
+const CACHE_VERSION: u32 = 5;
 const CACHE_DIR: &str = ".sifs";
 const PLATFORM_CACHE_DIR: &str = "sifs";
-const SPARSE_CACHE_FILE: &str = "index-v4-sparse.bin";
-const SEMANTIC_CACHE_PREFIX: &str = "semantic-v4";
+const SPARSE_CACHE_FILE: &str = "index-v5-sparse.bin";
+const SEMANTIC_CACHE_PREFIX: &str = "semantic-v5";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {
@@ -180,6 +180,7 @@ struct CachedIndexPayload {
     signatures: Vec<FileSignature>,
     chunks: Vec<Chunk>,
     bm25_index: Bm25Index,
+    warnings: Vec<IndexWarning>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -472,7 +473,7 @@ impl SifsIndex {
             signatures: Some(signatures),
             signature_context,
             cache_context: context,
-            warnings: Vec::new(),
+            warnings: payload.warnings,
         })
     }
 
@@ -807,6 +808,7 @@ fn write_cached_index_payload(index: &SifsIndex) {
         signatures: signatures.clone(),
         chunks: index.chunks.clone(),
         bm25_index: index.bm25_index.clone(),
+        warnings: index.warnings.clone(),
     };
     let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
         return;

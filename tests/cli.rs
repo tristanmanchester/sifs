@@ -1193,10 +1193,10 @@ fn files_status_and_get_work_against_fixture() {
 }
 
 #[test]
-fn status_reports_project_semantic_v4_cache() {
+fn status_reports_project_semantic_v5_cache() {
     let dir = fixture();
     fs::create_dir_all(dir.path().join(".sifs")).unwrap();
-    fs::write(dir.path().join(".sifs/semantic-v4-test.bin"), b"cache").unwrap();
+    fs::write(dir.path().join(".sifs/semantic-v5-test.bin"), b"cache").unwrap();
 
     let status = sifs()
         .args(["status", "--source", dir.path().to_str().unwrap(), "--json"])

@@ -183,6 +183,31 @@ fn indexing_skips_non_utf8_files_with_warning() {
 }
 
 #[test]
+fn sparse_cache_preserves_index_warnings() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("valid.rs"), "fn valid_symbol() {}\n").unwrap();
+    fs::write(dir.path().join("invalid.rs"), [0xff, 0xfe, 0xfd]).unwrap();
+    let options = || IndexOptions::sparse().with_cache(CacheConfig::Custom(cache.path().into()));
+
+    let first = SifsIndex::from_path_with_index_options(dir.path(), options()).unwrap();
+    assert!(first.warnings().iter().any(|warning| {
+        warning.path == "invalid.rs"
+            && warning
+                .message
+                .contains("stream did not contain valid UTF-8")
+    }));
+
+    let cached = SifsIndex::from_path_with_index_options(dir.path(), options()).unwrap();
+    assert!(cached.warnings().iter().any(|warning| {
+        warning.path == "invalid.rs"
+            && warning
+                .message
+                .contains("stream did not contain valid UTF-8")
+    }));
+}
+
+#[test]
 fn bm25_path_search_is_model_free_with_no_download() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
@@ -289,7 +314,7 @@ fn semantic_search_writes_and_reuses_dense_cache() {
     assert!(
         cache_files
             .iter()
-            .any(|name| name.starts_with("semantic-v4-"))
+            .any(|name| name.starts_with("semantic-v5-"))
     );
 
     let index = SifsIndex::from_path_with_index_options(
