@@ -114,6 +114,17 @@ target/release/sifs pack "how request auth works" \
 Pack items include `kind`, file path, line range, optional score, source mode,
 symbols, breadcrumbs, a short inclusion reason, and content.
 
+## Feedback eval and tuning
+
+`eval --from-feedback` measures local feedback cases against one mode or all
+modes. `tune --from-feedback --dry-run` uses the same feedback cases to score
+candidate modes and hybrid alpha values without mutating ranking defaults.
+
+```bash
+target/release/sifs eval --from-feedback --source . --all-modes --json
+target/release/sifs tune --from-feedback --source . --dry-run --json
+```
+
 ## Related code
 
 `find-related` starts from a known repository-relative file path and one-based

@@ -1122,7 +1122,17 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     assert!(eval_payload["modes"][0]["mrr"].is_number());
 
     let tune = sifs()
-        .args(["tune", "--from-feedback", "--dry-run", "--json"])
+        .args([
+            "tune",
+            "--from-feedback",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--encoder",
+            "hashing",
+            "--offline",
+            "--dry-run",
+            "--json",
+        ])
         .env("HOME", home.path())
         .output()
         .unwrap();
@@ -1134,6 +1144,8 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     let tune_payload: Value = serde_json::from_slice(&tune.stdout).unwrap();
     assert_eq!(tune_payload["cases"], 1);
     assert!(tune_payload["candidate_alpha_values"].is_array());
+    assert!(tune_payload["evaluations"].as_array().unwrap().len() >= 7);
+    assert_eq!(tune_payload["best"]["cases"], 1);
     assert!(tune_payload["next_commands"].as_array().unwrap().len() >= 2);
 }
 

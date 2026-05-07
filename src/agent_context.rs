@@ -82,6 +82,10 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "flags": {
                     "--source": {"type": "string", "default": "."},
                     "--from-feedback": {"type": "boolean"},
+                    "--limit": {"type": "integer", "default": 10, "minimum": 1},
+                    "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--dry-run": {"type": "boolean", "required": true},
                     "--json": {"type": "boolean"}
                 },

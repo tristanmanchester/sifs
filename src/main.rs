@@ -377,6 +377,18 @@ enum Command {
         #[arg(long)]
         from_feedback: bool,
         #[arg(long)]
+        source: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec)]
+        encoder: EncoderArg,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+        #[arg(long)]
         dry_run: bool,
         #[arg(long)]
         json: bool,
@@ -1183,9 +1195,25 @@ fn main() -> Result<()> {
         })?,
         Some(Command::Tune {
             from_feedback,
+            source,
+            limit,
+            model,
+            encoder,
+            offline,
+            no_download,
             dry_run,
             json,
-        }) => run_tune(from_feedback, dry_run, json)?,
+        }) => run_tune(
+            from_feedback,
+            source,
+            limit,
+            model,
+            encoder,
+            offline,
+            no_download,
+            dry_run,
+            json,
+        )?,
         Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
         Some(Command::Update {
             check,
@@ -4493,27 +4521,84 @@ fn run_eval(command: EvalCommand) -> Result<()> {
     Ok(())
 }
 
-fn run_tune(from_feedback: bool, dry_run: bool, json_output: bool) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn run_tune(
+    from_feedback: bool,
+    source: Option<String>,
+    limit: usize,
+    model: Option<String>,
+    encoder: EncoderArg,
+    offline: bool,
+    no_download: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
     if !from_feedback {
         bail!("tune currently requires --from-feedback");
     }
     if !dry_run {
         bail!("tune currently supports --dry-run only");
     }
+    if limit == 0 {
+        bail!("--limit must be at least 1");
+    }
     let root = platform_cache_root()?;
     let (entries, _) = feedback::list_feedback(&root, usize::MAX)?;
     let cases = entries
         .iter()
-        .filter(|entry| entry.query.is_some() && entry.expected.is_some())
-        .count();
+        .filter_map(|entry| Some((entry.query.clone()?, entry.expected.clone()?)))
+        .collect::<Vec<_>>();
+    let source = source.unwrap_or_else(|| ".".to_owned());
+    let alpha_values = [0.25_f32, 0.45, 0.65, 0.85];
+    let mut evaluations = Vec::new();
+    if !cases.is_empty() {
+        let policy = model_policy(offline, no_download);
+        let index = build_index_for_mode(
+            &source,
+            SearchMode::Hybrid,
+            encoder_spec(encoder, model.as_deref(), policy),
+            CacheConfig::Platform,
+            offline,
+            true,
+            None,
+        )?;
+        for mode in [SearchMode::Bm25, SearchMode::Semantic, SearchMode::Hybrid] {
+            evaluations.push(evaluate_feedback_candidate(
+                &index, &cases, mode, None, limit,
+            )?);
+        }
+        for alpha in alpha_values {
+            evaluations.push(evaluate_feedback_candidate(
+                &index,
+                &cases,
+                SearchMode::Hybrid,
+                Some(alpha),
+                limit,
+            )?);
+        }
+    }
+    let best = evaluations
+        .iter()
+        .max_by(|left, right| {
+            let left_score = left["ndcg"].as_f64().unwrap_or(0.0);
+            let right_score = right["ndcg"].as_f64().unwrap_or(0.0);
+            left_score
+                .partial_cmp(&right_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .cloned();
     let payload = json!({
         "from_feedback": true,
         "dry_run": true,
-        "cases": cases,
+        "source": source,
+        "limit": limit,
+        "cases": cases.len(),
         "changed": false,
-        "candidate_alpha_values": [0.25, 0.45, 0.65, 0.85],
+        "candidate_alpha_values": alpha_values,
         "candidate_modes": ["bm25", "semantic", "hybrid"],
-        "next_commands": if cases == 0 {
+        "evaluations": evaluations,
+        "best": best,
+        "next_commands": if cases.is_empty() {
             Vec::<String>::new()
         } else {
             vec![
@@ -4521,10 +4606,10 @@ fn run_tune(from_feedback: bool, dry_run: bool, json_output: bool) -> Result<()>
                 "sifs eval --from-feedback --mode hybrid --json".to_owned(),
             ]
         },
-        "recommendation": if cases == 0 {
+        "recommendation": if cases.is_empty() {
             "Record feedback with --query and --expected before tuning."
         } else {
-            "Compare all modes and hybrid alpha candidates against feedback before changing ranking defaults."
+            "Review the best dry-run candidate and rerun eval before changing ranking defaults."
         },
     });
     if json_output {
@@ -4533,6 +4618,56 @@ fn run_tune(from_feedback: bool, dry_run: bool, json_output: bool) -> Result<()>
         println!("{}", serde_json::to_string_pretty(&payload)?);
     }
     Ok(())
+}
+
+fn evaluate_feedback_candidate(
+    index: &SifsIndex,
+    cases: &[(String, String)],
+    mode: SearchMode,
+    alpha: Option<f32>,
+    limit: usize,
+) -> Result<Value> {
+    let mut hits = 0usize;
+    let mut reciprocal_rank_sum = 0.0;
+    let mut ndcg_sum = 0.0;
+    let mut results = Vec::new();
+    for (query, expected) in cases {
+        let mut search = SearchOptions::new(limit).with_mode(mode);
+        if let Some(alpha) = alpha {
+            search = search.with_alpha(alpha);
+        }
+        let found = index.search_with(query, &search)?;
+        let rank = found
+            .iter()
+            .position(|result| {
+                result.chunk.location().starts_with(expected)
+                    || result.chunk.file_path == *expected
+            })
+            .map(|idx| idx + 1);
+        if let Some(rank) = rank {
+            hits += 1;
+            reciprocal_rank_sum += 1.0 / rank as f64;
+            ndcg_sum += 1.0 / (rank as f64 + 1.0).log2();
+        }
+        results.push(json!({
+            "query": query,
+            "expected": expected,
+            "rank": rank,
+            "hit": rank.is_some(),
+        }));
+    }
+    let denominator = cases.len().max(1) as f64;
+    Ok(json!({
+        "mode": mode.to_string(),
+        "alpha": alpha,
+        "cases": cases.len(),
+        "hits": hits,
+        "hit_rate": hits as f64 / denominator,
+        "mrr": reciprocal_rank_sum / denominator,
+        "ndcg": ndcg_sum / denominator,
+        "limit": limit,
+        "results": results,
+    }))
 }
 
 fn run_feedback(command: FeedbackCommand) -> Result<()> {
