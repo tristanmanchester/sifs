@@ -1128,6 +1128,7 @@ fn normalize_filter_path(path: &str) -> String {
     parts.join("/")
 }
 
+#[allow(clippy::type_complexity)]
 fn populate_mapping(
     chunks: &[Chunk],
 ) -> (

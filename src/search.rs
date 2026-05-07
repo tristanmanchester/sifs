@@ -308,8 +308,7 @@ fn add_file_card_candidate_scores<S: std::hash::BuildHasher>(
     file_mapping: Option<&HashMap<String, Vec<usize>>>,
     selector: Option<&[usize]>,
 ) {
-    if !looks_file_card_query(query)
-        && !(looks_architectural_or_natural_language(query) && chunks.len() <= 1_500)
+    if !(looks_file_card_query(query) || looks_architectural_or_natural_language(query) && chunks.len() <= 1_500)
     {
         return;
     }
