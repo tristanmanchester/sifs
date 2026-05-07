@@ -3,6 +3,8 @@ use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+const DEFAULT_MAX_FILE_BYTES: u64 = 1_000_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileCategory {
     Code,
@@ -279,6 +281,21 @@ static DEFAULT_IGNORED_DIRS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ])
 });
 
+static DEFAULT_IGNORED_FILES: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lockb",
+        "Cargo.lock",
+        "composer.lock",
+        "poetry.lock",
+        "Pipfile.lock",
+        "Gemfile.lock",
+        "coverage.json",
+    ])
+});
+
 pub fn language_for_path(path: &Path) -> Option<&'static str> {
     let ext = path.extension()?.to_string_lossy().to_lowercase();
     FILE_TYPES
@@ -325,6 +342,20 @@ pub fn walk_files(
         .filter(|entry| entry.file_type().is_some_and(|ft| ft.is_file()))
         .map(|entry| entry.into_path())
         .filter(|path| {
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| DEFAULT_IGNORED_FILES.contains(name))
+            {
+                return false;
+            }
+            if path
+                .metadata()
+                .map(|metadata| metadata.len() > DEFAULT_MAX_FILE_BYTES)
+                .unwrap_or(false)
+            {
+                return false;
+            }
             path.extension()
                 .map(|ext| {
                     extensions
@@ -418,5 +449,33 @@ mod tests {
 
         assert_eq!(files.len(), 1);
         assert!(files[0].ends_with("visible.rs"));
+    }
+
+    #[test]
+    fn walk_files_skips_generated_lockfiles_when_docs_are_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("README.md"), "# docs\n").unwrap();
+        fs::write(dir.path().join("package-lock.json"), "{}\n").unwrap();
+        fs::write(dir.path().join("config.json"), "{}\n").unwrap();
+        let extensions = filter_extensions(None, true);
+
+        let files = walk_files(dir.path(), &extensions, None);
+
+        assert!(files.iter().any(|path| path.ends_with("README.md")));
+        assert!(files.iter().any(|path| path.ends_with("config.json")));
+        assert!(!files.iter().any(|path| path.ends_with("package-lock.json")));
+    }
+
+    #[test]
+    fn walk_files_skips_large_files_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("small.json"), "{}\n").unwrap();
+        fs::write(dir.path().join("large.json"), vec![b'a'; 1_000_001]).unwrap();
+        let extensions = filter_extensions(None, true);
+
+        let files = walk_files(dir.path(), &extensions, None);
+
+        assert!(files.iter().any(|path| path.ends_with("small.json")));
+        assert!(!files.iter().any(|path| path.ends_with("large.json")));
     }
 }

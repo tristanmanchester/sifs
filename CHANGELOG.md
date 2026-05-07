@@ -20,6 +20,8 @@ versioning where practical.
   `pack`, `eval`, and `tune` commands for agent integrations.
 - Capped the in-memory per-index query-result cache with
   `SIFS_QUERY_CACHE_ENTRIES` to bound long-running daemon and MCP sessions.
+- Added default document-indexing guardrails that skip common generated
+  lockfiles and files larger than 1 MB.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
