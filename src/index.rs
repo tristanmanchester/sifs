@@ -43,6 +43,7 @@ const CACHE_DIR: &str = ".sifs";
 const PLATFORM_CACHE_DIR: &str = "sifs";
 const SPARSE_CACHE_FILE: &str = "index-v5-sparse.bin";
 const SEMANTIC_CACHE_PREFIX: &str = "semantic-v5";
+const DEFAULT_QUERY_CACHE_ENTRIES: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {
@@ -609,6 +610,13 @@ impl SifsIndex {
         if options.use_query_cache
             && let Ok(mut cache) = self.search_cache.lock()
         {
+            let max_entries = query_cache_entry_limit();
+            if max_entries == 0 {
+                return Ok(results);
+            }
+            if cache.len() >= max_entries && !cache.contains_key(&cache_key) {
+                cache.clear();
+            }
             cache.insert(cache_key, results.clone());
         }
         Ok(results)
@@ -638,6 +646,14 @@ impl SifsIndex {
             .lock()
             .map(|state| state.is_some())
             .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    fn query_cache_len(&self) -> usize {
+        self.search_cache
+            .lock()
+            .map(|cache| cache.len())
+            .unwrap_or_default()
     }
 
     fn ensure_semantic(&self) -> Result<std::sync::MutexGuard<'_, Option<SemanticState>>> {
@@ -1047,6 +1063,13 @@ fn create_chunks_from_path_with_warnings(
     Ok((chunks, warnings))
 }
 
+fn query_cache_entry_limit() -> usize {
+    std::env::var("SIFS_QUERY_CACHE_ENTRIES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_QUERY_CACHE_ENTRIES)
+}
+
 fn populate_mapping(
     chunks: &[Chunk],
 ) -> (HashMap<String, Vec<usize>>, HashMap<String, Vec<usize>>) {
@@ -1065,4 +1088,39 @@ fn populate_mapping(
         }
     }
     (file_mapping, language_mapping)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_chunk(content: &str) -> Chunk {
+        Chunk {
+            content: content.to_owned(),
+            file_path: "src/lib.rs".to_owned(),
+            start_line: 1,
+            end_line: 1,
+            language: Some("rust".to_owned()),
+            symbols: Vec::new(),
+            breadcrumbs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn query_cache_is_entry_capped() {
+        let index =
+            SifsIndex::from_chunks_with_semantic_config(None, vec![test_chunk("fn token() {}")])
+                .unwrap();
+
+        for idx in 0..(DEFAULT_QUERY_CACHE_ENTRIES + 10) {
+            index
+                .search_with(
+                    &format!("token {idx}"),
+                    &SearchOptions::new(1).with_mode(SearchMode::Bm25),
+                )
+                .unwrap();
+        }
+
+        assert!(index.query_cache_len() <= DEFAULT_QUERY_CACHE_ENTRIES);
+    }
 }
