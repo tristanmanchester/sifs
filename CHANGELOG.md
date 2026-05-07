@@ -80,6 +80,9 @@ versioning where practical.
 - Made benchmark candidate diagnostics compute BM25 and semantic target ranks
   from explicit per-mode diagnostic searches instead of only from final hybrid
   result explanations.
+- Added a generic hybrid agreement signal so chunks found near the top by both
+  BM25 and semantic retrieval are less likely to be displaced by one-sided
+  ranking boosts.
 - Expanded symbol extraction for common visibility/modifier prefixes, C macros,
   C typedef structs/enums, and C-like function declarations.
 - Narrowed file-card candidate expansion so ordinary natural-language searches

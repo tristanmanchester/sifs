@@ -153,8 +153,9 @@ pub fn search_hybrid(
     #[cfg(feature = "diagnostics")]
     let start = Instant::now();
     let mut combined = HashMap::with_capacity(semantic_scores.len() + bm25_scores.len());
-    add_rrf_scores(&mut combined, semantic_scores, alpha_weight);
-    add_rrf_scores(&mut combined, bm25_scores, 1.0 - alpha_weight);
+    add_rrf_scores(&mut combined, &semantic_scores, alpha_weight);
+    add_rrf_scores(&mut combined, &bm25_scores, 1.0 - alpha_weight);
+    add_retriever_agreement_scores(&mut combined, &semantic_scores, &bm25_scores);
     add_symbol_candidate_scores(&mut combined, query, symbol_mapping, selector);
     add_file_card_candidate_scores(&mut combined, query, chunks, file_mapping, selector);
     let rrf_explain = explain.then(|| combined.clone());
@@ -457,19 +458,43 @@ fn ranked_evidence(scores: &[(usize, f32)]) -> HashMap<usize, RankEvidence> {
 
 fn add_rrf_scores<S: std::hash::BuildHasher>(
     combined: &mut HashMap<usize, f32, S>,
-    ranked: Vec<(usize, f32)>,
+    ranked: &[(usize, f32)],
     weight: f32,
 ) {
-    for (rank, (id, _)) in ranked.into_iter().enumerate() {
-        *combined.entry(id).or_default() += weight / (RRF_K + rank as f32 + 1.0);
+    for (rank, (id, _)) in ranked.iter().enumerate() {
+        *combined.entry(*id).or_default() += weight / (RRF_K + rank as f32 + 1.0);
+    }
+}
+
+fn add_retriever_agreement_scores<S: std::hash::BuildHasher>(
+    combined: &mut HashMap<usize, f32, S>,
+    semantic_scores: &[(usize, f32)],
+    bm25_scores: &[(usize, f32)],
+) {
+    let bm25_ranks = bm25_scores
+        .iter()
+        .take(50)
+        .enumerate()
+        .map(|(rank, (id, _))| (*id, rank))
+        .collect::<HashMap<_, _>>();
+    for (semantic_rank, (id, _)) in semantic_scores.iter().take(50).enumerate() {
+        let Some(&bm25_rank) = bm25_ranks.get(id) else {
+            continue;
+        };
+        let best_rank = semantic_rank.min(bm25_rank) as f32;
+        let worst_rank = semantic_rank.max(bm25_rank) as f32;
+        let agreement = 0.35 / (RRF_K + best_rank + 1.0);
+        let balance = 1.0 / (1.0 + (worst_rank - best_rank) / 25.0);
+        *combined.entry(*id).or_default() += agreement * balance;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        add_file_card_candidate_scores, add_rrf_scores, add_symbol_candidate_scores,
-        hybrid_candidate_count, search_bm25, search_hybrid, search_semantic,
+        add_file_card_candidate_scores, add_retriever_agreement_scores, add_rrf_scores,
+        add_symbol_candidate_scores, hybrid_candidate_count, search_bm25, search_hybrid,
+        search_semantic,
     };
     use crate::dense::DenseIndex;
     use crate::model2vec::Encoder;
@@ -554,9 +579,23 @@ mod tests {
     #[test]
     fn rrf_scores_prioritize_higher_ranked_items() {
         let mut normalized = HashMap::new();
-        add_rrf_scores(&mut normalized, vec![(1, 0.9), (2, 0.1)], 1.0);
+        add_rrf_scores(&mut normalized, &[(1, 0.9), (2, 0.1)], 1.0);
 
         assert!(normalized[&1] > normalized[&2]);
+    }
+
+    #[test]
+    fn retriever_agreement_adds_balanced_top_rank_signal() {
+        let mut combined = HashMap::from([(1usize, 0.01), (2usize, 0.01), (3usize, 0.01)]);
+
+        add_retriever_agreement_scores(
+            &mut combined,
+            &[(1, 0.9), (2, 0.8), (3, 0.7)],
+            &[(1, 12.0), (3, 11.0), (2, 10.0)],
+        );
+
+        assert!(combined[&1] > combined[&2]);
+        assert!(combined[&3] > 0.01);
     }
 
     #[test]
