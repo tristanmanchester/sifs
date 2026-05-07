@@ -1,7 +1,8 @@
 use crate::dense::DenseIndex;
 use crate::model2vec::{Encoder, normalize_vector};
 use crate::ranking::{
-    apply_query_boost_in_place, boost_multi_chunk_files, rerank_topk, resolve_alpha,
+    apply_query_boost_in_place, boost_multi_chunk_files, is_symbol_query, rerank_topk,
+    resolve_alpha,
 };
 use crate::sparse::Bm25Index;
 use crate::types::{Chunk, SearchExplanation, SearchMode, SearchResult};
@@ -126,7 +127,7 @@ pub fn search_hybrid(
     explain: bool,
 ) -> Vec<SearchResult> {
     let alpha_weight = resolve_alpha(query, alpha);
-    let candidate_count = top_k.saturating_mul(9).max(top_k).max(1);
+    let candidate_count = hybrid_candidate_count(query, top_k);
     #[cfg(feature = "diagnostics")]
     let start = Instant::now();
     let encoded = model.encode(&[query.to_owned()]);
@@ -226,6 +227,34 @@ pub fn search_hybrid(
     results
 }
 
+fn hybrid_candidate_count(query: &str, top_k: usize) -> usize {
+    let top_k = top_k.max(1);
+    if is_symbol_query(query) {
+        top_k.saturating_mul(12).max(120)
+    } else if looks_architectural_or_natural_language(query) {
+        top_k.saturating_mul(50).max(500)
+    } else {
+        top_k.saturating_mul(20).max(200)
+    }
+}
+
+fn looks_architectural_or_natural_language(query: &str) -> bool {
+    let lowered = query.trim().to_lowercase();
+    lowered.ends_with('?')
+        || lowered.starts_with("how ")
+        || lowered.starts_with("what ")
+        || lowered.starts_with("where ")
+        || lowered.starts_with("when ")
+        || lowered.starts_with("why ")
+        || lowered.starts_with("which ")
+        || lowered.starts_with("who ")
+        || lowered.contains(" architecture")
+        || lowered.contains(" design")
+        || lowered.contains(" flow")
+        || lowered.contains(" lifecycle")
+        || lowered.contains(" pipeline")
+}
+
 #[derive(Clone, Copy)]
 struct RankEvidence {
     rank: usize,
@@ -260,7 +289,9 @@ fn add_rrf_scores<S: std::hash::BuildHasher>(
 
 #[cfg(test)]
 mod tests {
-    use super::{add_rrf_scores, search_bm25, search_hybrid, search_semantic};
+    use super::{
+        add_rrf_scores, hybrid_candidate_count, search_bm25, search_hybrid, search_semantic,
+    };
     use crate::dense::DenseIndex;
     use crate::model2vec::Encoder;
     use crate::sparse::Bm25Index;
@@ -346,5 +377,15 @@ mod tests {
         add_rrf_scores(&mut normalized, vec![(1, 0.9), (2, 0.1)], 1.0);
 
         assert!(normalized[&1] > normalized[&2]);
+    }
+
+    #[test]
+    fn hybrid_candidate_pool_expands_for_natural_language() {
+        assert_eq!(hybrid_candidate_count("TokenManager", 10), 120);
+        assert_eq!(hybrid_candidate_count("token manager", 10), 200);
+        assert_eq!(
+            hybrid_candidate_count("how request lifecycle works", 10),
+            500
+        );
     }
 }

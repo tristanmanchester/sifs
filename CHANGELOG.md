@@ -48,6 +48,9 @@ versioning where practical.
   benchmark documentation with reproducibility and first-use latency fields.
 - Added opt-in benchmark candidate diagnostics for distinguishing candidate
   generation misses from reranking misses in per-task benchmark output.
+- Expanded hybrid candidate pools adaptively so natural-language and
+  architecture-style queries retain more BM25 and semantic candidates before
+  final reranking.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
