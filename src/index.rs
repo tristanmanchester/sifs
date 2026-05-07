@@ -27,6 +27,7 @@ pub struct SifsIndex {
     search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchResult>>>,
     cache_entry: Option<CacheEntry>,
     signatures: Option<Vec<FileSignature>>,
+    signature_context: Option<SourceSignatureContext>,
     cache_context: Option<CacheContext>,
     warnings: Vec<IndexWarning>,
 }
@@ -125,6 +126,14 @@ struct CacheContext {
 #[derive(Clone, Debug)]
 struct CacheEntry {
     root: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct SourceSignatureContext {
+    root: PathBuf,
+    extensions: Option<HashSet<String>>,
+    ignore: Option<HashSet<String>>,
+    include_text_files: bool,
 }
 
 impl CacheContext {
@@ -270,6 +279,12 @@ impl SifsIndex {
             options.include_text_files,
         );
         let cache_entry = resolve_cache_entry(&options.cache, &root, &context)?;
+        let signature_context = SourceSignatureContext {
+            root: root.clone(),
+            extensions: options.extensions.clone(),
+            ignore: options.ignore.clone(),
+            include_text_files: options.include_text_files,
+        };
         let signatures = current_file_signatures(
             &root,
             options.extensions.as_ref(),
@@ -285,6 +300,7 @@ impl SifsIndex {
                 payload,
                 Some(cache_entry.clone()),
                 Some(context),
+                Some(signature_context),
             );
         }
         let (chunks, warnings) = create_chunks_from_path_with_warnings(
@@ -297,7 +313,7 @@ impl SifsIndex {
         let mut index = Self::from_chunks_with_semantic_config(options.semantic_config, chunks)?;
         index.warnings = warnings;
         if let (Some(cache_entry), Some(signatures)) = (cache_entry, signatures) {
-            index.attach_cache(cache_entry, signatures, context);
+            index.attach_cache(cache_entry, signatures, context, signature_context);
             write_cached_index_payload(&index);
         }
         Ok(index)
@@ -409,6 +425,7 @@ impl SifsIndex {
             search_cache: Mutex::new(HashMap::new()),
             cache_entry: None,
             signatures: None,
+            signature_context: None,
             cache_context: None,
             warnings: Vec::new(),
         })
@@ -436,6 +453,7 @@ impl SifsIndex {
         payload: CachedIndexPayload,
         cache_entry: Option<CacheEntry>,
         context: Option<CacheContext>,
+        signature_context: Option<SourceSignatureContext>,
     ) -> Result<Self> {
         if payload.chunks.is_empty() {
             bail!("No supported files found.");
@@ -452,6 +470,7 @@ impl SifsIndex {
             search_cache: Mutex::new(HashMap::new()),
             cache_entry,
             signatures: Some(signatures),
+            signature_context,
             cache_context: context,
             warnings: Vec::new(),
         })
@@ -482,9 +501,15 @@ impl SifsIndex {
     }
 
     pub fn is_fresh(&self) -> Option<bool> {
-        let cache_entry = self.cache_entry.as_ref()?;
+        let context = self.signature_context.as_ref()?;
         let signatures = self.signatures.as_ref()?;
-        let current = current_file_signatures(&cache_entry.root, None, None, false).ok()?;
+        let current = current_file_signatures(
+            &context.root,
+            context.extensions.as_ref(),
+            context.ignore.as_ref(),
+            context.include_text_files,
+        )
+        .ok()?;
         Some(&current == signatures)
     }
 
@@ -648,8 +673,10 @@ impl SifsIndex {
         cache_entry: CacheEntry,
         signatures: Vec<FileSignature>,
         context: CacheContext,
+        signature_context: SourceSignatureContext,
     ) {
         self.signatures = Some(signatures);
+        self.signature_context = Some(signature_context);
         self.cache_entry = Some(cache_entry);
         self.cache_context = Some(context);
     }

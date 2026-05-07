@@ -297,6 +297,13 @@ fn semantic_search_writes_and_reuses_dense_cache() {
         IndexOptions::new(options).with_cache(CacheConfig::Project),
     )
     .unwrap();
+    assert_eq!(index.is_fresh(), Some(true));
+    fs::write(
+        dir.path().join("main.py"),
+        "def authenticate():\n    return False\n",
+    )
+    .unwrap();
+    assert_eq!(index.is_fresh(), Some(false));
     assert!(!index.semantic_loaded());
     let second_results = index
         .search_with(

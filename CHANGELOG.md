@@ -38,6 +38,8 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed local index freshness checks to compare against the indexed source
+  directory and indexing options instead of the persistent cache directory.
 - Switched persistent index cache keys and model fingerprints from
   process-random hashers to SHA-256-derived identifiers.
 - Enforced MCP search validation for `alpha`, `limit`, `filter_languages`, and
