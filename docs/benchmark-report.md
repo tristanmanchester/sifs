@@ -76,7 +76,9 @@ target/release/sifs-benchmark \
 For failure analysis, add `--include-tasks --candidate-diagnostics`. This emits
 per-target final rank, BM25 rank, semantic rank, candidate-union presence, and a
 coarse failure stage so candidate-generation misses can be separated from
-reranking misses.
+reranking misses. It also includes a repo-level `candidate_diagnostic_summary`
+with aggregated counts for top-10, reranking, depth, and candidate-generation
+failure stages.
 
 The comparison baselines are existing result JSON files from the adjacent Python
 tool checkout. The Semble row is included as a direct comparison to that tool.
