@@ -19,6 +19,8 @@ versioning where practical.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
+- Added `sifs-benchmark --no-cache` and per-repository reproducibility metadata
+  so cold-index benchmark runs can be reported without persistent cache reuse.
 
 ### Fixed
 
