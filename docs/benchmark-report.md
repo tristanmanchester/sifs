@@ -194,6 +194,11 @@ The generated PNGs are written into [assets/images](../assets/images), and a
 compact generated table is written to
 [benchmarks/README.generated.md](../benchmarks/README.generated.md).
 
+The query-type figure uses the current `--sifs-result` payload only. Historical
+mode-ablation JSON files under `benchmarks/results/sifs-mode-*.json` should be
+regenerated with the current benchmark binary and `--no-cache` before they are
+used for fresh comparison claims.
+
 The context-efficiency figure is generated from
 [benchmarks/results/sifs-context-curves.json](../benchmarks/results/sifs-context-curves.json),
 a compact summary of context-mode benchmark runs for SIFS hybrid, BM25,

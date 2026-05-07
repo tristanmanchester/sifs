@@ -549,9 +549,7 @@ def main() -> None:
     plot_sifs_breakdowns(args.sifs_result, assets)
     plot_query_type_by_mode(
         {
-            "SIFS hybrid": REPO_ROOT / "benchmarks" / "results" / "sifs-mode-hybrid.json",
-            "SIFS BM25": REPO_ROOT / "benchmarks" / "results" / "sifs-mode-bm25.json",
-            "SIFS semantic": REPO_ROOT / "benchmarks" / "results" / "sifs-mode-semantic.json",
+            "SIFS hybrid": args.sifs_result,
         },
         assets,
     )

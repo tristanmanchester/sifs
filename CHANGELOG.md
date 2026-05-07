@@ -48,6 +48,8 @@ versioning where practical.
   benchmark documentation with reproducibility and first-use latency fields.
 - Added opt-in benchmark candidate diagnostics for distinguishing candidate
   generation misses from reranking misses in per-task benchmark output.
+- Stopped benchmark plot generation from reading stale mode-ablation result
+  files for the query-type figure.
 - Expanded hybrid candidate pools adaptively so natural-language and
   architecture-style queries retain more BM25 and semantic candidates before
   final reranking.
