@@ -16,6 +16,8 @@ versioning where practical.
 
 ### Changed
 
+- Updated `sifs agent-context --json` to describe the newer search flags and
+  `pack`, `eval`, and `tune` commands for agent integrations.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

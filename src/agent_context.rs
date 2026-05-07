@@ -37,11 +37,48 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--language": {"type": "string", "repeatable": true},
                     "--filter-path": {"type": "string", "repeatable": true},
                     "--context-lines": {"type": "integer", "default": 0, "minimum": 0},
+                    "--include-docs": {"type": "boolean", "default": false},
+                    "--extension": {"type": "string", "repeatable": true},
+                    "--explain": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"},
                     "--jsonl": {"type": "boolean"}
                 },
                 "mutates": false,
                 "output": "search_result_set"
+            },
+            "pack": {
+                "summary": "Build a deduplicated context pack for a query.",
+                "args": {"query": {"type": "string", "required": true}},
+                "flags": {
+                    "--source": {"type": "string", "default": "."},
+                    "--budget-tokens": {"type": "integer", "default": 6000, "minimum": 1},
+                    "--limit": {"type": "integer", "default": 20, "minimum": 1},
+                    "--json": {"type": "boolean"}
+                },
+                "mutates": false,
+                "output": "context_pack"
+            },
+            "eval": {
+                "summary": "Evaluate search quality against local feedback cases.",
+                "flags": {
+                    "--source": {"type": "string", "default": "."},
+                    "--from-feedback": {"type": "boolean"},
+                    "--limit": {"type": "integer", "default": 5, "minimum": 1},
+                    "--json": {"type": "boolean"}
+                },
+                "mutates": false,
+                "output": "evaluation_report"
+            },
+            "tune": {
+                "summary": "Inspect local search-tuning readiness from feedback cases.",
+                "flags": {
+                    "--source": {"type": "string", "default": "."},
+                    "--from-feedback": {"type": "boolean"},
+                    "--dry-run": {"type": "boolean", "required": true},
+                    "--json": {"type": "boolean"}
+                },
+                "mutates": false,
+                "output": "tuning_report"
             },
             "find-related": {
                 "summary": "Find chunks related to a known file and one-based line number.",
