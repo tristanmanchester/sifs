@@ -25,6 +25,8 @@ versioning where practical.
   `--explain` / `explain: true` can show ranking evidence for returned chunks.
 - Added symbol and breadcrumb metadata to code chunks and indexed that metadata
   in BM25 so symbol-bearing chunks are easier to search and inspect.
+- Added `sifs search --include-docs`, repeatable `--extension`, and matching
+  profile fields for searching documentation and config files explicitly.
 
 ### Fixed
 

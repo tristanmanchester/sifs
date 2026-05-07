@@ -105,6 +105,16 @@ enum Command {
         no_cache: bool,
         #[arg(long, help = "Use a project-local .sifs cache.")]
         project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
     },
     #[command(about = "Find chunks related to a known file and one-based line number.")]
     FindRelated {
@@ -489,6 +499,10 @@ enum ProfileCommand {
         #[arg(long)]
         project_cache: bool,
         #[arg(long)]
+        include_docs: bool,
+        #[arg(long = "extension")]
+        extensions: Vec<String>,
+        #[arg(long)]
         json: bool,
     },
     #[command(about = "List saved profiles.")]
@@ -688,6 +702,8 @@ fn main() -> Result<()> {
             cache_dir,
             no_cache,
             project_cache,
+            include_docs,
+            extensions,
         }) => {
             let resolved = resolve_invocation(
                 profile.as_deref(),
@@ -699,6 +715,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
             )?;
             run_search(SearchCommand {
                 query,
@@ -715,6 +733,8 @@ fn main() -> Result<()> {
                 offline: resolved.offline,
                 no_download: resolved.no_download,
                 cache: resolved.cache,
+                include_docs: resolved.include_docs,
+                extensions: resolved.extensions,
             })?
         }
         Some(Command::FindRelated {
@@ -742,6 +762,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 cache_config(cache_dir, no_cache, project_cache),
+                false,
+                Vec::new(),
             )?;
             if let Some(result) = try_daemon_find_related(
                 &resolved.source,
@@ -773,6 +795,8 @@ fn main() -> Result<()> {
                 encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
                 resolved.cache,
                 resolved.offline,
+                resolved.include_docs,
+                extension_set(&resolved.extensions),
             )?;
             let Some(chunk) = resolve_chunk(&index.chunks, &file_path, line) else {
                 eprintln!("No chunk found at {file_path}:{line}.");
@@ -882,6 +906,8 @@ fn main() -> Result<()> {
                     offline,
                     no_download,
                     cache_config(cache_dir, no_cache, project_cache),
+                    false,
+                    Vec::new(),
                 )?;
                 let policy = model_policy(resolved.offline, resolved.no_download);
                 if offline && is_git_url(&resolved.source) {
@@ -915,6 +941,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 CacheConfig::Platform,
+                false,
+                Vec::new(),
             )?;
             run_files(
                 &resolved.source,
@@ -943,6 +971,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 CacheConfig::Platform,
+                false,
+                Vec::new(),
             )?;
             run_status(
                 &resolved.source,
@@ -972,6 +1002,8 @@ fn main() -> Result<()> {
                 offline,
                 no_download,
                 CacheConfig::Platform,
+                false,
+                Vec::new(),
             )?;
             run_get(
                 &file_path,
@@ -1031,6 +1063,8 @@ struct SearchCommand {
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: Vec<String>,
 }
 
 struct ResolvedInvocation {
@@ -1042,6 +1076,8 @@ struct ResolvedInvocation {
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1055,6 +1091,8 @@ fn resolve_invocation(
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: Vec<String>,
 ) -> Result<ResolvedInvocation> {
     let profile = match profile_name {
         Some(name) => Some(profiles::get_profile(&platform_cache_root()?, name)?),
@@ -1104,6 +1142,19 @@ fn resolve_invocation(
         }
         _ => cache,
     };
+    let include_docs = include_docs
+        || profile
+            .as_ref()
+            .and_then(|profile| profile.include_docs)
+            .unwrap_or(false);
+    let extensions = if extensions.is_empty() {
+        profile
+            .as_ref()
+            .and_then(|profile| profile.extensions.clone())
+            .unwrap_or_default()
+    } else {
+        extensions
+    };
     Ok(ResolvedInvocation {
         source,
         mode,
@@ -1113,6 +1164,8 @@ fn resolve_invocation(
         offline,
         no_download,
         cache,
+        include_docs,
+        extensions,
     })
 }
 
@@ -1157,6 +1210,8 @@ fn run_search(command: SearchCommand) -> Result<()> {
         encoder_spec(command.encoder, command.model.as_deref(), policy),
         command.cache,
         command.offline,
+        command.include_docs,
+        extension_set(&command.extensions),
     )?;
     let warnings = search_warnings(&index, &command.filter_paths, &command.languages)
         .into_iter()
@@ -1389,17 +1444,28 @@ fn build_index_for_mode(
     encoder_spec: EncoderSpec,
     cache: CacheConfig,
     offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
 ) -> Result<SifsIndex> {
     match mode {
-        SearchMode::Bm25 => build_sparse_index(path, cache, offline),
+        SearchMode::Bm25 => build_sparse_index(path, cache, offline, include_docs, extensions),
         SearchMode::Semantic | SearchMode::Hybrid => {
-            build_hybrid_index(path, encoder_spec, cache, offline)
+            build_hybrid_index(path, encoder_spec, cache, offline, include_docs, extensions)
         }
     }
 }
 
-fn build_sparse_index(path: &str, cache: CacheConfig, offline: bool) -> Result<SifsIndex> {
-    let options = IndexOptions::sparse().with_cache(cache);
+fn build_sparse_index(
+    path: &str,
+    cache: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
+) -> Result<SifsIndex> {
+    let options = IndexOptions::sparse()
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
     if is_git_url(path) {
         if offline {
             bail!("--offline does not allow remote Git sources");
@@ -1415,10 +1481,14 @@ fn build_hybrid_index(
     encoder_spec: EncoderSpec,
     cache: CacheConfig,
     offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
 ) -> Result<SifsIndex> {
     let options = IndexOptions::sparse()
         .with_encoder_spec(encoder_spec)
-        .with_cache(cache);
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
     if is_git_url(path) {
         if offline {
             bail!("--offline does not allow remote Git sources");
@@ -1427,6 +1497,21 @@ fn build_hybrid_index(
     } else {
         SifsIndex::from_path_with_index_options(path, options)
     }
+}
+
+fn extension_set(values: &[String]) -> Option<std::collections::HashSet<String>> {
+    (!values.is_empty()).then(|| {
+        values
+            .iter()
+            .map(|value| {
+                if value.starts_with('.') {
+                    value.to_owned()
+                } else {
+                    format!(".{value}")
+                }
+            })
+            .collect()
+    })
 }
 
 fn cache_config(cache_dir: Option<PathBuf>, no_cache: bool, project_cache: bool) -> CacheConfig {
@@ -1465,6 +1550,8 @@ fn run_files(
         EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
+        false,
+        None,
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let files = index.indexed_files();
@@ -1578,6 +1665,8 @@ fn run_status(
         EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
+        false,
+        None,
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let stats = index.stats();
@@ -1687,6 +1776,8 @@ fn run_get(
         EncoderSpec::model2vec(model.as_deref(), policy),
         CacheConfig::Platform,
         offline,
+        false,
+        None,
     )?;
     let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
         eprintln!(
@@ -2620,6 +2711,8 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
             options.no_cache,
             options.project_cache,
         ),
+        false,
+        Vec::new(),
     )?;
     let source = resolve_mcp_source(Some(&resolved.source), resolved.offline)?;
     let config = McpConfig {
@@ -3763,6 +3856,8 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
             cache_dir,
             no_cache,
             project_cache,
+            include_docs,
+            extensions,
             json,
         } => {
             if let Some(limit) = limit
@@ -3786,6 +3881,8 @@ fn run_profile(command: ProfileCommand) -> Result<()> {
                 cache_dir,
                 no_cache: no_cache.then_some(true),
                 project_cache: project_cache.then_some(true),
+                include_docs: include_docs.then_some(true),
+                extensions: (!extensions.is_empty()).then_some(extensions),
             };
             profiles::save_profile(&root, profile.clone())?;
             if json {
