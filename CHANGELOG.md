@@ -28,6 +28,9 @@ versioning where practical.
   documented that benchmark runs should use `--no-cache` for cold-index claims.
 - Updated `sifs pack` to use saved profiles and the same mode, cache, model,
   document, and extension indexing options as search.
+- Extended `sifs pack` with `--include-neighbors` and
+  `--include-symbol-definitions` so context bundles can include adjacent code
+  and query-named symbol definitions.
 - Extended `sifs eval --from-feedback` with `--mode`, `--all-modes`, MRR, and
   NDCG reporting so feedback evals are no longer BM25-only.
 - Expanded chunk symbol extraction for common exported, async, Rust `impl`, and

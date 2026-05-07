@@ -1053,6 +1053,8 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     assert_eq!(packed_source, fs::canonicalize(dir.path()).unwrap());
     assert_eq!(packed["mode"], "bm25");
     assert_eq!(packed["limit"], 3);
+    assert_eq!(packed["include_neighbors"], 0);
+    assert_eq!(packed["include_symbol_definitions"], false);
     assert!(!packed["items"].as_array().unwrap().is_empty());
 
     let feedback = sifs()
@@ -1133,6 +1135,94 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
     assert_eq!(tune_payload["cases"], 1);
     assert!(tune_payload["candidate_alpha_values"].is_array());
     assert!(tune_payload["next_commands"].as_array().unwrap().len() >= 2);
+}
+
+#[test]
+fn pack_can_include_symbol_definitions_and_neighbor_context() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("src/entry.rs"),
+        "pub fn login_flow() {\n    let manager = TokenManager::new();\n    manager.validate();\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("src/defs.rs"),
+        "pub struct TokenManager;\n\nimpl TokenManager {\n    pub fn new() -> Self { Self }\n    pub fn validate(&self) -> bool { true }\n}\n",
+    )
+    .unwrap();
+    let guide = (1..=120)
+        .map(|line| {
+            if line == 60 {
+                "unique neighbor target appears in the middle of this guide\n".to_owned()
+            } else {
+                format!("context line {line}\n")
+            }
+        })
+        .collect::<String>();
+    fs::write(dir.path().join("guide.md"), guide).unwrap();
+
+    let output = sifs()
+        .args([
+            "pack",
+            "login flow uses TokenManager",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--offline",
+            "--limit",
+            "1",
+            "--include-symbol-definitions",
+            "--include-neighbors",
+            "1",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let packed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(packed["include_neighbors"], 1);
+    assert_eq!(packed["include_symbol_definitions"], true);
+    let items = packed["items"].as_array().unwrap();
+    assert!(items.iter().any(|item| item["kind"] == "primary"));
+    assert!(
+        items
+            .iter()
+            .any(|item| item["kind"] == "symbol_definition"
+                && item["file_path"].as_str().unwrap().ends_with("defs.rs"))
+    );
+
+    let output = sifs()
+        .args([
+            "pack",
+            "unique neighbor target",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--offline",
+            "--include-docs",
+            "--limit",
+            "1",
+            "--include-neighbors",
+            "1",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let packed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let items = packed["items"].as_array().unwrap();
+    assert!(items.iter().any(|item| item["kind"] == "neighbor"));
 }
 
 #[test]

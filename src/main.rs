@@ -9,9 +9,10 @@ use sifs::daemon::{
 };
 use sifs::update::{UpdateMode, UpdateOptions, run_update};
 use sifs::{
-    CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
-    SearchOptions, SearchResult, SifsIndex, cache_summary, fenced_code_block, format_results,
-    is_git_url, load_model_with_options, model_status, platform_cache_root, resolve_chunk,
+    CacheConfig, Chunk, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions,
+    SearchMode, SearchOptions, SearchResult, SifsIndex, cache_summary, fenced_code_block,
+    format_results, is_git_url, load_model_with_options, model_status, platform_cache_root,
+    resolve_chunk,
 };
 use sifs::{agent_context, feedback, profiles};
 use std::fs;
@@ -127,6 +128,18 @@ enum Command {
         mode: Option<ModeArg>,
         #[arg(long, default_value_t = 6000)]
         budget_tokens: usize,
+        #[arg(
+            long,
+            alias = "include-neighbours",
+            default_value_t = 0,
+            help = "Include this many adjacent chunks before and after each selected result."
+        )]
+        include_neighbors: usize,
+        #[arg(
+            long,
+            help = "Add chunks that define symbols named in the query when they fit the pack budget."
+        )]
+        include_symbol_definitions: bool,
         #[arg(long)]
         limit: Option<usize>,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -819,6 +832,8 @@ fn main() -> Result<()> {
             profile,
             mode,
             budget_tokens,
+            include_neighbors,
+            include_symbol_definitions,
             limit,
             model,
             encoder,
@@ -844,7 +859,14 @@ fn main() -> Result<()> {
                 include_docs,
                 extensions,
             )?;
-            run_pack(query, resolved, budget_tokens, json)?
+            run_pack(
+                query,
+                resolved,
+                budget_tokens,
+                include_neighbors,
+                include_symbol_definitions,
+                json,
+            )?
         }
         Some(Command::FindRelated {
             file_path,
@@ -1234,6 +1256,8 @@ fn run_pack(
     query: String,
     invocation: ResolvedInvocation,
     budget_tokens: usize,
+    include_neighbors: usize,
+    include_symbol_definitions: bool,
     json_output: bool,
 ) -> Result<()> {
     if budget_tokens == 0 {
@@ -1255,34 +1279,66 @@ fn run_pack(
     let options = SearchOptions::new(invocation.limit).with_mode(invocation.mode);
     let results = index.search_with(&query, &options)?;
     let mut remaining_chars = budget_tokens.saturating_mul(4);
-    let mut seen = std::collections::HashSet::new();
+    let mut seen_files = std::collections::HashSet::new();
+    let mut seen_chunks = std::collections::HashSet::new();
     let mut packed = Vec::new();
+    let chunks = &index.chunks;
+    let symbol_definition_chunks = if include_symbol_definitions {
+        query_symbol_definition_chunks(&query, chunks)
+    } else {
+        Vec::new()
+    };
     for result in results {
-        if remaining_chars == 0 || !seen.insert(result.chunk.file_path.clone()) {
+        if remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
             continue;
         }
-        let content = if result.chunk.content.len() > remaining_chars {
-            result
-                .chunk
-                .content
-                .chars()
-                .take(remaining_chars)
-                .collect::<String>()
-        } else {
-            result.chunk.content.clone()
-        };
-        remaining_chars = remaining_chars.saturating_sub(content.len());
-        packed.push(json!({
-            "file_path": result.chunk.file_path,
-            "start_line": result.chunk.start_line,
-            "end_line": result.chunk.end_line,
-            "score": result.score,
-            "source": result.source.to_string(),
-            "why": format!("ranked by {} for the pack query", invocation.mode),
-            "symbols": result.chunk.symbols,
-            "breadcrumbs": result.chunk.breadcrumbs,
-            "content": content,
-        }));
+        push_pack_chunk(
+            &mut packed,
+            &mut seen_chunks,
+            &mut remaining_chars,
+            &result.chunk,
+            Some(result.score),
+            result.source.to_string(),
+            "primary",
+            format!("ranked by {} for the pack query", invocation.mode),
+        );
+        if include_neighbors > 0 {
+            for neighbor in adjacent_chunks(chunks, &result.chunk, include_neighbors) {
+                if remaining_chars == 0 {
+                    break;
+                }
+                push_pack_chunk(
+                    &mut packed,
+                    &mut seen_chunks,
+                    &mut remaining_chars,
+                    neighbor,
+                    None,
+                    "adjacent".to_owned(),
+                    "neighbor",
+                    format!(
+                        "adjacent context for {}:{}-{}",
+                        result.chunk.file_path, result.chunk.start_line, result.chunk.end_line
+                    ),
+                );
+            }
+        }
+        if include_symbol_definitions {
+            for definition in &symbol_definition_chunks {
+                if remaining_chars == 0 {
+                    break;
+                }
+                push_pack_chunk(
+                    &mut packed,
+                    &mut seen_chunks,
+                    &mut remaining_chars,
+                    definition,
+                    None,
+                    "symbol".to_owned(),
+                    "symbol_definition",
+                    "defines a symbol named in the pack query".to_owned(),
+                );
+            }
+        }
     }
     let payload = json!({
         "query": query,
@@ -1290,6 +1346,8 @@ fn run_pack(
         "mode": invocation.mode.to_string(),
         "limit": invocation.limit,
         "budget_tokens": budget_tokens,
+        "include_neighbors": include_neighbors,
+        "include_symbol_definitions": include_symbol_definitions,
         "estimated_tokens_used": (budget_tokens.saturating_mul(4).saturating_sub(remaining_chars) + 3) / 4,
         "stats": index.stats(),
         "warnings": index.warnings(),
@@ -1301,6 +1359,104 @@ fn run_pack(
         println!("{}", serde_json::to_string_pretty(&payload)?);
     }
     Ok(())
+}
+
+fn push_pack_chunk(
+    packed: &mut Vec<Value>,
+    seen_chunks: &mut std::collections::HashSet<(String, usize, usize)>,
+    remaining_chars: &mut usize,
+    chunk: &Chunk,
+    score: Option<f32>,
+    source: String,
+    kind: &str,
+    why: String,
+) {
+    if *remaining_chars == 0
+        || !seen_chunks.insert((chunk.file_path.clone(), chunk.start_line, chunk.end_line))
+    {
+        return;
+    }
+    let content = if chunk.content.len() > *remaining_chars {
+        chunk.content.chars().take(*remaining_chars).collect::<String>()
+    } else {
+        chunk.content.clone()
+    };
+    *remaining_chars = remaining_chars.saturating_sub(content.len());
+    packed.push(json!({
+        "kind": kind,
+        "file_path": chunk.file_path,
+        "start_line": chunk.start_line,
+        "end_line": chunk.end_line,
+        "score": score,
+        "source": source,
+        "why": why,
+        "symbols": chunk.symbols,
+        "breadcrumbs": chunk.breadcrumbs,
+        "content": content,
+    }));
+}
+
+fn adjacent_chunks<'a>(
+    chunks: &'a [Chunk],
+    target: &Chunk,
+    include_neighbors: usize,
+) -> Vec<&'a Chunk> {
+    let mut before: Vec<&Chunk> = chunks
+        .iter()
+        .filter(|chunk| {
+            chunk.file_path == target.file_path
+                && chunk.start_line < target.start_line
+                && !(chunk.start_line == target.start_line && chunk.end_line == target.end_line)
+        })
+        .collect();
+    before.sort_by_key(|chunk| std::cmp::Reverse(chunk.end_line));
+    let mut after: Vec<&Chunk> = chunks
+        .iter()
+        .filter(|chunk| {
+            chunk.file_path == target.file_path
+                && chunk.start_line > target.start_line
+                && !(chunk.start_line == target.start_line && chunk.end_line == target.end_line)
+        })
+        .collect();
+    after.sort_by_key(|chunk| chunk.start_line);
+    before
+        .into_iter()
+        .take(include_neighbors)
+        .chain(after.into_iter().take(include_neighbors))
+        .collect()
+}
+
+fn query_symbol_definition_chunks<'a>(query: &str, chunks: &'a [Chunk]) -> Vec<&'a Chunk> {
+    let terms: std::collections::HashSet<String> = query
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .filter(|term| term.len() >= 3)
+        .map(|term| term.to_ascii_lowercase())
+        .collect();
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    chunks
+        .iter()
+        .filter(|chunk| {
+            chunk.symbols.iter().any(|symbol| {
+                terms.contains(&symbol.name.to_ascii_lowercase())
+                    && matches!(
+                        symbol.kind.as_str(),
+                        "class"
+                            | "const"
+                            | "def"
+                            | "enum"
+                            | "fn"
+                            | "function"
+                            | "impl"
+                            | "interface"
+                            | "struct"
+                            | "trait"
+                            | "type"
+                    )
+            })
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]

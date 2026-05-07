@@ -92,6 +92,28 @@ index stats, elapsed time, warnings, `truncated`, a narrowing hint when useful,
 and result objects with file path, line range, language, score, source mode, and
 content. Use `--jsonl` when one JSON record per result is easier to stream.
 
+## Context packs
+
+`pack` builds a budgeted JSON context bundle for agents. It uses the same
+source/profile/mode/model/cache/document/extension resolution as `search`, then
+deduplicates primary ranked chunks by file. Use `--include-neighbors` to include
+adjacent chunks around selected results, and `--include-symbol-definitions` to
+add chunks that define symbols named in the query when they fit the remaining
+budget.
+
+```bash
+target/release/sifs pack "how request auth works" \
+  --source . \
+  --mode hybrid \
+  --budget-tokens 6000 \
+  --include-neighbors 1 \
+  --include-symbol-definitions \
+  --json
+```
+
+Pack items include `kind`, file path, line range, optional score, source mode,
+symbols, breadcrumbs, a short inclusion reason, and content.
+
 ## Related code
 
 `find-related` starts from a known repository-relative file path and one-based
