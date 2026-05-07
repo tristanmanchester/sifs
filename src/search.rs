@@ -336,7 +336,7 @@ fn add_file_card_candidate_scores<S: std::hash::BuildHasher>(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     for (rank, (chunk_id, score)) in file_scores.into_iter().take(32).enumerate() {
-        *combined.entry(chunk_id).or_default() += score / (RRF_K + rank as f32 + 1.0);
+        *combined.entry(chunk_id).or_default() += 0.5 * score / (RRF_K + rank as f32 + 1.0);
     }
 }
 
@@ -350,6 +350,9 @@ fn file_card_overlap(
         .into_iter()
         .filter(|term| query_terms.contains(term))
         .collect::<std::collections::HashSet<_>>();
+    if overlap.is_empty() {
+        return 0;
+    }
     if overlap.len() == query_terms.len() {
         return overlap.len();
     }

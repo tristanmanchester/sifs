@@ -83,6 +83,9 @@ versioning where practical.
 - Added a generic hybrid agreement signal so chunks found near the top by both
   BM25 and semantic retrieval are less likely to be displaced by one-sided
   ranking boosts.
+- Reduced file-card candidate score weight and require path-term overlap before
+  expanding into file metadata, so file-level architecture recall does not
+  overpower stronger chunk-level retrieval evidence.
 - Expanded symbol extraction for common visibility/modifier prefixes, C macros,
   C typedef structs/enums, and C-like function declarations.
 - Narrowed file-card candidate expansion so ordinary natural-language searches
