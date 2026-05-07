@@ -5,7 +5,7 @@ use crate::ranking::{
     resolve_alpha,
 };
 use crate::sparse::Bm25Index;
-use crate::types::{Chunk, SearchExplanation, SearchMode, SearchResult};
+use crate::types::{Chunk, SearchExplanation, SearchHit, SearchMode};
 use std::collections::HashMap;
 #[cfg(feature = "diagnostics")]
 use std::sync::{Mutex, OnceLock};
@@ -54,19 +54,19 @@ pub fn search_semantic(
     query: &str,
     model: &dyn Encoder,
     semantic_index: &DenseIndex,
-    chunks: &[Chunk],
+    _chunks: &[Chunk],
     top_k: usize,
     selector: Option<&[usize]>,
     explain: bool,
-) -> Vec<SearchResult> {
+) -> Vec<SearchHit> {
     let encoded = model.encode(&[query.to_owned()]);
     let vector = normalize_vector(encoded.row(0).to_owned());
     semantic_index
         .query(&vector, top_k, selector)
         .into_iter()
         .enumerate()
-        .map(|(rank, (idx, score))| SearchResult {
-            chunk: chunks[idx].clone(),
+        .map(|(rank, (idx, score))| SearchHit {
+            chunk_id: idx,
             score,
             source: SearchMode::Semantic,
             explanation: explain.then(|| SearchExplanation {
@@ -86,17 +86,17 @@ pub fn search_semantic(
 pub fn search_bm25(
     query: &str,
     bm25_index: &Bm25Index,
-    chunks: &[Chunk],
+    _chunks: &[Chunk],
     top_k: usize,
     selector: Option<&[usize]>,
     explain: bool,
-) -> Vec<SearchResult> {
+) -> Vec<SearchHit> {
     bm25_index
         .search(query, top_k, selector)
         .into_iter()
         .enumerate()
-        .map(|(rank, (idx, score))| SearchResult {
-            chunk: chunks[idx].clone(),
+        .map(|(rank, (idx, score))| SearchHit {
+            chunk_id: idx,
             score,
             source: SearchMode::Bm25,
             explanation: explain.then(|| SearchExplanation {
@@ -126,7 +126,7 @@ pub fn search_hybrid(
     alpha: Option<f32>,
     selector: Option<&[usize]>,
     explain: bool,
-) -> Vec<SearchResult> {
+) -> Vec<SearchHit> {
     let alpha_weight = resolve_alpha(query, alpha);
     let candidate_count = hybrid_candidate_count(query, top_k);
     #[cfg(feature = "diagnostics")]
@@ -183,8 +183,8 @@ pub fn search_hybrid(
     let start = Instant::now();
     let results = ranked
         .into_iter()
-        .map(|(idx, score)| SearchResult {
-            chunk: chunks[idx].clone(),
+        .map(|(idx, score)| SearchHit {
+            chunk_id: idx,
             score,
             source: SearchMode::Hybrid,
             explanation: explain.then(|| SearchExplanation {

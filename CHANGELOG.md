@@ -63,6 +63,9 @@ versioning where practical.
   vectors.
 - Made test, docs/example, and TypeScript declaration penalties query-aware so
   those surfaces are not down-ranked when the query explicitly asks for them.
+- Changed internal search and query-cache storage to use chunk identifiers
+  before materializing public `SearchResult` payloads, reducing chunk-content
+  cloning in hot query paths.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

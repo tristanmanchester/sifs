@@ -143,6 +143,14 @@ pub struct SearchResult {
     pub explanation: Option<SearchExplanation>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SearchHit {
+    pub chunk_id: usize,
+    pub score: f32,
+    pub source: SearchMode,
+    pub explanation: Option<SearchExplanation>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SearchExplanation {
     pub alpha: Option<f32>,

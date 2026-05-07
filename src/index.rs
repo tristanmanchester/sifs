@@ -4,7 +4,9 @@ use crate::file_walker::{filter_extensions, language_for_path, walk_files};
 use crate::model2vec::{Encoder, EncoderSpec, ModelOptions, encoder_fingerprint, load_encoder};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::sparse::Bm25Index;
-use crate::types::{Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult};
+use crate::types::{
+    Chunk, IndexStats, IndexWarning, SearchHit, SearchMode, SearchOptions, SearchResult,
+};
 use anyhow::{Context, Result, bail};
 use ndarray::{Array2, s};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -25,7 +27,7 @@ pub struct SifsIndex {
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
     symbol_mapping: HashMap<String, Vec<usize>>,
-    search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchResult>>>,
+    search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchHit>>>,
     cache_entry: Option<CacheEntry>,
     signatures: Option<Vec<FileSignature>>,
     signature_context: Option<SourceSignatureContext>,
@@ -567,7 +569,7 @@ impl SifsIndex {
                 .ok()
                 .and_then(|cache| cache.get(&cache_key).cloned())
         {
-            return Ok(results);
+            return Ok(self.materialize_hits(results));
         }
         let selector = self.selector(filter_languages, filter_paths);
         let selector_ref = selector.as_deref();
@@ -616,14 +618,14 @@ impl SifsIndex {
         {
             let max_entries = query_cache_entry_limit();
             if max_entries == 0 {
-                return Ok(results);
+                return Ok(self.materialize_hits(results));
             }
             if cache.len() >= max_entries && !cache.contains_key(&cache_key) {
                 cache.clear();
             }
             cache.insert(cache_key, results.clone());
         }
-        Ok(results)
+        Ok(self.materialize_hits(results))
     }
 
     pub fn find_related(&self, source: &Chunk, top_k: usize) -> Result<Vec<SearchResult>> {
@@ -640,9 +642,22 @@ impl SifsIndex {
             selector.as_deref(),
             false,
         );
-        results.retain(|r| r.chunk != *source);
+        results.retain(|hit| self.chunks.get(hit.chunk_id) != Some(source));
         results.truncate(top_k);
-        Ok(results)
+        Ok(self.materialize_hits(results))
+    }
+
+    fn materialize_hits(&self, hits: Vec<SearchHit>) -> Vec<SearchResult> {
+        hits.into_iter()
+            .filter_map(|hit| {
+                self.chunks.get(hit.chunk_id).map(|chunk| SearchResult {
+                    chunk: chunk.clone(),
+                    score: hit.score,
+                    source: hit.source,
+                    explanation: hit.explanation,
+                })
+            })
+            .collect()
     }
 
     pub fn semantic_loaded(&self) -> bool {
