@@ -212,6 +212,7 @@ fn stem_boost_query(query: &str) -> bool {
         || lowered.contains("parser")
         || lowered.contains("serializer")
         || lowered.contains("deserializer")
+        || lowered.contains("implementation")
         || lowered.contains("router")
         || lowered.contains("request")
         || lowered.contains("response")
@@ -478,21 +479,38 @@ fn count_keyword_path_matches(keywords: &[String], file_path: &str) -> usize {
     }
     let mut matches = 0;
     for keyword in keywords {
-        if parts.iter().any(|part| {
+        let mut matched = false;
+        let mut synonym_matched = false;
+        for part in &parts {
             if keyword == part {
-                return true;
+                matched = true;
+                break;
             }
             let (shorter, longer) = if keyword.len() <= part.len() {
                 (keyword.as_str(), part.as_str())
             } else {
                 (part.as_str(), keyword.as_str())
             };
-            shorter.len() >= 3 && longer.starts_with(shorter)
-        }) {
+            if shorter.len() >= 3 && longer.starts_with(shorter) {
+                matched = true;
+                break;
+            }
+            synonym_matched |= implementation_path_synonym(keyword, part);
+        }
+        if matched {
             matches += 1;
+            if synonym_matched {
+                matches += 1;
+            }
+        } else if synonym_matched {
+            matches += 2;
         }
     }
     matches
+}
+
+fn implementation_path_synonym(keyword: &str, path_part: &str) -> bool {
+    matches!(keyword, "implementation" | "implementations") && matches!(path_part, "impl" | "impls")
 }
 
 fn public_api_query(keywords: &[String]) -> bool {
@@ -907,6 +925,25 @@ mod tests {
 
         let boosted =
             apply_query_boost(&scores, "enum schema types for literal value sets", &chunks);
+
+        assert!(boosted[&0] > boosted[&1]);
+    }
+
+    #[test]
+    fn implementation_queries_match_impls_file_stems() {
+        let impls = chunk("impl Serialize for bool {}", "src/ser/impls.rs");
+        let docs = chunk(
+            "Serialize implementations are listed below.",
+            "src/ser/docs.rs",
+        );
+        let chunks = vec![impls, docs];
+        let scores = HashMap::from([(0usize, 0.9), (1usize, 1.0)]);
+
+        let boosted = apply_query_boost(
+            &scores,
+            "standard library type Serialize implementations",
+            &chunks,
+        );
 
         assert!(boosted[&0] > boosted[&1]);
     }
