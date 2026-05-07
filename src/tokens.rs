@@ -58,14 +58,79 @@ fn split_camel(token: &str) -> Vec<String> {
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for m in TOKEN_RE.find_iter(text) {
-        out.extend(split_identifier(m.as_str()));
+        for token in split_identifier(m.as_str()) {
+            push_expanded_token(&mut out, token);
+        }
     }
     out
 }
 
+fn push_expanded_token(out: &mut Vec<String>, token: String) {
+    let mut variants = vec![token.clone()];
+    variants.extend(light_normalizations(&token));
+    for variant in variants {
+        if !variant.is_empty() && !out.contains(&variant) {
+            out.push(variant);
+        }
+    }
+}
+
+fn light_normalizations(token: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    add_morphology(token, &mut variants);
+    add_spelling_variants(token, &mut variants);
+    add_domain_synonyms(token, &mut variants);
+    variants
+}
+
+fn add_morphology(token: &str, variants: &mut Vec<String>) {
+    if token.len() > 4 && token.ends_with("ies") {
+        variants.push(format!("{}y", &token[..token.len() - 3]));
+    }
+    if token.len() > 4 && token.ends_with("es") {
+        variants.push(token[..token.len() - 2].to_owned());
+    }
+    if token.len() > 3 && token.ends_with('s') {
+        variants.push(token[..token.len() - 1].to_owned());
+    }
+    if token.len() > 5 && token.ends_with("ing") {
+        variants.push(token[..token.len() - 3].to_owned());
+        variants.push(format!("{}e", &token[..token.len() - 3]));
+    }
+    if token.len() > 4 && token.ends_with("ed") {
+        variants.push(token[..token.len() - 2].to_owned());
+        variants.push(format!("{}e", &token[..token.len() - 2]));
+    }
+}
+
+fn add_spelling_variants(token: &str, variants: &mut Vec<String>) {
+    if token.contains("serialis") {
+        variants.push(token.replace("serialis", "serializ"));
+    }
+    if token.contains("serializ") {
+        variants.push(token.replace("serializ", "serialis"));
+    }
+}
+
+fn add_domain_synonyms(token: &str, variants: &mut Vec<String>) {
+    match token {
+        "auth" => variants.push("authentication".to_owned()),
+        "authentication" => variants.push("auth".to_owned()),
+        "config" => variants.push("configuration".to_owned()),
+        "configuration" => variants.push("config".to_owned()),
+        "ctx" => variants.push("context".to_owned()),
+        "context" => variants.push("ctx".to_owned()),
+        "req" => variants.push("request".to_owned()),
+        "request" => variants.push("req".to_owned()),
+        "resp" => variants.push("response".to_owned()),
+        "response" => variants.push("resp".to_owned()),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{split_identifier, tokenize};
+    use super::{light_normalizations, split_identifier, tokenize};
 
     #[test]
     fn tokenization_matches_identifier_expansion() {
@@ -86,10 +151,19 @@ mod tests {
                 "get",
                 "http",
                 "response",
+                "resp",
                 "my_func",
                 "my",
                 "func"
             ]
         );
+    }
+
+    #[test]
+    fn tokenization_adds_conservative_query_expansions() {
+        assert!(light_normalizations("handlers").contains(&"handler".to_owned()));
+        assert!(light_normalizations("serialisation").contains(&"serialization".to_owned()));
+        assert!(tokenize("auth handlers").contains(&"authentication".to_owned()));
+        assert!(tokenize("deserializing").contains(&"deserialize".to_owned()));
     }
 }

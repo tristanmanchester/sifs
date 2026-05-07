@@ -53,6 +53,9 @@ versioning where practical.
   final reranking.
 - Added exact symbol-definition postings as a first-class hybrid candidate
   source so query-named symbols can enter the candidate union directly.
+- Added conservative token expansion for plurals, common verb forms,
+  serialise/serialize spelling variants, and code-domain aliases such as
+  auth/authentication and req/request.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
