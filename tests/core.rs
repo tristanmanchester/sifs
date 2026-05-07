@@ -93,6 +93,15 @@ fn index_search_modes_and_filters_work() {
         .search_with("format", &SearchOptions::new(3).with_paths(paths))
         .unwrap();
     assert!(filtered.iter().all(|r| r.chunk.file_path == "utils.py"));
+
+    let normalized_paths = vec!["./utils.py".to_owned(), ".\\utils.py".to_owned()];
+    let filtered = index
+        .search_with(
+            "format",
+            &SearchOptions::new(3).with_paths(normalized_paths),
+        )
+        .unwrap();
+    assert!(filtered.iter().all(|r| r.chunk.file_path == "utils.py"));
 }
 
 #[test]

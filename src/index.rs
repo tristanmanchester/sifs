@@ -771,7 +771,8 @@ impl SifsIndex {
         let mut path_ids = Vec::new();
         if let Some(paths) = filter_paths {
             for path in paths {
-                if let Some(values) = self.file_mapping.get(path) {
+                let normalized = normalize_filter_path(path);
+                if let Some(values) = self.file_mapping.get(&normalized) {
                     path_ids.extend(values);
                 }
             }
@@ -1068,6 +1069,19 @@ fn query_cache_entry_limit() -> usize {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(DEFAULT_QUERY_CACHE_ENTRIES)
+}
+
+fn normalize_filter_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => parts.push(part),
+            value => parts.push(value),
+        }
+    }
+    parts.join("/")
 }
 
 fn populate_mapping(

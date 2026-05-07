@@ -22,6 +22,8 @@ versioning where practical.
   `SIFS_QUERY_CACHE_ENTRIES` to bound long-running daemon and MCP sessions.
 - Added default document-indexing guardrails that skip common generated
   lockfiles and files larger than 1 MB.
+- Normalized `filter_paths` during search so leading `./`, repeated
+  separators, and Windows separators match indexed repository-relative paths.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
