@@ -32,6 +32,8 @@ versioning where practical.
   NDCG reporting so feedback evals are no longer BM25-only.
 - Expanded chunk symbol extraction for common exported, async, Rust `impl`, and
   arrow-function declaration forms.
+- Documented the current Windows story and added daemon platform support details
+  to `sifs doctor --json`.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

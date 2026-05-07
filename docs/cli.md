@@ -218,6 +218,9 @@ target/release/sifs daemon uninstall-agent --dry-run --json
 
 On macOS, `daemon install-agent` writes a user LaunchAgent that runs
 `sifs daemon run --replace-existing-socket` at login and keeps it alive.
+Daemon IPC currently uses same-user Unix sockets, so daemon mode is supported on
+Unix platforms only. Windows users should use direct CLI commands or MCP stdio
+until a named-pipe or TCP-loopback daemon transport exists.
 
 ## MCP
 

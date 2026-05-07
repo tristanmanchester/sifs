@@ -219,6 +219,14 @@ Index caches live in platform cache directories by default (`~/Library/Caches/si
 
 Full CLI reference: [docs/cli.md](docs/cli.md).
 
+## Platform Support
+
+Direct CLI search, library use, and MCP stdio are intended to work on macOS and
+Linux. The shared `sifs daemon` currently uses same-user Unix sockets, so daemon
+mode is supported on Unix platforms only. On Windows, use direct CLI or MCP stdio
+until a named-pipe or TCP-loopback daemon transport is added. `sifs doctor
+--json` reports this daemon platform status explicitly.
+
 ## Rust Library
 
 ```rust

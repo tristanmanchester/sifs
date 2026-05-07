@@ -568,6 +568,32 @@ fn mcp_doctor_reports_handshake_smoke_separately_from_search() {
 }
 
 #[test]
+fn doctor_json_reports_daemon_platform_support() {
+    let dir = fixture();
+    let output = sifs()
+        .args([
+            "doctor",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--offline",
+            "--encoder",
+            "hashing",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["daemon"]["supported"], cfg!(unix));
+    assert!(value["daemon"]["transport"].is_string());
+}
+
+#[test]
 fn search_json_is_structured() {
     let dir = fixture();
     let output = sifs()

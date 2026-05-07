@@ -2740,6 +2740,7 @@ fn run_doctor(
             serde_json::to_string_pretty(&json!({
                 "source": source,
                 "semantic": semantic,
+                "daemon": daemon_platform_status(),
                 "offline": offline,
             }))?
         );
@@ -2773,6 +2774,15 @@ fn run_doctor(
             println!("Cache writable: {cache_writable}");
         }
     }
+    let daemon = daemon_platform_status();
+    println!(
+        "Daemon platform support: {} ({})",
+        daemon["supported"].as_bool().unwrap_or(false),
+        daemon["transport"].as_str().unwrap_or("unknown")
+    );
+    if let Some(note) = daemon["note"].as_str() {
+        println!("Daemon note: {note}");
+    }
 
     match encoder {
         EncoderArg::Hashing => {
@@ -2800,6 +2810,18 @@ fn run_doctor(
         }
     }
     Ok(())
+}
+
+fn daemon_platform_status() -> serde_json::Value {
+    json!({
+        "supported": cfg!(unix),
+        "transport": if cfg!(unix) { "unix_socket" } else { "unsupported" },
+        "note": if cfg!(unix) {
+            "daemon and LaunchAgent support use same-user Unix sockets"
+        } else {
+            "direct CLI and MCP stdio can be used, but daemon mode currently requires Unix sockets"
+        },
+    })
 }
 
 fn file_status(path: Option<&PathBuf>) -> String {
