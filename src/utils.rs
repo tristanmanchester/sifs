@@ -116,6 +116,7 @@ mod tests {
             chunk: chunk("src/lib.rs", 1, 1),
             score: 0.5,
             source: SearchMode::Bm25,
+            explanation: None,
         };
 
         let output = format_results("Header", &[result]);

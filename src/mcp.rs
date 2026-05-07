@@ -793,6 +793,10 @@ fn search_options_from_args(args: &Value, top_k: usize, mode: SearchMode) -> Sea
     options.alpha = args.get("alpha").and_then(Value::as_f64).map(|v| v as f32);
     options.filter_languages = string_array_arg(args, "filter_languages");
     options.filter_paths = string_array_arg(args, "filter_paths");
+    options.explain = args
+        .get("explain")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     options
 }
 
@@ -866,6 +870,7 @@ fn structured_results(results: &[crate::types::SearchResult]) -> Value {
                 "score": result.score,
                 "source": result.source.to_string(),
                 "content": result.chunk.content,
+                "explanation": result.explanation,
             }))
             .collect::<Vec<_>>()
     )
@@ -1205,7 +1210,8 @@ fn tool_schemas() -> Vec<Value> {
                     "limit": {"type": "integer", "minimum": 1, "default": 5, "description": "Maximum number of ranked chunks to return."},
                     "alpha": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Optional hybrid semantic weight. Omit to let SIFS choose from query shape."},
                     "filter_languages": {"type": "array", "items": {"type": "string"}, "description": "Optional exact language labels to search, such as rust or typescript."},
-                    "filter_paths": {"type": "array", "items": {"type": "string"}, "description": "Optional repository-relative file paths to search."}
+                    "filter_paths": {"type": "array", "items": {"type": "string"}, "description": "Optional repository-relative file paths to search."},
+                    "explain": {"type": "boolean", "default": false, "description": "Include per-result ranking evidence such as BM25 rank, semantic rank, alpha, and boosted score."}
                 },
                 "required": ["query"]
             }

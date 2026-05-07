@@ -1136,6 +1136,7 @@ fn run_search(command: SearchCommand) -> Result<()> {
                 filter_languages: command.languages.clone(),
                 filter_paths: command.filter_paths.clone(),
                 use_query_cache: true,
+                explain: command.explain,
             },
             result.stats,
             u128::from(result.elapsed_ms),
@@ -1164,6 +1165,7 @@ fn run_search(command: SearchCommand) -> Result<()> {
     let mut options = SearchOptions::new(command.limit).with_mode(command.mode);
     options.filter_languages = command.languages;
     options.filter_paths = command.filter_paths;
+    options.explain = command.explain;
     let results = index.search_with(&command.query, &options)?;
     let elapsed_ms = started.elapsed().as_millis();
 
@@ -1875,6 +1877,9 @@ fn structured_result(source: &str, result: &SearchResult, context_lines: usize) 
         "source": result.source.to_string(),
         "content": result.chunk.content,
     });
+    if let Some(explanation) = &result.explanation {
+        value["explanation"] = serde_json::to_value(explanation).unwrap_or(Value::Null);
+    }
     if context_lines > 0
         && let Some(context) = expanded_context(
             source,

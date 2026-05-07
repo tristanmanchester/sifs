@@ -162,6 +162,7 @@ struct SearchCacheKey {
     alpha_bits: Option<u32>,
     filter_languages: Option<Vec<String>>,
     filter_paths: Option<Vec<String>>,
+    explain: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -520,6 +521,7 @@ impl SifsIndex {
             alpha_bits: options.alpha.map(f32::to_bits),
             filter_languages: filter_languages.map(<[String]>::to_vec),
             filter_paths: filter_paths.map(<[String]>::to_vec),
+            explain: options.explain,
         };
         if options.use_query_cache
             && let Some(results) = self
@@ -539,6 +541,7 @@ impl SifsIndex {
                 &self.chunks,
                 options.top_k,
                 selector_ref,
+                options.explain,
             ),
             SearchMode::Semantic => {
                 let state = self.ensure_semantic()?;
@@ -550,6 +553,7 @@ impl SifsIndex {
                     &self.chunks,
                     options.top_k,
                     selector_ref,
+                    options.explain,
                 )
             }
             SearchMode::Hybrid => {
@@ -565,6 +569,7 @@ impl SifsIndex {
                     options.top_k,
                     options.alpha,
                     selector_ref,
+                    options.explain,
                 )
             }
         };
@@ -588,6 +593,7 @@ impl SifsIndex {
             &self.chunks,
             top_k + 1,
             selector.as_deref(),
+            false,
         );
         results.retain(|r| r.chunk != *source);
         results.truncate(top_k);

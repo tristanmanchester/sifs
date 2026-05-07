@@ -21,6 +21,8 @@ versioning where practical.
   hard-coded benchmark query and repository paths.
 - Added `sifs-benchmark --no-cache` and per-repository reproducibility metadata
   so cold-index benchmark runs can be reported without persistent cache reuse.
+- Added optional score explanations for CLI, daemon, and MCP search results so
+  `--explain` / `explain: true` can show ranking evidence for returned chunks.
 
 ### Fixed
 

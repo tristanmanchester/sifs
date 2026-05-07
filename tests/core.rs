@@ -129,6 +129,7 @@ fn formatted_results_include_source_mode() {
         chunk: chunk("def authenticate(): pass", "auth.py"),
         score: 0.75,
         source: SearchMode::Hybrid,
+        explanation: None,
     }];
 
     let output = format_results("Search results", &results);
