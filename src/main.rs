@@ -856,7 +856,7 @@ fn main() -> Result<()> {
             project_cache,
             include_docs,
             extensions,
-            json,
+            json: _,
         }) => {
             let resolved = resolve_invocation(
                 profile.as_deref(),
@@ -877,7 +877,6 @@ fn main() -> Result<()> {
                 budget_tokens,
                 include_neighbors,
                 include_symbol_definitions,
-                json,
             )?
         }
         Some(Command::FindRelated {
@@ -1202,7 +1201,7 @@ fn main() -> Result<()> {
             offline,
             no_download,
             dry_run,
-            json,
+            json: _,
         }) => run_tune(
             from_feedback,
             source,
@@ -1212,7 +1211,6 @@ fn main() -> Result<()> {
             offline,
             no_download,
             dry_run,
-            json,
         )?,
         Some(Command::Daemon { command }) => run_daemon_command(command, timeout)?,
         Some(Command::Update {
@@ -1286,7 +1284,6 @@ fn run_pack(
     budget_tokens: usize,
     include_neighbors: usize,
     include_symbol_definitions: bool,
-    json_output: bool,
 ) -> Result<()> {
     if budget_tokens == 0 {
         bail!("--budget-tokens must be at least 1");
@@ -1310,6 +1307,11 @@ fn run_pack(
     let mut seen_files = std::collections::HashSet::new();
     let mut seen_chunks = std::collections::HashSet::new();
     let mut packed = Vec::new();
+    let mut state = PackState {
+        packed: &mut packed,
+        seen_chunks: &mut seen_chunks,
+        remaining_chars: &mut remaining_chars,
+    };
     let chunks = &index.chunks;
     let symbol_definition_chunks = if include_symbol_definitions {
         query_symbol_definition_chunks(&query, chunks)
@@ -1317,13 +1319,11 @@ fn run_pack(
         Vec::new()
     };
     for result in results {
-        if remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
+        if *state.remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
             continue;
         }
         push_pack_chunk(
-            &mut packed,
-            &mut seen_chunks,
-            &mut remaining_chars,
+            &mut state,
             &result.chunk,
             Some(result.score),
             result.source.to_string(),
@@ -1332,9 +1332,7 @@ fn run_pack(
         );
         if let Some(header) = file_header_chunk(chunks, &result.chunk) {
             push_pack_chunk(
-                &mut packed,
-                &mut seen_chunks,
-                &mut remaining_chars,
+                &mut state,
                 header,
                 None,
                 "file_header".to_owned(),
@@ -1344,13 +1342,11 @@ fn run_pack(
         }
         if include_neighbors > 0 {
             for neighbor in adjacent_chunks(chunks, &result.chunk, include_neighbors) {
-                if remaining_chars == 0 {
+                if *state.remaining_chars == 0 {
                     break;
                 }
                 push_pack_chunk(
-                    &mut packed,
-                    &mut seen_chunks,
-                    &mut remaining_chars,
+                    &mut state,
                     neighbor,
                     None,
                     "adjacent".to_owned(),
@@ -1364,13 +1360,11 @@ fn run_pack(
         }
         if include_symbol_definitions {
             for definition in &symbol_definition_chunks {
-                if remaining_chars == 0 {
+                if *state.remaining_chars == 0 {
                     break;
                 }
                 push_pack_chunk(
-                    &mut packed,
-                    &mut seen_chunks,
-                    &mut remaining_chars,
+                    &mut state,
                     definition,
                     None,
                     "symbol".to_owned(),
@@ -1388,16 +1382,12 @@ fn run_pack(
         "budget_tokens": budget_tokens,
         "include_neighbors": include_neighbors,
         "include_symbol_definitions": include_symbol_definitions,
-        "estimated_tokens_used": (budget_tokens.saturating_mul(4).saturating_sub(remaining_chars) + 3) / 4,
+        "estimated_tokens_used": budget_tokens.saturating_mul(4).saturating_sub(remaining_chars).div_ceil(4),
         "stats": index.stats(),
         "warnings": index.warnings(),
         "items": packed,
     });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    }
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
@@ -1410,32 +1400,38 @@ fn file_header_chunk<'a>(chunks: &'a [Chunk], chunk: &Chunk) -> Option<&'a Chunk
         .find(|candidate| candidate.file_path == chunk.file_path && candidate.start_line == 1)
 }
 
+struct PackState<'a> {
+    packed: &'a mut Vec<Value>,
+    seen_chunks: &'a mut std::collections::HashSet<(String, usize, usize)>,
+    remaining_chars: &'a mut usize,
+}
+
 fn push_pack_chunk(
-    packed: &mut Vec<Value>,
-    seen_chunks: &mut std::collections::HashSet<(String, usize, usize)>,
-    remaining_chars: &mut usize,
+    state: &mut PackState,
     chunk: &Chunk,
     score: Option<f32>,
     source: String,
     kind: &str,
     why: String,
 ) {
-    if *remaining_chars == 0
-        || !seen_chunks.insert((chunk.file_path.clone(), chunk.start_line, chunk.end_line))
+    if *state.remaining_chars == 0
+        || !state
+            .seen_chunks
+            .insert((chunk.file_path.clone(), chunk.start_line, chunk.end_line))
     {
         return;
     }
-    let content = if chunk.content.len() > *remaining_chars {
+    let content = if chunk.content.len() > *state.remaining_chars {
         chunk
             .content
             .chars()
-            .take(*remaining_chars)
+            .take(*state.remaining_chars)
             .collect::<String>()
     } else {
         chunk.content.clone()
     };
-    *remaining_chars = remaining_chars.saturating_sub(content.len());
-    packed.push(json!({
+    *state.remaining_chars = state.remaining_chars.saturating_sub(content.len());
+    state.packed.push(json!({
         "kind": kind,
         "file_path": chunk.file_path,
         "start_line": chunk.start_line,
@@ -4556,7 +4552,6 @@ fn run_tune(
     offline: bool,
     no_download: bool,
     dry_run: bool,
-    json_output: bool,
 ) -> Result<()> {
     if !from_feedback {
         bail!("tune currently requires --from-feedback");
@@ -4637,11 +4632,7 @@ fn run_tune(
             "Review the best dry-run candidate and rerun eval before changing ranking defaults."
         },
     });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    }
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
