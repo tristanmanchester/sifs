@@ -1286,7 +1286,7 @@ fn run_pack(
     budget_tokens: usize,
     include_neighbors: usize,
     include_symbol_definitions: bool,
-    json_output: bool,
+    _json_output: bool,
 ) -> Result<()> {
     if budget_tokens == 0 {
         bail!("--budget-tokens must be at least 1");
@@ -1388,16 +1388,12 @@ fn run_pack(
         "budget_tokens": budget_tokens,
         "include_neighbors": include_neighbors,
         "include_symbol_definitions": include_symbol_definitions,
-        "estimated_tokens_used": (budget_tokens.saturating_mul(4).saturating_sub(remaining_chars) + 3) / 4,
+        "estimated_tokens_used": budget_tokens.saturating_mul(4).saturating_sub(remaining_chars).div_ceil(4),
         "stats": index.stats(),
         "warnings": index.warnings(),
         "items": packed,
     });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    }
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
@@ -1410,6 +1406,7 @@ fn file_header_chunk<'a>(chunks: &'a [Chunk], chunk: &Chunk) -> Option<&'a Chunk
         .find(|candidate| candidate.file_path == chunk.file_path && candidate.start_line == 1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_pack_chunk(
     packed: &mut Vec<Value>,
     seen_chunks: &mut std::collections::HashSet<(String, usize, usize)>,
@@ -4556,7 +4553,7 @@ fn run_tune(
     offline: bool,
     no_download: bool,
     dry_run: bool,
-    json_output: bool,
+    _json_output: bool,
 ) -> Result<()> {
     if !from_feedback {
         bail!("tune currently requires --from-feedback");
@@ -4637,11 +4634,7 @@ fn run_tune(
             "Review the best dry-run candidate and rerun eval before changing ranking defaults."
         },
     });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    }
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 
