@@ -108,6 +108,8 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed shallow C-like symbol extraction so ordinary call expressions such as
+  `manager.validate()` are not indexed as function declarations.
 - Fixed daemon-backed search so `--include-docs` and repeatable `--extension`
   use the same index filters as direct CLI search, including case-insensitive
   extension normalization.

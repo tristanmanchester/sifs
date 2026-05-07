@@ -284,14 +284,14 @@ fn boost_path_intent<S: BuildHasher>(
             .filter(|term| path_terms.contains(*term))
             .count();
         if overlap > 0 {
-            additive += max_score * (0.35 * overlap as f32).min(1.4);
+            additive += max_score * (0.18 * overlap as f32).min(0.7);
         }
 
         if query_terms
             .iter()
             .any(|term| path_stem_matches(&path, term))
         {
-            additive += max_score * 0.7;
+            additive += max_score * 0.35;
         }
         if wants_public_api
             && path_terms

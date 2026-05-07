@@ -187,13 +187,16 @@ fn strip_declaration_modifiers(mut trimmed: &str) -> &str {
 fn c_like_function_name(trimmed: &str) -> Option<&str> {
     const CONTROL_KEYWORDS: &[&str] = &["if", "for", "while", "switch", "catch", "return"];
     let before_paren = trimmed.split_once('(')?.0.trim_end();
-    let name = before_paren
-        .split_whitespace()
+    let mut parts = before_paren.split_whitespace();
+    let _return_or_keyword = parts.next()?;
+    let name = parts
         .last()
         .filter(|name| {
-            name.chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                && name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         })
         .filter(|name| !CONTROL_KEYWORDS.contains(name))?;
     trimmed.contains(')').then_some(name)
@@ -481,6 +484,7 @@ mod tests {
             "impl SessionStore {}",
             "async def fetch_user():",
             "    return None",
+            "manager.validate();",
             "public class AccountController {}",
             "private static final class InnerThing {}",
             "#define CURL_MAX_WRITE_SIZE 16384",
@@ -505,5 +509,6 @@ mod tests {
         assert!(symbols.contains(&"CURL_MAX_WRITE_SIZE"));
         assert!(symbols.contains(&"Curl_retry_request"));
         assert!(symbols.contains(&"json_object"));
+        assert!(!symbols.contains(&"manager"));
     }
 }
