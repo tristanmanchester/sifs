@@ -130,6 +130,8 @@ struct RepoResult {
     peak_rss_mb: f64,
     reproducibility: BenchmarkMetadata,
     by_category: BTreeMap<String, f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    candidate_diagnostic_summary: Option<CandidateDiagnosticSummary>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     task_results: Vec<TaskResult>,
 }
@@ -178,6 +180,32 @@ struct TargetDiagnostic {
     target_semantic_rank: Option<usize>,
     target_in_candidate_union: bool,
     failure_stage: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct CandidateDiagnosticSummary {
+    targets: usize,
+    top10: usize,
+    reranking: usize,
+    reranking_or_depth: usize,
+    candidate_generation: usize,
+}
+
+impl CandidateDiagnosticSummary {
+    fn record(&mut self, diagnostic: &TargetDiagnostic) {
+        self.targets += 1;
+        match diagnostic.failure_stage.as_str() {
+            "top10" => self.top10 += 1,
+            "reranking" => self.reranking += 1,
+            "reranking_or_depth" => self.reranking_or_depth += 1,
+            "candidate_generation" => self.candidate_generation += 1,
+            _ => {}
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.targets == 0
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -249,6 +277,7 @@ fn main() -> Result<()> {
         let mut ndcg10_sum = 0.0;
         let mut by_category_scores: HashMap<String, Vec<f64>> = HashMap::new();
         let mut task_results = Vec::new();
+        let mut candidate_diagnostic_summary = CandidateDiagnosticSummary::default();
 
         let mut first_options = SearchOptions::new(args.top_k)
             .with_mode(args.mode)
@@ -319,6 +348,9 @@ fn main() -> Result<()> {
                 } else {
                     Vec::new()
                 };
+                for diagnostic in &candidate_diagnostics {
+                    candidate_diagnostic_summary.record(diagnostic);
+                }
                 task_results.push(TaskResult {
                     query: task.query.clone(),
                     category: task.category.clone(),
@@ -377,6 +409,8 @@ fn main() -> Result<()> {
                 indexed_chunks: index.chunks.len(),
             },
             by_category,
+            candidate_diagnostic_summary: (!candidate_diagnostic_summary.is_empty())
+                .then_some(candidate_diagnostic_summary),
             task_results,
         });
     }
