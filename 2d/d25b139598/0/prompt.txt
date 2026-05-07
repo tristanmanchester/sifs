@@ -1,0 +1,143 @@
+# AGENTS.md instructions for /Users/tristan/Projects/oss/semble-port/sifs
+
+<INSTRUCTIONS>
+# AGENTS.md — Tool Selection
+
+When you need to call tools from the shell, use this rubric:
+
+## File Operations
+- Find files by file name: `fd`
+- Find files with path name: `fd -p <file-path>`
+- List files in a directory: `fd . <directory>`
+- Find files with extension and pattern: `fd -e <extension> <pattern>`
+
+## Structured Code Search
+- Find code structure: `ast-grep --lang <language> -p '<pattern>'`
+- List matching files: `ast-grep -l --lang <language> -p '<pattern>' | head -n 10`
+- Prefer `ast-grep` over `rg`/`grep` when you need syntax-aware matching
+
+## Data Processing
+- JSON: `jq`
+- YAML/XML: `yq`
+
+## Selection
+- Select from multiple results deterministically (non-interactive filtering)
+- Fuzzy finder: `fzf --filter 'term' | head -n 1`
+
+## Guidelines
+- Prefer deterministic, non-interactive commands (`head`, `--filter`, `--json` + `jq`) so runs are reproducible
+
+## Oracle
+- Oracle bundles a prompt plus the right files so another AI (GPT 5.5 Pro) can answer. Use when stuck/bugs/reviewing.
+- Run `npx -y @steipete/oracle --help` once per session before first use.
+
+## Subagents
+- ALWAYS wait for all subagents to complete before yielding.
+- Spawn subagents automatically when:
+- Parallelizable work (e.g., install + verify, npm test + typecheck, multiple tasks from plan)
+- Long-running or blocking tasks where a worker can run independently.
+Isolation for risky changes or checks
+
+@/Users/tristan/.codex/RTK.md
+
+<!-- BEGIN COMPOUND CODEX TOOL MAP -->
+## Compound Codex Tool Mapping (Claude Compatibility)
+
+This section maps Claude Code plugin tool references to Codex behavior.
+Only this block is managed automatically.
+
+Tool mapping:
+- Read: use shell reads (cat/sed) or rg
+- Write: create files via shell redirection or apply_patch
+- Edit/MultiEdit: use apply_patch
+- Bash: use shell_command
+- Grep: use rg (fallback: grep)
+- Glob: use rg --files or find
+- LS: use ls via shell_command
+- WebFetch/WebSearch: use curl or Context7 for library docs
+- AskUserQuestion/Question: present choices as a numbered list in chat and wait for a reply number. For multi-select (multiSelect: true), accept comma-separated numbers. Never skip or auto-configure — always wait for the user's response before proceeding.
+- TaskCreate/TaskUpdate/TaskList/TaskGet/TaskStop/TaskOutput (Claude Code task-tracking, current): use update_plan (Codex's task-tracking primitive)
+- TodoWrite/TodoRead (Claude Code task-tracking, legacy — deprecated, replaced by Task* tools): use update_plan
+- Skill: open the referenced SKILL.md and follow it
+- ExitPlanMode: ignore
+<!-- END COMPOUND CODEX TOOL MAP -->
+
+--- project-doc ---
+
+# AGENTS.md
+
+This file contains local project instructions for AI agents working in this
+checkout.
+
+## Changelog Discipline
+
+`CHANGELOG.md` is the source of truth for release notes.
+
+- For every user-facing code, behavior, documentation, packaging, installer,
+  workflow, or compatibility change, update `CHANGELOG.md` in the same turn.
+- Add new work under `## Unreleased` first. Use the existing categories:
+  `Added`, `Changed`, `Fixed`, `Performance`, `Security`, `Removed`, and
+  `Notes`.
+- Do not add empty categories. Create a category only when it has at least one
+  bullet.
+- Keep entries user-facing and specific. Avoid commit-log noise such as
+  "bump version," "prepare release," or "apply formatting," unless that is the
+  only release-relevant change.
+- When preparing a release, move the relevant `Unreleased` entries into a
+  `## X.Y.Z - YYYY-MM-DD` section, leave a fresh `Unreleased` section at the
+  top, and verify the version matches `Cargo.toml` and the `vX.Y.Z` tag.
+- Before tagging a release, confirm that `CHANGELOG.md` includes the version
+  section that GitHub release notes will use.
+
+</INSTRUCTIONS>
+
+---
+
+<environment_context>
+  <cwd>/Users/tristan/Projects/oss/semble-port/sifs</cwd>
+  <shell>zsh</shell>
+  <current_date>2026-05-07</current_date>
+  <timezone>Europe/Berlin</timezone>
+</environment_context>
+
+---
+
+<turn_aborted>
+The user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.
+</turn_aborted>
+
+---
+
+Commit after each change has been implemented
+
+---
+
+which branch were these on?
+
+---
+
+please open a PR for this branch
+
+---
+
+Switch to main and pull
+
+---
+
+How did the performance change after we implemented the changes that the Oracle recommended?
+
+---
+
+So where do we place against the other tools now in these benchmarks?
+
+---
+
+So all of the changes we just made, did it actually improve things at all or did it make things worse or neutral?
+
+---
+
+Stop polishing the rebaseline: update only the minimum remaining log/report text, run the smallest relevant validation if needed, commit the coherent core-projector rebaseline slice now, then continue to the next canonical phase without reopening projector selection.
+
+---
+
+Give me a status update. How are we doing?
