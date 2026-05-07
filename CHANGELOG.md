@@ -78,6 +78,8 @@ versioning where practical.
 - Made benchmark candidate diagnostics compute BM25 and semantic target ranks
   from explicit per-mode diagnostic searches instead of only from final hybrid
   result explanations.
+- Expanded symbol extraction for common visibility/modifier prefixes, C macros,
+  C typedef structs/enums, and C-like function declarations.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.

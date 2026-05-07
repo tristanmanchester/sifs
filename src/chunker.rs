@@ -92,11 +92,25 @@ fn extract_symbols(content: &str, start_line: usize) -> Vec<Symbol> {
 
 fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
     let trimmed = line.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("#define ") {
+        return Some(Symbol {
+            name: symbol_name(rest)?,
+            kind: "macro".to_owned(),
+            line: line_number,
+        });
+    }
     let trimmed = trimmed
         .strip_prefix("export default ")
         .or_else(|| trimmed.strip_prefix("export "))
         .unwrap_or(trimmed);
-    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("pub async fn ") {
+    let trimmed = strip_declaration_modifiers(trimmed);
+    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("typedef struct ") {
+        ("struct", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("typedef enum ") {
+        ("enum", rest)
+    } else if let Some(rest) = c_like_function_name(trimmed) {
+        ("function", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("pub async fn ") {
         ("fn", rest)
     } else if let Some(rest) = trimmed.strip_prefix("pub fn ") {
         ("fn", rest)
@@ -139,18 +153,62 @@ fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
     } else {
         return None;
     };
-    let name = rest
-        .trim_start()
-        .trim_start_matches("async ")
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
-        .next()
-        .filter(|name| !name.is_empty())?
-        .to_owned();
+    let name = symbol_name(rest)?;
     Some(Symbol {
         name,
         kind: kind.to_owned(),
         line: line_number,
     })
+}
+
+fn strip_declaration_modifiers(mut trimmed: &str) -> &str {
+    loop {
+        let next = trimmed
+            .strip_prefix("public ")
+            .or_else(|| trimmed.strip_prefix("private "))
+            .or_else(|| trimmed.strip_prefix("protected "))
+            .or_else(|| trimmed.strip_prefix("internal "))
+            .or_else(|| trimmed.strip_prefix("static "))
+            .or_else(|| trimmed.strip_prefix("final "))
+            .or_else(|| trimmed.strip_prefix("abstract "))
+            .or_else(|| trimmed.strip_prefix("open "))
+            .or_else(|| trimmed.strip_prefix("override "))
+            .or_else(|| trimmed.strip_prefix("inline "))
+            .or_else(|| trimmed.strip_prefix("extern "))
+            .or_else(|| trimmed.strip_prefix("virtual "))
+            .or_else(|| trimmed.strip_prefix("async "));
+        let Some(next) = next else {
+            return trimmed;
+        };
+        trimmed = next;
+    }
+}
+
+fn c_like_function_name(trimmed: &str) -> Option<&str> {
+    const CONTROL_KEYWORDS: &[&str] = &["if", "for", "while", "switch", "catch", "return"];
+    let before_paren = trimmed.split_once('(')?.0.trim_end();
+    let name = before_paren
+        .split_whitespace()
+        .last()
+        .filter(|name| {
+            name.chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        })
+        .filter(|name| !CONTROL_KEYWORDS.contains(name))?;
+    trimmed.contains(')').then_some(name)
+}
+
+fn symbol_name(rest: &str) -> Option<String> {
+    Some(
+        rest.trim_start()
+            .trim_start_matches("async ")
+            .trim_matches('{')
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+            .next()
+            .filter(|name| !name.is_empty())?
+            .to_owned(),
+    )
 }
 
 fn group_child_nodes(
@@ -423,6 +481,11 @@ mod tests {
             "impl SessionStore {}",
             "async def fetch_user():",
             "    return None",
+            "public class AccountController {}",
+            "private static final class InnerThing {}",
+            "#define CURL_MAX_WRITE_SIZE 16384",
+            "static inline int Curl_retry_request(struct Curl_easy *data) { return 0; }",
+            "typedef struct json_object json_object;",
         ]
         .join("\n");
         let chunks = chunk_source(&source, "symbols.ts", Some("typescript".to_owned()));
@@ -437,5 +500,10 @@ mod tests {
         assert!(symbols.contains(&"load_token"));
         assert!(symbols.contains(&"SessionStore"));
         assert!(symbols.contains(&"fetch_user"));
+        assert!(symbols.contains(&"AccountController"));
+        assert!(symbols.contains(&"InnerThing"));
+        assert!(symbols.contains(&"CURL_MAX_WRITE_SIZE"));
+        assert!(symbols.contains(&"Curl_retry_request"));
+        assert!(symbols.contains(&"json_object"));
     }
 }
