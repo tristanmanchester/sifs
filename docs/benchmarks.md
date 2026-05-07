@@ -174,10 +174,10 @@ performance contract.
 
 Full annotated corpus comparison:
 
-- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.7873757422551712`,
-  `cold_index_ms=182.87431692086324`,
-  `warm_uncached_query_ms=5.672438832134293`, and
-  `warm_cached_repeat_query_ms=0.007834525179856118`.
+- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.79903880300021`,
+  `cold_index_ms=166.97235230855318`,
+  `warm_uncached_query_ms=4.852482991207034`, and
+  `warm_cached_repeat_query_ms=0.005302110311750598`.
 - The detailed report, graphs, baseline comparison table, and per-language
   breakdown are in [Benchmark Report](benchmark-report.md).
 - The raw SIFS payload is in
