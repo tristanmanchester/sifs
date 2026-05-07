@@ -32,6 +32,8 @@ versioning where practical.
 
 - Switched persistent index cache keys and model fingerprints from
   process-random hashers to SHA-256-derived identifiers.
+- Enforced MCP search validation for `alpha`, `limit`, `filter_languages`, and
+  `filter_paths` instead of only advertising those constraints in the schema.
 - Skipped unreadable or non-UTF-8 files during indexing with structured
   warnings instead of aborting the entire index build.
 - Restored standard triple-backtick Markdown fences for search result snippets
