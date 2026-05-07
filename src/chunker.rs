@@ -92,12 +92,24 @@ fn extract_symbols(content: &str, start_line: usize) -> Vec<Symbol> {
 
 fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
     let trimmed = line.trim_start();
-    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("pub fn ") {
+    let trimmed = trimmed
+        .strip_prefix("export default ")
+        .or_else(|| trimmed.strip_prefix("export "))
+        .unwrap_or(trimmed);
+    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("pub async fn ") {
+        ("fn", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("pub fn ") {
+        ("fn", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("async fn ") {
         ("fn", rest)
     } else if let Some(rest) = trimmed.strip_prefix("fn ") {
         ("fn", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("async function ") {
+        ("function", rest)
     } else if let Some(rest) = trimmed.strip_prefix("function ") {
         ("function", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("async def ") {
+        ("def", rest)
     } else if let Some(rest) = trimmed.strip_prefix("def ") {
         ("def", rest)
     } else if let Some(rest) = trimmed.strip_prefix("class ") {
@@ -116,10 +128,14 @@ fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
         ("trait", rest)
     } else if let Some(rest) = trimmed.strip_prefix("interface ") {
         ("interface", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("impl ") {
+        ("impl", rest)
     } else if let Some(rest) = trimmed.strip_prefix("type ") {
         ("type", rest)
     } else if let Some(rest) = trimmed.strip_prefix("const ") {
         ("const", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("let ") {
+        ("let", rest)
     } else {
         return None;
     };
@@ -395,5 +411,31 @@ mod tests {
                 .iter()
                 .any(|chunk| chunk.breadcrumbs.iter().any(|b| b == "class SessionStore"))
         );
+    }
+
+    #[test]
+    fn code_chunker_extracts_common_export_async_and_impl_symbols() {
+        let source = [
+            "export function fetchUser() { return null; }",
+            "export class UserCard {}",
+            "const useThing = () => null;",
+            "pub async fn load_token() {}",
+            "impl SessionStore {}",
+            "async def fetch_user():",
+            "    return None",
+        ]
+        .join("\n");
+        let chunks = chunk_source(&source, "symbols.ts", Some("typescript".to_owned()));
+        let symbols = chunks
+            .iter()
+            .flat_map(|chunk| chunk.symbols.iter().map(|symbol| symbol.name.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(symbols.contains(&"fetchUser"));
+        assert!(symbols.contains(&"UserCard"));
+        assert!(symbols.contains(&"useThing"));
+        assert!(symbols.contains(&"load_token"));
+        assert!(symbols.contains(&"SessionStore"));
+        assert!(symbols.contains(&"fetch_user"));
     }
 }

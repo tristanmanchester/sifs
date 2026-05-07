@@ -30,6 +30,8 @@ versioning where practical.
   document, and extension indexing options as search.
 - Extended `sifs eval --from-feedback` with `--mode`, `--all-modes`, MRR, and
   NDCG reporting so feedback evals are no longer BM25-only.
+- Expanded chunk symbol extraction for common exported, async, Rust `impl`, and
+  arrow-function declaration forms.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
