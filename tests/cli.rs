@@ -1150,6 +1150,57 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
 }
 
 #[test]
+fn explicit_encoder_overrides_profile_encoder() {
+    let dir = fixture();
+    let home = tempfile::tempdir().unwrap();
+
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "agent-encoder-test",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "semantic",
+            "--encoder",
+            "model2vec",
+            "--offline",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+
+    let search = sifs()
+        .args([
+            "search",
+            "token validation",
+            "--profile",
+            "agent-encoder-test",
+            "--encoder",
+            "hashing",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
+    assert_eq!(searched["mode"], "semantic");
+    assert!(!searched["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
 fn pack_can_include_symbol_definitions_and_neighbor_context() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join("src")).unwrap();

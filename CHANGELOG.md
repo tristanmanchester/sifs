@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed explicit `--encoder` flags so they override saved profile encoder
+  defaults for search, pack, and related-code commands.
+
 ## 0.3.3 - 2026-05-07
 
 ### Added

@@ -94,8 +94,8 @@ enum Command {
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
         model: Option<String>,
-        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec, help = "Encoder for semantic and hybrid search.")]
-        encoder: EncoderArg,
+        #[arg(long, value_enum, help = "Encoder for semantic and hybrid search.")]
+        encoder: Option<EncoderArg>,
         #[arg(long, help = "Disable model downloads and remote Git sources.")]
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
@@ -144,8 +144,12 @@ enum Command {
         limit: Option<usize>,
         #[arg(long, help = "Model path or Hugging Face model id.")]
         model: Option<String>,
-        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec, help = "Encoder for semantic and hybrid pack search.")]
-        encoder: EncoderArg,
+        #[arg(
+            long,
+            value_enum,
+            help = "Encoder for semantic and hybrid pack search."
+        )]
+        encoder: Option<EncoderArg>,
         #[arg(long, help = "Disable model downloads and remote Git sources.")]
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
@@ -189,8 +193,8 @@ enum Command {
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
         model: Option<String>,
-        #[arg(long, value_enum, default_value_t = EncoderArg::Model2Vec, help = "Encoder for related-code search.")]
-        encoder: EncoderArg,
+        #[arg(long, value_enum, help = "Encoder for related-code search.")]
+        encoder: Option<EncoderArg>,
         #[arg(long, help = "Disable model downloads and remote Git sources.")]
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
@@ -1044,7 +1048,7 @@ fn main() -> Result<()> {
                     None,
                     None,
                     model,
-                    EncoderArg::Model2Vec,
+                    None,
                     offline,
                     no_download,
                     cache_config(cache_dir, no_cache, project_cache),
@@ -1079,7 +1083,7 @@ fn main() -> Result<()> {
                 None,
                 None,
                 model,
-                EncoderArg::Model2Vec,
+                None,
                 offline,
                 no_download,
                 CacheConfig::Platform,
@@ -1109,7 +1113,7 @@ fn main() -> Result<()> {
                 None,
                 None,
                 model,
-                EncoderArg::Model2Vec,
+                None,
                 offline,
                 no_download,
                 CacheConfig::Platform,
@@ -1140,7 +1144,7 @@ fn main() -> Result<()> {
                 None,
                 None,
                 model,
-                EncoderArg::Model2Vec,
+                None,
                 offline,
                 no_download,
                 CacheConfig::Platform,
@@ -1515,7 +1519,7 @@ fn resolve_invocation(
     mode: Option<ModeArg>,
     limit: Option<usize>,
     model: Option<String>,
-    encoder: EncoderArg,
+    encoder: Option<EncoderArg>,
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
@@ -1541,11 +1545,14 @@ fn resolve_invocation(
         bail!("--limit must be at least 1");
     }
     let model = model.or_else(|| profile.as_ref().and_then(|profile| profile.model.clone()));
-    let encoder = profile
-        .as_ref()
-        .and_then(|profile| profile.encoder.as_deref())
-        .and_then(parse_encoder_name)
-        .unwrap_or(encoder);
+    let encoder = encoder
+        .or_else(|| {
+            profile
+                .as_ref()
+                .and_then(|profile| profile.encoder.as_deref())
+                .and_then(parse_encoder_name)
+        })
+        .unwrap_or(EncoderArg::Model2Vec);
     let offline = offline
         || profile
             .as_ref()
@@ -3172,7 +3179,7 @@ fn run_mcp_doctor(options: McpDoctorOptions) -> Result<()> {
         None,
         None,
         None,
-        EncoderArg::Model2Vec,
+        None,
         options.offline,
         options.no_download,
         cache_config(
