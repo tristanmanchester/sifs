@@ -18,7 +18,7 @@
   <a href="#benchmarks">Benchmarks</a>
 </p>
 
-SIFS builds a cold sparse index in **168.8 ms**, answers warm queries in **4.2 ms**, and hits **NDCG@10 = 0.8181** across the full benchmark. It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no external services.
+SIFS builds a cold sparse index in **209.8 ms**, answers warm queries in **4.8 ms**, and hits **NDCG@10 = 0.8339** across the full benchmark. It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no external services.
 
 ## Quickstart
 
@@ -54,8 +54,8 @@ Full integration reference: [docs/agent-integration.md](docs/agent-integration.m
 
 ## Features
 
-- **Fast local search.** 168.8 ms cold sparse index, 4.2 ms warm query, 0.0054 ms for cached repeats. Pure Rust, all on CPU.
-- **Strong cross-language quality.** NDCG@10 of 0.8181 across 63 repositories, 19 languages, and 1,251 annotated tasks.
+- **Fast local search.** 209.8 ms cold sparse index, 4.8 ms warm query, 0.0052 ms for cached repeats. Pure Rust, all on CPU.
+- **Strong cross-language quality.** NDCG@10 of 0.8339 across 63 repositories, 19 languages, and 1,251 annotated tasks.
 - **Three search modes.** `hybrid` for most queries, `semantic` for natural language, `bm25` for symbols and identifiers. Switch per query.
 - **Fully offline.** BM25 mode loads nothing — no tokenizers, no model files, no network. Hybrid and semantic modes work offline once the model is cached locally.
 - **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand and can be refreshed explicitly after files change.
@@ -282,7 +282,7 @@ Benchmarks run across 63 pinned open-source repositories, 19 languages, and 1,25
 |---|---:|---:|---:|---:|
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | **0.8181** | **168.8 ms** | **4.2 ms** | **0.0054 ms** |
+| **SIFS** | **0.8339** | **209.8 ms** | **4.8 ms** | **0.0052 ms** |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |

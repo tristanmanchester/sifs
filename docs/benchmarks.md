@@ -168,16 +168,16 @@ uses `SIFS_MODEL` or the default code-search model. Use `--no-download` or
 
 ## Recent local measurements
 
-These measurements were collected on May 5, 2026, on this development machine.
+These measurements were collected on May 7, 2026, on this development machine.
 They are useful as a reference point, but they aren't a hardware-independent
 performance contract.
 
 Full annotated corpus comparison:
 
-- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.818103060925117`,
-  `cold_index_ms=168.81237496402878`,
-  `warm_uncached_query_ms=4.162963362110313`, and
-  `warm_cached_repeat_query_ms=0.005381682653876899`.
+- SIFS full corpus: `repos=63`, `tasks=1251`, `NDCG@10=0.8339372695341337`,
+  `cold_index_ms=209.8241554436451`,
+  `warm_uncached_query_ms=4.762090334932057`, and
+  `warm_cached_repeat_query_ms=0.0052014380495603516`.
 - The detailed report, graphs, baseline comparison table, and per-language
   breakdown are in [Benchmark Report](benchmark-report.md).
 - The raw SIFS payload is in

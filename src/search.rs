@@ -237,6 +237,9 @@ fn add_symbol_candidate_scores<S: std::hash::BuildHasher>(
     symbol_mapping: Option<&HashMap<String, Vec<usize>>>,
     selector: Option<&[usize]>,
 ) {
+    if !is_symbol_query(query) && !has_embedded_symbol_query_term(query) {
+        return;
+    }
     let Some(symbol_mapping) = symbol_mapping else {
         return;
     };
@@ -265,6 +268,18 @@ fn add_symbol_candidate_scores<S: std::hash::BuildHasher>(
             }
         }
     }
+}
+
+fn has_embedded_symbol_query_term(query: &str) -> bool {
+    query.split_whitespace().any(|part| {
+        let trimmed =
+            part.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '$');
+        trimmed.len() >= 3
+            && trimmed
+                .as_bytes()
+                .windows(2)
+                .any(|pair| pair[0].is_ascii_lowercase() && pair[1].is_ascii_uppercase())
+    })
 }
 
 fn symbol_query_terms(query: &str) -> Vec<String> {
@@ -625,6 +640,22 @@ mod tests {
         );
 
         assert!(combined.contains_key(&42));
+    }
+
+    #[test]
+    fn symbol_candidates_skip_plain_prose_queries() {
+        let mut symbol_mapping = HashMap::new();
+        symbol_mapping.insert("request".to_owned(), vec![42]);
+        let mut combined = HashMap::new();
+
+        add_symbol_candidate_scores(
+            &mut combined,
+            "request validation and error handling",
+            Some(&symbol_mapping),
+            None,
+        );
+
+        assert!(combined.is_empty());
     }
 
     #[test]

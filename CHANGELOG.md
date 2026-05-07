@@ -86,6 +86,9 @@ versioning where practical.
 - Reduced file-card candidate score weight and require path-term overlap before
   expanding into file metadata, so file-level architecture recall does not
   overpower stronger chunk-level retrieval evidence.
+- Limited exact symbol candidate injection to symbol-like queries so ordinary
+  prose searches are not pulled toward unrelated files that merely define a
+  query word as a symbol.
 - Expanded symbol extraction for common visibility/modifier prefixes, C macros,
   C typedef structs/enums, and C-like function declarations.
 - Narrowed file-card candidate expansion so ordinary natural-language searches
