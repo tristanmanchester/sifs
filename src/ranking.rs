@@ -499,7 +499,18 @@ fn public_api_query(keywords: &[String]) -> bool {
     keywords.iter().any(|keyword| {
         matches!(
             keyword.as_str(),
-            "api" | "public" | "function" | "functions" | "builder" | "builders"
+            "api"
+                | "public"
+                | "function"
+                | "functions"
+                | "builder"
+                | "builders"
+                | "schema"
+                | "schemas"
+                | "type"
+                | "types"
+                | "enum"
+                | "enums"
         )
     })
 }
@@ -884,6 +895,19 @@ mod tests {
         let boosted = apply_query_boost(&scores, "FromRequest", &chunks);
 
         assert!(boosted.contains_key(&0));
+        assert!(boosted[&0] > boosted[&1]);
+    }
+
+    #[test]
+    fn schema_type_queries_prefer_public_api_files() {
+        let api = chunk("export function enumSchema() {}", "src/core/api.ts");
+        let implementation = chunk("export class ZodEnum {}", "src/core/schemas.ts");
+        let chunks = vec![api, implementation];
+        let scores = HashMap::from([(0usize, 0.7), (1usize, 1.0)]);
+
+        let boosted =
+            apply_query_boost(&scores, "enum schema types for literal value sets", &chunks);
+
         assert!(boosted[&0] > boosted[&1]);
     }
 }

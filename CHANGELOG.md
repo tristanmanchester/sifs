@@ -18,8 +18,8 @@ versioning where practical.
 
 - Strengthened top-rank BM25/semantic agreement and narrowed path-intent
   candidate injection in hybrid ranking, then recognized public Rust re-export
-  surfaces for symbol/API queries, refreshing the full benchmark baseline to
-  NDCG@10 0.8444 with 3.0 ms warm uncached queries.
+  surfaces and schema/type API queries, refreshing the full benchmark baseline
+  to NDCG@10 0.8447 with 2.8 ms warm uncached queries.
 - Updated `sifs agent-context --json` to describe the newer search flags and
   `pack`, `eval`, and `tune` commands for agent integrations.
 - Capped the in-memory per-index query-result cache with

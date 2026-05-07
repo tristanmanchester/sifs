@@ -30,7 +30,7 @@ included in `cold_first_search_ms`.
 |---|---:|---:|---:|---:|
 | CodeRankEmbed Hybrid | 0.8617 | 57.3 s | 16.9 ms | n/a |
 | Semble | 0.8544 | 439.4 ms | 1.3 ms | n/a |
-| **SIFS** | **0.8444** | **184.7 ms** | **3.0 ms** | **0.0051 ms** |
+| **SIFS** | **0.8447** | **180.1 ms** | **2.8 ms** | **0.0050 ms** |
 | CodeRankEmbed | 0.7648 | 57.3 s | 13.3 ms | n/a |
 | ColGREP | 0.6925 | 3.9 s | 979.3 ms | n/a |
 | grepai | 0.5606 | 35.0 s | 47.7 ms | n/a |
@@ -40,7 +40,7 @@ included in `cold_first_search_ms`.
 SIFS remains substantially faster to build and query than the neural embedding
 baselines while landing behind CodeRankEmbed Hybrid and Semble on raw NDCG@10
 in this regenerated run. The speed story also stays explicit: the meaningful
-warm-query figure is `3.0ms`, not the `0.0051ms` cached repeat path.
+warm-query figure is `2.8ms`, not the `0.0050ms` cached repeat path.
 
 ## Figures
 
@@ -110,32 +110,32 @@ machine.
 
 | Language | Repos | Tasks | NDCG@10 | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|---:|
-| bash | 3 | 60 | 0.8938 | 1.508 ms | 0.0023 ms |
-| c | 3 | 60 | 0.7454 | 10.328 ms | 0.0068 ms |
-| cpp | 3 | 60 | 0.8523 | 5.493 ms | 0.0057 ms |
-| csharp | 3 | 60 | 0.8438 | 5.158 ms | 0.0039 ms |
-| elixir | 3 | 58 | 0.8774 | 2.857 ms | 0.0050 ms |
-| go | 3 | 58 | 0.7912 | 1.802 ms | 0.0048 ms |
-| haskell | 3 | 60 | 0.7641 | 5.702 ms | 0.0046 ms |
-| java | 3 | 61 | 0.7987 | 12.753 ms | 0.0051 ms |
-| javascript | 3 | 60 | 0.8471 | 0.585 ms | 0.0056 ms |
-| kotlin | 3 | 60 | 0.8107 | 3.886 ms | 0.0046 ms |
-| lua | 3 | 60 | 0.8406 | 3.847 ms | 0.0052 ms |
-| php | 3 | 60 | 0.8063 | 6.313 ms | 0.0050 ms |
-| python | 9 | 184 | 0.8562 | 1.496 ms | 0.0053 ms |
-| ruby | 3 | 58 | 0.8779 | 1.169 ms | 0.0040 ms |
-| rust | 3 | 60 | 0.8608 | 5.139 ms | 0.0057 ms |
-| scala | 3 | 59 | 0.8865 | 3.715 ms | 0.0066 ms |
-| swift | 3 | 53 | 0.8343 | 3.205 ms | 0.0047 ms |
-| typescript | 3 | 60 | 0.6981 | 4.548 ms | 0.0069 ms |
-| zig | 3 | 60 | 0.9166 | 17.110 ms | 0.0068 ms |
+| bash | 3 | 60 | 0.9006 | 1.064 ms | 0.0023 ms |
+| c | 3 | 60 | 0.7370 | 4.871 ms | 0.0062 ms |
+| cpp | 3 | 60 | 0.8504 | 3.189 ms | 0.0056 ms |
+| csharp | 3 | 60 | 0.8408 | 3.784 ms | 0.0039 ms |
+| elixir | 3 | 58 | 0.9198 | 1.625 ms | 0.0049 ms |
+| go | 3 | 58 | 0.8391 | 1.655 ms | 0.0050 ms |
+| haskell | 3 | 60 | 0.7777 | 3.140 ms | 0.0041 ms |
+| java | 3 | 61 | 0.7948 | 5.562 ms | 0.0049 ms |
+| javascript | 3 | 60 | 0.8751 | 0.516 ms | 0.0053 ms |
+| kotlin | 3 | 60 | 0.8010 | 3.010 ms | 0.0045 ms |
+| lua | 3 | 60 | 0.8507 | 2.496 ms | 0.0051 ms |
+| php | 3 | 60 | 0.8101 | 3.846 ms | 0.0048 ms |
+| python | 9 | 184 | 0.8607 | 1.268 ms | 0.0051 ms |
+| ruby | 3 | 58 | 0.8737 | 0.944 ms | 0.0040 ms |
+| rust | 3 | 60 | 0.8722 | 3.000 ms | 0.0051 ms |
+| scala | 3 | 59 | 0.8991 | 2.896 ms | 0.0064 ms |
+| swift | 3 | 53 | 0.8444 | 2.234 ms | 0.0047 ms |
+| typescript | 3 | 60 | 0.7447 | 2.931 ms | 0.0062 ms |
+| zig | 3 | 60 | 0.9300 | 7.442 ms | 0.0059 ms |
 
 ## SIFS by query category
 
 | Category | NDCG@10 |
 |---|---:|
-| architecture | 0.7848 |
-| semantic | 0.8369 |
+| architecture | 0.7863 |
+| semantic | 0.8367 |
 | symbol | 0.9711 |
 
 Symbol lookup is the strongest category. BM25 and query-aware boosts help exact
