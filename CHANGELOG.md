@@ -68,6 +68,8 @@ versioning where practical.
   cloning in hot query paths.
 - Bounded dense-search top-k candidate buffers on unfiltered queries so large
   indexes do not retain every vector score before truncation.
+- Added a benchmark-discipline test that fails if production ranking/search
+  code includes checked-in benchmark repository names.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
