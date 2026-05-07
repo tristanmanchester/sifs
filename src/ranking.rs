@@ -603,6 +603,16 @@ pub fn rerank_topk<S: BuildHasher>(
     top_k: usize,
     penalise_paths: bool,
 ) -> Vec<(usize, f32)> {
+    rerank_topk_for_query(scores, chunks, top_k, penalise_paths, "")
+}
+
+pub fn rerank_topk_for_query<S: BuildHasher>(
+    scores: &HashMap<usize, f32, S>,
+    chunks: &[Chunk],
+    top_k: usize,
+    penalise_paths: bool,
+    query: &str,
+) -> Vec<(usize, f32)> {
     if scores.is_empty() || top_k == 0 {
         return Vec::new();
     }
@@ -610,7 +620,7 @@ pub fn rerank_topk<S: BuildHasher>(
         .iter()
         .map(|(&id, &score)| {
             let penalty = if penalise_paths {
-                file_path_penalty(&chunks[id].file_path)
+                file_path_penalty(&chunks[id].file_path, query)
             } else {
                 1.0
             };
@@ -646,10 +656,13 @@ pub fn rerank_topk<S: BuildHasher>(
     selected
 }
 
-fn file_path_penalty(file_path: &str) -> f32 {
+fn file_path_penalty(file_path: &str, query: &str) -> f32 {
     let normalized = file_path.replace('\\', "/");
+    let intent = PathPenaltyIntent::from_query(query);
     let mut penalty = 1.0f32;
-    if TEST_FILE_RE.is_match(&normalized) || TEST_DIR_RE.is_match(&normalized) {
+    if !intent.allow_tests
+        && (TEST_FILE_RE.is_match(&normalized) || TEST_DIR_RE.is_match(&normalized))
+    {
         penalty *= 0.3;
     }
     let name = Path::new(file_path)
@@ -662,13 +675,45 @@ fn file_path_penalty(file_path: &str) -> f32 {
     if COMPAT_DIR_RE.is_match(&normalized) {
         penalty *= 0.3;
     }
-    if EXAMPLES_DIR_RE.is_match(&normalized) {
+    if !intent.allow_docs_examples && EXAMPLES_DIR_RE.is_match(&normalized) {
         penalty *= 0.3;
     }
-    if TYPE_DEFS_RE.is_match(&normalized) {
+    if !intent.allow_type_defs && TYPE_DEFS_RE.is_match(&normalized) {
         penalty *= 0.7;
     }
     penalty
+}
+
+#[derive(Default)]
+struct PathPenaltyIntent {
+    allow_tests: bool,
+    allow_docs_examples: bool,
+    allow_type_defs: bool,
+}
+
+impl PathPenaltyIntent {
+    fn from_query(query: &str) -> Self {
+        let lowered = query.to_lowercase();
+        let allow_tests = lowered.contains("test")
+            || lowered.contains("spec")
+            || lowered.contains("fixture")
+            || lowered.contains("mock");
+        let allow_docs_examples = lowered.contains("doc")
+            || lowered.contains("readme")
+            || lowered.contains("example")
+            || lowered.contains("guide");
+        let allow_type_defs = lowered.contains(" type")
+            || lowered.contains(" interface")
+            || lowered.contains(" public api")
+            || lowered.contains(" api ")
+            || lowered.ends_with(" api")
+            || lowered.contains("declaration");
+        Self {
+            allow_tests,
+            allow_docs_examples,
+            allow_type_defs,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -705,6 +750,34 @@ mod tests {
         let scores = HashMap::from([(0usize, 1.0), (1usize, 1.0)]);
         let ranked = rerank_topk(&scores, &chunks, 2, true);
         assert_eq!(ranked[0].0, 0);
+    }
+
+    #[test]
+    fn path_penalties_follow_query_intent() {
+        let regular = chunk("fn impl(): pass", "src/auth.py");
+        let test = chunk("fn impl(): pass", "tests/test_auth.py");
+        let typedef = chunk("export interface User {}", "src/user.d.ts");
+        let chunks = vec![regular, test, typedef];
+        let scores = HashMap::from([(0usize, 1.0), (1usize, 1.0), (2usize, 1.0)]);
+
+        let default_ranked = super::rerank_topk_for_query(&scores, &chunks, 3, true, "auth flow");
+        assert_eq!(default_ranked[0].0, 0);
+
+        let test_ranked =
+            super::rerank_topk_for_query(&scores, &chunks, 3, true, "auth test coverage");
+        assert!(
+            test_ranked
+                .iter()
+                .any(|(id, score)| *id == 1 && *score == 1.0)
+        );
+
+        let type_ranked =
+            super::rerank_topk_for_query(&scores, &chunks, 3, true, "public api type");
+        assert!(
+            type_ranked
+                .iter()
+                .any(|(id, score)| *id == 2 && *score == 1.0)
+        );
     }
 
     #[test]

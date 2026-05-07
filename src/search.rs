@@ -1,7 +1,7 @@
 use crate::dense::DenseIndex;
 use crate::model2vec::{Encoder, normalize_vector};
 use crate::ranking::{
-    apply_query_boost_in_place, boost_multi_chunk_files, is_symbol_query, rerank_topk,
+    apply_query_boost_in_place, boost_multi_chunk_files, is_symbol_query, rerank_topk_for_query,
     resolve_alpha,
 };
 use crate::sparse::Bm25Index;
@@ -175,7 +175,7 @@ pub fn search_hybrid(
 
     #[cfg(feature = "diagnostics")]
     let start = Instant::now();
-    let ranked = rerank_topk(&boosted, chunks, top_k, alpha_weight < 1.0);
+    let ranked = rerank_topk_for_query(&boosted, chunks, top_k, alpha_weight < 1.0, query);
     #[cfg(feature = "diagnostics")]
     let rerank = start.elapsed();
 

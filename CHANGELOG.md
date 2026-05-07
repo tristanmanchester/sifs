@@ -59,6 +59,8 @@ versioning where practical.
 - Embedded path, language, symbols, and breadcrumbs alongside chunk content for
   semantic vectors, with a cache version bump to avoid reusing content-only
   vectors.
+- Made test, docs/example, and TypeScript declaration penalties query-aware so
+  those surfaces are not down-ranked when the query explicitly asks for them.
 - Replaced benchmark-specific ranking path boosts with generic path-token,
   filename, and intent signals so production scoring no longer contains
   hard-coded benchmark query and repository paths.
