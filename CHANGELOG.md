@@ -13,6 +13,8 @@ versioning where practical.
 
 - Fixed explicit `--encoder` flags so they override saved profile encoder
   defaults for search, pack, and related-code commands.
+- Fixed saved profile Git refs so profile-backed search, pack, file listing,
+  status, get, related-code, and MCP serving use the pinned branch or tag.
 
 ## 0.3.3 - 2026-05-07
 

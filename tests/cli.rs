@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::fs;
 use std::os::unix::net::UnixListener;
+use std::path::Path;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,6 +25,20 @@ fn fixture() -> tempfile::TempDir {
     .unwrap();
     fs::write(dir.path().join("README.md"), "# Auth flow\n").unwrap();
     dir
+}
+
+fn git(args: &[&str], cwd: &Path) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?} failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 struct ChildGuard(Child);
@@ -1198,6 +1213,97 @@ fn explicit_encoder_overrides_profile_encoder() {
     let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
     assert_eq!(searched["mode"], "semantic");
     assert!(!searched["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn profile_git_ref_is_used_for_profile_backed_search() {
+    let repo = tempfile::tempdir().unwrap();
+    git(&["init", "--initial-branch", "main"], repo.path());
+    fs::write(repo.path().join("lib.rs"), "fn main_branch_marker() {}\n").unwrap();
+    git(&["add", "lib.rs"], repo.path());
+    git(
+        &[
+            "-c",
+            "user.name=SIFS Test",
+            "-c",
+            "user.email=sifs@example.com",
+            "commit",
+            "-m",
+            "main",
+        ],
+        repo.path(),
+    );
+    git(&["checkout", "-b", "feature-ref"], repo.path());
+    fs::write(
+        repo.path().join("lib.rs"),
+        "fn feature_branch_marker() {}\n",
+    )
+    .unwrap();
+    git(&["add", "lib.rs"], repo.path());
+    git(
+        &[
+            "-c",
+            "user.name=SIFS Test",
+            "-c",
+            "user.email=sifs@example.com",
+            "commit",
+            "-m",
+            "feature",
+        ],
+        repo.path(),
+    );
+    git(&["checkout", "main"], repo.path());
+
+    let home = tempfile::tempdir().unwrap();
+    let source = format!("file://{}", repo.path().display());
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "git-ref-test",
+            "--source",
+            &source,
+            "--ref",
+            "feature-ref",
+            "--mode",
+            "bm25",
+            "--no-cache",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+
+    let search = sifs()
+        .args([
+            "search",
+            "feature_branch_marker",
+            "--profile",
+            "git-ref-test",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
+    let results = searched["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|result| {
+        result["content"]
+            .as_str()
+            .unwrap()
+            .contains("feature_branch_marker")
+    }));
 }
 
 #[test]
