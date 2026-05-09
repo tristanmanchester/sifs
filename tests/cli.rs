@@ -359,6 +359,46 @@ fn search_uses_running_daemon_and_populates_status() {
 }
 
 #[test]
+fn daemon_search_honors_explain_flag() {
+    let repo = fixture();
+    let runtime = tempfile::tempdir().unwrap();
+    let socket = runtime.path().join("sifs.sock");
+    let child = sifs()
+        .args(["daemon", "run", "--replace-existing-socket"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .spawn()
+        .unwrap();
+    let _guard = ChildGuard(child);
+    wait_for_daemon(&socket);
+
+    let output = sifs()
+        .args([
+            "search",
+            "token validation",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--explain",
+            "--json",
+        ])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let results = value["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert!(results[0]["explanation"]["bm25_rank"].is_number());
+    assert!(results[0]["explanation"]["final_score"].is_number());
+}
+
+#[test]
 fn daemon_search_honors_document_and_extension_filters() {
     let repo = fixture();
     fs::write(

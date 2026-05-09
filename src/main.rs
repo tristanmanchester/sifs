@@ -1773,6 +1773,7 @@ fn try_daemon_search(
     let mut search = SearchOptions::new(command.limit).with_mode(command.mode);
     search.filter_languages = command.languages.clone();
     search.filter_paths = command.filter_paths.clone();
+    search.explain = command.explain;
     match client.send(DaemonRequest::Search {
         source,
         options: runtime_options,
