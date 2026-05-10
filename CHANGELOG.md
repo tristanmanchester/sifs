@@ -17,6 +17,8 @@ versioning where practical.
   evidence when a running daemon handles the search.
 - Fixed saved profile Git refs so profile-backed search, pack, file listing,
   status, get, related-code, and MCP serving use the pinned branch or tag.
+- Fixed profile-backed file listing, status, get, and related-code inspection
+  so saved document and extension indexing options are honored.
 
 ## 0.3.3 - 2026-05-07
 

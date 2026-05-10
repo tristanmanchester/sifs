@@ -1205,6 +1205,75 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
 }
 
 #[test]
+fn profile_index_options_apply_to_inspection_commands() {
+    let dir = fixture();
+    let home = tempfile::tempdir().unwrap();
+
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "docs-only",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--include-docs",
+            "--extension",
+            "md",
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+
+    let list_files = sifs()
+        .args(["list-files", "--profile", "docs-only", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        list_files.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list_files.stderr)
+    );
+    let listed: Value = serde_json::from_slice(&list_files.stdout).unwrap();
+    assert_eq!(listed["total"], 1);
+    assert_eq!(listed["files"][0], "README.md");
+
+    let status = sifs()
+        .args(["status", "--profile", "docs-only", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        status.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status_payload: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_payload["index_stats"]["indexed_files"], 1);
+
+    let get = sifs()
+        .args(["get", "README.md", "1", "--profile", "docs-only", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        get.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&get.stderr)
+    );
+    let chunk: Value = serde_json::from_slice(&get.stdout).unwrap();
+    assert_eq!(chunk["chunk"]["file_path"], "README.md");
+}
+
+#[test]
 fn explicit_encoder_overrides_profile_encoder() {
     let dir = fixture();
     let home = tempfile::tempdir().unwrap();
