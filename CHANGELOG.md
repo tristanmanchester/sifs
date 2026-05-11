@@ -11,6 +11,8 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed `sifs agent-context --json` so the advertised `eval --limit` default
+  matches the CLI's actual default.
 - Fixed explicit `--encoder` flags so they override saved profile encoder
   defaults for search, pack, and related-code commands.
 - Fixed daemon-backed `sifs search --explain` so JSON results include ranking

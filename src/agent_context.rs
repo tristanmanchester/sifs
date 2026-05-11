@@ -71,7 +71,7 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--from-feedback": {"type": "boolean"},
                     "--mode": {"type": "enum", "values": ["hybrid", "semantic", "bm25"], "default": "bm25"},
                     "--all-modes": {"type": "boolean", "default": false},
-                    "--limit": {"type": "integer", "default": 5, "minimum": 1},
+                    "--limit": {"type": "integer", "default": 10, "minimum": 1},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,

@@ -696,6 +696,7 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["search"]["flags"]["--explain"].is_object());
     assert!(value["commands"]["pack"].is_object());
     assert!(value["commands"]["eval"].is_object());
+    assert_eq!(value["commands"]["eval"]["flags"]["--limit"]["default"], 10);
     assert!(value["commands"]["tune"].is_object());
     assert!(value["commands"]["list-files"].is_object());
     assert_eq!(value["commands"]["update"]["output"], "update_report");
