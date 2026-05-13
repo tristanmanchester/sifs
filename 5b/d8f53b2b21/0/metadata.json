@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.6.1",
+  "checkpoint_id": "5bd8f53b2b21",
+  "session_id": "019e2392-e7e5-75f2-bd1a-e605364fce33",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-13T23:05:00.287235Z",
+  "branch": "fix/bug-finder-20260509-010228",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "CHANGELOG.md",
+    "src/agent_context.rs",
+    "tests/cli.rs"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "004d3a9de0f1",
+  "token_usage": {
+    "input_tokens": 77950,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1829632,
+    "output_tokens": 5522,
+    "api_call_count": 30
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-13T23:05:00.277497Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 16,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 16,
+    "total_lines_changed": 16,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 493,
+      "user_lines_removed": 148,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".codex/agents/entire-search.toml": 23,
+        ".codex/config.toml": 3,
+        ".codex/hooks.json": 40,
+        "docs/ideation/oracle-ideas.md": 427
+      },
+      "user_removed_per_file": {
+        "docs/ideation/oracle-ideas.md": 148
+      }
+    }
+  ]
+}
