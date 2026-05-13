@@ -39,6 +39,10 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--context-lines": {"type": "integer", "default": 0, "minimum": 0},
                     "--include-docs": {"type": "boolean", "default": false},
                     "--extension": {"type": "string", "repeatable": true},
+                    "--model": {"type": "string", "required": false},
+                    "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--explain": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"},
                     "--jsonl": {"type": "boolean"}
@@ -59,6 +63,10 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--limit": {"type": "integer", "default": 20, "minimum": 1},
                     "--include-docs": {"type": "boolean", "default": false},
                     "--extension": {"type": "string", "repeatable": true},
+                    "--model": {"type": "string", "required": false},
+                    "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,
