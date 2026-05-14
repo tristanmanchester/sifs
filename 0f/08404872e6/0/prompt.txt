@@ -1,0 +1,7 @@
+Automation: SIFS bug finder
+Automation ID: sifs-bug-finder
+Automation memory: $CODEX_HOME/automations/sifs-bug-finder/memory.md
+Last run: 2026-05-13T23:01:30.261Z (1778713290261)
+
+Find a bug, implement a minimal fix (ideally a red green test), test it, update the changelog, commit, and push.
+Use [$ce-debug](/Users/tristan/.codex/skills/compound-engineering/ce-debug/SKILL.md)
