@@ -43,6 +43,9 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
                     "--offline": {"type": "boolean", "default": false},
                     "--no-download": {"type": "boolean", "default": false},
+                    "--cache-dir": {"type": "path", "required": false},
+                    "--no-cache": {"type": "boolean", "default": false},
+                    "--project-cache": {"type": "boolean", "default": false},
                     "--explain": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"},
                     "--jsonl": {"type": "boolean"}
@@ -67,6 +70,9 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
                     "--offline": {"type": "boolean", "default": false},
                     "--no-download": {"type": "boolean", "default": false},
+                    "--cache-dir": {"type": "path", "required": false},
+                    "--no-cache": {"type": "boolean", "default": false},
+                    "--project-cache": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,

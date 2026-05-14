@@ -12,6 +12,8 @@ versioning where practical.
 ### Fixed
 
 - Fixed `sifs agent-context --json` so search and pack advertise their
+  persistent cache-control flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so search and pack advertise their
   model, encoder, and download-safety flags in the machine-readable contract.
 - Fixed `sifs agent-context --json` so the advertised `eval --limit` default
   matches the CLI's actual default.

@@ -694,6 +694,9 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["search"]["flags"]["--encoder"].is_object());
     assert!(value["commands"]["search"]["flags"]["--offline"].is_object());
     assert!(value["commands"]["search"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--project-cache"].is_object());
     assert!(value["commands"]["search"]["flags"]["--include-docs"].is_object());
     assert!(value["commands"]["search"]["flags"]["--extension"].is_object());
     assert!(value["commands"]["search"]["flags"]["--explain"].is_object());
@@ -701,6 +704,9 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["pack"]["flags"]["--encoder"].is_object());
     assert!(value["commands"]["pack"]["flags"]["--offline"].is_object());
     assert!(value["commands"]["pack"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--project-cache"].is_object());
     assert!(value["commands"]["eval"].is_object());
     assert_eq!(value["commands"]["eval"]["flags"]["--limit"]["default"], 10);
     assert!(value["commands"]["tune"].is_object());
