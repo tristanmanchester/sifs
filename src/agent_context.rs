@@ -86,6 +86,10 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--mode": {"type": "enum", "values": ["hybrid", "semantic", "bm25"], "default": "bm25"},
                     "--all-modes": {"type": "boolean", "default": false},
                     "--limit": {"type": "integer", "default": 10, "minimum": 1},
+                    "--model": {"type": "string", "required": false},
+                    "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,
@@ -97,6 +101,7 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--source": {"type": "string", "default": "."},
                     "--from-feedback": {"type": "boolean"},
                     "--limit": {"type": "integer", "default": 10, "minimum": 1},
+                    "--model": {"type": "string", "required": false},
                     "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
                     "--offline": {"type": "boolean", "default": false},
                     "--no-download": {"type": "boolean", "default": false},

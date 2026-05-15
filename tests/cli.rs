@@ -708,8 +708,13 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["pack"]["flags"]["--no-cache"].is_object());
     assert!(value["commands"]["pack"]["flags"]["--project-cache"].is_object());
     assert!(value["commands"]["eval"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--encoder"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--no-download"].is_object());
     assert_eq!(value["commands"]["eval"]["flags"]["--limit"]["default"], 10);
     assert!(value["commands"]["tune"].is_object());
+    assert!(value["commands"]["tune"]["flags"]["--model"].is_object());
     assert!(value["commands"]["list-files"].is_object());
     assert_eq!(value["commands"]["update"]["output"], "update_report");
     assert_eq!(
