@@ -121,6 +121,13 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--source": {"type": "string", "default": "."},
                     "--profile": {"type": "string", "required": false},
                     "--limit": {"type": "integer", "default": 5, "minimum": 1},
+                    "--model": {"type": "string", "required": false},
+                    "--encoder": {"type": "enum", "values": ["model2vec", "hashing"], "default": "model2vec"},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
+                    "--cache-dir": {"type": "path", "required": false},
+                    "--no-cache": {"type": "boolean", "default": false},
+                    "--project-cache": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"},
                     "--jsonl": {"type": "boolean"}
                 },
@@ -133,6 +140,9 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--source": {"type": "string", "default": "."},
                     "--profile": {"type": "string", "required": false},
                     "--limit": {"type": "integer", "default": 200, "minimum": 1},
+                    "--model": {"type": "string", "required": false},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,
@@ -147,6 +157,9 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "flags": {
                     "--source": {"type": "string", "default": "."},
                     "--profile": {"type": "string", "required": false},
+                    "--model": {"type": "string", "required": false},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,
@@ -157,6 +170,9 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                 "flags": {
                     "--source": {"type": "string", "default": "."},
                     "--profile": {"type": "string", "required": false},
+                    "--model": {"type": "string", "required": false},
+                    "--offline": {"type": "boolean", "default": false},
+                    "--no-download": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,

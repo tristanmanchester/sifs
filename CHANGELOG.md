@@ -11,6 +11,9 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed `sifs agent-context --json` so file inspection and related-code
+  commands advertise their model, cache, and download-safety flags in the
+  machine-readable contract.
 - Fixed `sifs agent-context --json` so eval and tune advertise their model,
   encoder, and download-safety flags in the machine-readable contract.
 - Fixed `sifs agent-context --json` so search and pack advertise their

@@ -716,6 +716,22 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["tune"].is_object());
     assert!(value["commands"]["tune"]["flags"]["--model"].is_object());
     assert!(value["commands"]["list-files"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--encoder"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--project-cache"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["get"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["get"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["get"]["flags"]["--no-download"].is_object());
     assert_eq!(value["commands"]["update"]["output"], "update_report");
     assert_eq!(
         value["commands"]["update"]["flags"]["--update-timeout"]["default"],
