@@ -826,6 +826,7 @@ fn main() -> Result<()> {
             run_search(SearchCommand {
                 query,
                 source: resolved.source,
+                ref_name: resolved.ref_name,
                 limit: resolved.limit,
                 mode: resolved.mode,
                 languages,
@@ -913,6 +914,7 @@ fn main() -> Result<()> {
             )?;
             if let Some(result) = try_daemon_find_related(
                 &resolved.source,
+                resolved.ref_name.as_deref(),
                 &file_path,
                 line,
                 resolved.limit,
@@ -921,6 +923,8 @@ fn main() -> Result<()> {
                 resolved.offline,
                 resolved.no_download,
                 resolved.cache.clone(),
+                resolved.include_docs,
+                &resolved.extensions,
             )? {
                 print_find_related_output(
                     &result.source.source,
@@ -938,6 +942,7 @@ fn main() -> Result<()> {
             let started = Instant::now();
             let index = build_hybrid_index(
                 &resolved.source,
+                resolved.ref_name.as_deref(),
                 encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
                 resolved.cache,
                 resolved.offline,
@@ -1061,7 +1066,7 @@ fn main() -> Result<()> {
                 }
                 sifs::mcp::serve_with_options(
                     Some(resolved.source),
-                    ref_name,
+                    ref_name.or(resolved.ref_name),
                     ModelOptions::new(resolved.model.as_deref(), policy),
                     resolved.cache,
                     resolved.offline,
@@ -1090,14 +1095,7 @@ fn main() -> Result<()> {
                 false,
                 Vec::new(),
             )?;
-            run_files(
-                &resolved.source,
-                limit.unwrap_or(200),
-                output,
-                resolved.model,
-                resolved.offline,
-                resolved.no_download,
-            )?
+            run_files(&resolved, limit.unwrap_or(200), output)?
         }
         Some(Command::Status {
             source,
@@ -1120,13 +1118,7 @@ fn main() -> Result<()> {
                 false,
                 Vec::new(),
             )?;
-            run_status(
-                &resolved.source,
-                json,
-                resolved.model,
-                resolved.offline,
-                resolved.no_download,
-            )?
+            run_status(&resolved, json)?
         }
         Some(Command::Get {
             file_path,
@@ -1151,15 +1143,7 @@ fn main() -> Result<()> {
                 false,
                 Vec::new(),
             )?;
-            run_get(
-                &file_path,
-                line,
-                &resolved.source,
-                output,
-                resolved.model,
-                resolved.offline,
-                resolved.no_download,
-            )?
+            run_get(&file_path, line, &resolved, output)?
         }
         Some(Command::Clean {
             source,
@@ -1240,6 +1224,7 @@ fn main() -> Result<()> {
 struct SearchCommand {
     query: String,
     source: String,
+    ref_name: Option<String>,
     limit: usize,
     mode: SearchMode,
     languages: Vec<String>,
@@ -1258,6 +1243,7 @@ struct SearchCommand {
 
 struct ResolvedInvocation {
     source: String,
+    ref_name: Option<String>,
     mode: SearchMode,
     limit: usize,
     model: Option<String>,
@@ -1298,6 +1284,7 @@ fn run_pack(
     let policy = model_policy(invocation.offline, invocation.no_download);
     let index = build_index_for_mode(
         &invocation.source,
+        invocation.ref_name.as_deref(),
         invocation.mode,
         encoder_spec(invocation.encoder, invocation.model.as_deref(), policy),
         invocation.cache,
@@ -1534,6 +1521,9 @@ fn resolve_invocation(
         .or_else(|| std::env::var("SIFS_SOURCE").ok())
         .or_else(|| profile.as_ref().and_then(|profile| profile.source.clone()))
         .unwrap_or_else(|| ".".to_owned());
+    let ref_name = profile
+        .as_ref()
+        .and_then(|profile| profile.ref_name.clone());
     let mode = mode
         .map(SearchMode::from)
         .or_else(|| profile.as_ref().and_then(|profile| profile.mode))
@@ -1592,6 +1582,7 @@ fn resolve_invocation(
     };
     Ok(ResolvedInvocation {
         source,
+        ref_name,
         mode,
         limit,
         model,
@@ -1641,6 +1632,7 @@ fn run_search(command: SearchCommand) -> Result<()> {
     let started = Instant::now();
     let index = build_index_for_mode(
         &command.source,
+        command.ref_name.as_deref(),
         command.mode,
         encoder_spec(command.encoder, command.model.as_deref(), policy),
         command.cache,
@@ -1743,7 +1735,7 @@ fn try_daemon_search(
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
-    let source = SourceSpec::resolve(&command.source, None, command.offline)?;
+    let source = SourceSpec::resolve(&command.source, command.ref_name.clone(), command.offline)?;
     let policy = model_policy(command.offline, command.no_download);
     let runtime_options = with_index_filters(
         match command.mode {
@@ -1759,6 +1751,7 @@ fn try_daemon_search(
     let mut search = SearchOptions::new(command.limit).with_mode(command.mode);
     search.filter_languages = command.languages.clone();
     search.filter_paths = command.filter_paths.clone();
+    search.explain = command.explain;
     match client.send(DaemonRequest::Search {
         source,
         options: runtime_options,
@@ -1800,6 +1793,7 @@ fn normalized_extensions(values: &[String]) -> Option<Vec<String>> {
 #[allow(clippy::too_many_arguments)]
 fn try_daemon_find_related(
     path: &str,
+    ref_name: Option<&str>,
     file_path: &str,
     line: usize,
     top_k: usize,
@@ -1808,15 +1802,21 @@ fn try_daemon_find_related(
     offline: bool,
     no_download: bool,
     cache: CacheConfig,
+    include_docs: bool,
+    extensions: &[String],
 ) -> Result<Option<sifs::daemon::protocol::SearchResultSet>> {
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
-    let source = SourceSpec::resolve(path, None, offline)?;
+    let source = SourceSpec::resolve(path, ref_name.map(str::to_owned), offline)?;
     let policy = model_policy(offline, no_download);
     match client.send(DaemonRequest::FindRelated {
         source,
-        options: IndexRuntimeOptions::with_encoder(encoder_spec(encoder, model, policy), cache),
+        options: with_index_filters(
+            IndexRuntimeOptions::with_encoder(encoder_spec(encoder, model, policy), cache),
+            include_docs,
+            extensions,
+        ),
         file_path: file_path.to_owned(),
         line,
         top_k,
@@ -1903,8 +1903,10 @@ fn daemon_warnings(warnings: &[sifs::IndexWarning]) -> Vec<String> {
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_index_for_mode(
     path: &str,
+    ref_name: Option<&str>,
     mode: SearchMode,
     encoder_spec: EncoderSpec,
     cache: CacheConfig,
@@ -1913,15 +1915,24 @@ fn build_index_for_mode(
     extensions: Option<std::collections::HashSet<String>>,
 ) -> Result<SifsIndex> {
     match mode {
-        SearchMode::Bm25 => build_sparse_index(path, cache, offline, include_docs, extensions),
-        SearchMode::Semantic | SearchMode::Hybrid => {
-            build_hybrid_index(path, encoder_spec, cache, offline, include_docs, extensions)
+        SearchMode::Bm25 => {
+            build_sparse_index(path, ref_name, cache, offline, include_docs, extensions)
         }
+        SearchMode::Semantic | SearchMode::Hybrid => build_hybrid_index(
+            path,
+            ref_name,
+            encoder_spec,
+            cache,
+            offline,
+            include_docs,
+            extensions,
+        ),
     }
 }
 
 fn build_sparse_index(
     path: &str,
+    ref_name: Option<&str>,
     cache: CacheConfig,
     offline: bool,
     include_docs: bool,
@@ -1935,7 +1946,7 @@ fn build_sparse_index(
         if offline {
             bail!("--offline does not allow remote Git sources");
         }
-        SifsIndex::from_git_with_index_options(path, None, options)
+        SifsIndex::from_git_with_index_options(path, ref_name, options)
     } else {
         SifsIndex::from_path_with_index_options(path, options)
     }
@@ -1943,6 +1954,7 @@ fn build_sparse_index(
 
 fn build_hybrid_index(
     path: &str,
+    ref_name: Option<&str>,
     encoder_spec: EncoderSpec,
     cache: CacheConfig,
     offline: bool,
@@ -1958,7 +1970,7 @@ fn build_hybrid_index(
         if offline {
             bail!("--offline does not allow remote Git sources");
         }
-        SifsIndex::from_git_with_index_options(path, None, options)
+        SifsIndex::from_git_with_index_options(path, ref_name, options)
     } else {
         SifsIndex::from_path_with_index_options(path, options)
     }
@@ -1980,37 +1992,38 @@ fn cache_config(cache_dir: Option<PathBuf>, no_cache: bool, project_cache: bool)
     }
 }
 
-fn run_files(
-    path: &str,
-    limit: usize,
-    output: OutputArgs,
-    model: Option<String>,
-    offline: bool,
-    no_download: bool,
-) -> Result<()> {
+fn run_files(resolved: &ResolvedInvocation, limit: usize, output: OutputArgs) -> Result<()> {
     if let Some(DaemonResult::ListFiles {
         source,
         total,
         files,
-    }) = try_daemon_list_files(path, limit, model.as_deref(), offline, no_download)?
+    }) = try_daemon_list_files(resolved, limit)?
     {
         print_files_output(&source.source, total, limit, 0, files, output)?;
         return Ok(());
     }
-    let policy = model_policy(offline, no_download);
+    let policy = model_policy(resolved.offline, resolved.no_download);
     let started = Instant::now();
     let index = build_hybrid_index(
-        path,
-        EncoderSpec::model2vec(model.as_deref(), policy),
-        CacheConfig::Platform,
-        offline,
-        false,
-        None,
+        &resolved.source,
+        resolved.ref_name.as_deref(),
+        encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+        resolved.cache.clone(),
+        resolved.offline,
+        resolved.include_docs,
+        extension_set(&resolved.extensions),
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let files = index.indexed_files();
     let shown: Vec<_> = files.iter().take(limit).cloned().collect();
-    print_files_output(path, files.len(), limit, elapsed_ms, shown, output)
+    print_files_output(
+        &resolved.source,
+        files.len(),
+        limit,
+        elapsed_ms,
+        shown,
+        output,
+    )
 }
 
 fn print_files_output(
@@ -2067,22 +2080,27 @@ fn print_files_output(
 }
 
 fn try_daemon_list_files(
-    path: &str,
+    resolved: &ResolvedInvocation,
     limit: usize,
-    model: Option<&str>,
-    offline: bool,
-    no_download: bool,
 ) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
-    let source = SourceSpec::resolve(path, None, offline)?;
-    let policy = model_policy(offline, no_download);
+    let source = SourceSpec::resolve(
+        &resolved.source,
+        resolved.ref_name.clone(),
+        resolved.offline,
+    )?;
+    let policy = model_policy(resolved.offline, resolved.no_download);
     match client.send(DaemonRequest::ListFiles {
         source,
-        options: IndexRuntimeOptions::with_encoder(
-            EncoderSpec::model2vec(model, policy),
-            CacheConfig::Platform,
+        options: with_index_filters(
+            IndexRuntimeOptions::with_encoder(
+                encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+                resolved.cache.clone(),
+            ),
+            resolved.include_docs,
+            &resolved.extensions,
         ),
         limit,
     }) {
@@ -2092,16 +2110,8 @@ fn try_daemon_list_files(
     }
 }
 
-fn run_status(
-    path: &str,
-    json_output: bool,
-    model: Option<String>,
-    offline: bool,
-    no_download: bool,
-) -> Result<()> {
-    if let Some(DaemonResult::IndexStatus(status)) =
-        try_daemon_index_status(path, model.as_deref(), offline, no_download)?
-    {
+fn run_status(resolved: &ResolvedInvocation, json_output: bool) -> Result<()> {
+    if let Some(DaemonResult::IndexStatus(status)) = try_daemon_index_status(resolved)? {
         print_status_output(
             &status.source.source,
             json_output,
@@ -2112,23 +2122,24 @@ fn run_status(
         )?;
         return Ok(());
     }
-    let policy = model_policy(offline, no_download);
+    let policy = model_policy(resolved.offline, resolved.no_download);
     let started = Instant::now();
     let index = build_hybrid_index(
-        path,
-        EncoderSpec::model2vec(model.as_deref(), policy),
-        CacheConfig::Platform,
-        offline,
-        false,
-        None,
+        &resolved.source,
+        resolved.ref_name.as_deref(),
+        encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+        resolved.cache.clone(),
+        resolved.offline,
+        resolved.include_docs,
+        extension_set(&resolved.extensions),
     )?;
     let elapsed_ms = started.elapsed().as_millis();
     let stats = index.stats();
     print_status_output(
-        path,
+        &resolved.source,
         json_output,
         stats,
-        semantic_index_available(path),
+        semantic_index_available(&resolved.source),
         index.semantic_loaded(),
         elapsed_ms,
     )
@@ -2164,22 +2175,25 @@ fn print_status_output(
     Ok(())
 }
 
-fn try_daemon_index_status(
-    path: &str,
-    model: Option<&str>,
-    offline: bool,
-    no_download: bool,
-) -> Result<Option<DaemonResult>> {
+fn try_daemon_index_status(resolved: &ResolvedInvocation) -> Result<Option<DaemonResult>> {
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
-    let source = SourceSpec::resolve(path, None, offline)?;
-    let policy = model_policy(offline, no_download);
+    let source = SourceSpec::resolve(
+        &resolved.source,
+        resolved.ref_name.clone(),
+        resolved.offline,
+    )?;
+    let policy = model_policy(resolved.offline, resolved.no_download);
     match client.send(DaemonRequest::IndexStatus {
         source,
-        options: IndexRuntimeOptions::with_encoder(
-            EncoderSpec::model2vec(model, policy),
-            CacheConfig::Platform,
+        options: with_index_filters(
+            IndexRuntimeOptions::with_encoder(
+                encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+                resolved.cache.clone(),
+            ),
+            resolved.include_docs,
+            &resolved.extensions,
         ),
     }) {
         Ok(result @ DaemonResult::IndexStatus(_)) => Ok(Some(result)),
@@ -2204,34 +2218,28 @@ fn semantic_index_available(path: &str) -> bool {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_get(
     file_path: &str,
     line: usize,
-    path: &str,
+    resolved: &ResolvedInvocation,
     output: OutputArgs,
-    model: Option<String>,
-    offline: bool,
-    no_download: bool,
 ) -> Result<()> {
-    if let Some(DaemonResult::GetChunk { source, chunk }) = try_daemon_get_chunk(
-        file_path,
-        line,
-        path,
-        model.as_deref(),
-        offline,
-        no_download,
-    )? {
+    if let Some(DaemonResult::GetChunk { source, chunk }) =
+        try_daemon_get_chunk(file_path, line, resolved)?
+    {
         print_get_output(&source.source, &chunk, output)?;
         return Ok(());
     }
-    let policy = model_policy(offline, no_download);
+    let policy = model_policy(resolved.offline, resolved.no_download);
     let index = build_hybrid_index(
-        path,
-        EncoderSpec::model2vec(model.as_deref(), policy),
-        CacheConfig::Platform,
-        offline,
-        false,
-        None,
+        &resolved.source,
+        resolved.ref_name.as_deref(),
+        encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+        resolved.cache.clone(),
+        resolved.offline,
+        resolved.include_docs,
+        extension_set(&resolved.extensions),
     )?;
     let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
         eprintln!(
@@ -2239,7 +2247,7 @@ fn run_get(
         );
         std::process::exit(1);
     };
-    print_get_output(path, &chunk, output)
+    print_get_output(&resolved.source, &chunk, output)
 }
 
 fn print_get_output(source: &str, chunk: &sifs::Chunk, output: OutputArgs) -> Result<()> {
@@ -2276,21 +2284,26 @@ fn print_get_output(source: &str, chunk: &sifs::Chunk, output: OutputArgs) -> Re
 fn try_daemon_get_chunk(
     file_path: &str,
     line: usize,
-    path: &str,
-    model: Option<&str>,
-    offline: bool,
-    no_download: bool,
+    resolved: &ResolvedInvocation,
 ) -> Result<Option<DaemonResult>> {
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
-    let source = SourceSpec::resolve(path, None, offline)?;
-    let policy = model_policy(offline, no_download);
+    let source = SourceSpec::resolve(
+        &resolved.source,
+        resolved.ref_name.clone(),
+        resolved.offline,
+    )?;
+    let policy = model_policy(resolved.offline, resolved.no_download);
     match client.send(DaemonRequest::GetChunk {
         source,
-        options: IndexRuntimeOptions::with_encoder(
-            EncoderSpec::model2vec(model, policy),
-            CacheConfig::Platform,
+        options: with_index_filters(
+            IndexRuntimeOptions::with_encoder(
+                encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
+                resolved.cache.clone(),
+            ),
+            resolved.include_docs,
+            &resolved.extensions,
         ),
         file_path: file_path.to_owned(),
         line,
@@ -4459,6 +4472,7 @@ fn run_eval(command: EvalCommand) -> Result<()> {
     let policy = model_policy(command.offline, command.no_download);
     let index = build_index_for_mode(
         &source,
+        None,
         if modes.iter().any(|mode| *mode != SearchMode::Bm25) {
             SearchMode::Hybrid
         } else {
@@ -4582,6 +4596,7 @@ fn run_tune(
         let policy = model_policy(offline, no_download);
         let index = build_index_for_mode(
             &source,
+            None,
             SearchMode::Hybrid,
             encoder_spec(encoder, model.as_deref(), policy),
             CacheConfig::Platform,

@@ -11,8 +11,25 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed `sifs agent-context --json` so file inspection and related-code
+  commands advertise their model, cache, and download-safety flags in the
+  machine-readable contract.
+- Fixed `sifs agent-context --json` so eval and tune advertise their model,
+  encoder, and download-safety flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so search and pack advertise their
+  persistent cache-control flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so search and pack advertise their
+  model, encoder, and download-safety flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so the advertised `eval --limit` default
+  matches the CLI's actual default.
 - Fixed explicit `--encoder` flags so they override saved profile encoder
   defaults for search, pack, and related-code commands.
+- Fixed daemon-backed `sifs search --explain` so JSON results include ranking
+  evidence when a running daemon handles the search.
+- Fixed saved profile Git refs so profile-backed search, pack, file listing,
+  status, get, related-code, and MCP serving use the pinned branch or tag.
+- Fixed profile-backed file listing, status, get, and related-code inspection
+  so saved document and extension indexing options are honored.
 
 ## 0.3.3 - 2026-05-07
 
