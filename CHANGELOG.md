@@ -9,6 +9,12 @@ versioning where practical.
 
 ## Unreleased
 
+### Changed
+
+- Improved README first-run onboarding so new users can tell what SIFS is,
+  run a fully offline first search, and choose the right next command for
+  agent, semantic search, context-pack, and inspection workflows.
+
 ### Fixed
 
 - Fixed `sifs agent-context --json` so file inspection and related-code

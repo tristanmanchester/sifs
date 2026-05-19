@@ -18,25 +18,87 @@
   <a href="#benchmarks">Benchmarks</a>
 </p>
 
-SIFS builds a cold sparse index in **167.0 ms**, answers warm queries in **2.7 ms**, and hits **NDCG@10 = 0.8471** across the full benchmark. It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no external services.
+SIFS (SIFS Is Fast Search) is a local code-search engine for AI coding agents
+and developers who work through agents. Point it at a repository and ask
+questions like "where is authentication handled?", "what validates session
+tokens?", or "which code builds the MCP handshake?". SIFS returns ranked file
+paths, line ranges, and code chunks fast enough for an agent to search before it
+reads half the tree.
+
+It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no
+hosted search service. BM25 mode is model-free and can run fully offline; hybrid
+and semantic modes also run locally once the embedding model is cached.
+
+SIFS builds a cold sparse index in **167.0 ms**, answers warm queries in **2.7
+ms**, and hits **NDCG@10 = 0.8471** across the full benchmark.
+
+Use SIFS when you want to:
+
+- Find the implementation behind a natural-language question.
+- Search exact symbols and identifiers without warming an IDE.
+- Hand an LLM a compact context pack instead of a whole repository.
+- Give Codex, Claude Code, Cursor, OpenClaw, Hermes, or another agent a local
+  search tool it can call before broad file reads.
 
 ## Quickstart
 
+Install SIFS with Homebrew:
+
 ```bash
-cargo install --locked sifs
-sifs search "authentication flow" --source /path/to/project
-sifs search "parse JWT claims" --source /path/to/project --mode bm25 --offline --limit 10
-sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
+brew install tristanmanchester/tap/sifs
 ```
 
-The default mode is `hybrid` (semantic + BM25). Omit `--source` to search the
-current directory, or pass a local path or Git URL explicitly.
+Or install it with Cargo:
+
+```bash
+cargo install --locked sifs
+```
+
+Then search any local project:
+
+```bash
+cd /path/to/project
+sifs search "where is authentication handled" --mode bm25 --offline --limit 5
+```
+
+That first command uses model-free BM25, so it does not download anything or
+touch the network. Results include the matching file, line range, score, ranking
+mode, and code chunk.
+
+Once you want semantic search, cache the local model and use the default hybrid
+mode:
+
+```bash
+sifs model pull
+sifs search "what checks whether a session is expired" --limit 5
+sifs pack "how login sessions are created and validated" --budget-tokens 6000 --json
+```
+
+The default search mode is `hybrid` (semantic + BM25). Omit `--source` to search
+the current directory, or pass a local path or Git URL explicitly:
+
+```bash
+sifs search "parse JWT claims" --source /path/to/project --mode bm25 --offline --limit 10
+sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
+sifs search "stream upload backpressure" --source https://github.com/owner/project --limit 5
+```
+
+If you are deciding what to run next:
+
+| Goal | Command |
+| --- | --- |
+| Search without downloads | `sifs search "query" --mode bm25 --offline` |
+| Use semantic + lexical ranking | `sifs model pull`, then `sifs search "query"` |
+| Give an agent offline context | `sifs pack "query" --mode bm25 --offline --budget-tokens 6000 --json` |
+| Give an agent hybrid context | `sifs model pull`, then `sifs pack "query" --budget-tokens 6000 --json` |
+| Inspect what was indexed | `sifs status --json` and `sifs list-files --json` |
+| Teach an agent to use SIFS | `sifs agent install --target codex --artifact snippet --file AGENTS.md` |
 
 ## Agent Integration
 
-SIFS is CLI-first for agents. Install a project instruction snippet or local
-skill so Codex, Claude Code, OpenClaw, Hermes, and generic skill-aware agents
-know to use SIFS before broad file reads:
+SIFS is most useful when agents know they can search first. Install a project
+instruction snippet or local skill so Codex, Claude Code, OpenClaw, Hermes, and
+generic skill-aware agents use SIFS before broad file reads:
 
 ```bash
 sifs agent print --target codex --artifact snippet
@@ -45,10 +107,10 @@ sifs agent install --target codex --artifact snippet --file AGENTS.md
 sifs agent doctor --target codex --json
 ```
 
-The generated guidance tells agents to use MCP tools only when they are visible
-in the current session, and to fall back to shell commands such as
-`sifs search`, `sifs list-files`, `sifs get`, and `sifs agent-context --json`
-otherwise.
+The generated guidance is CLI-first and MCP-optional. It tells agents to use MCP
+tools only when they are visible in the current session, and to fall back to
+shell commands such as `sifs search`, `sifs pack`, `sifs list-files`,
+`sifs get`, and `sifs agent-context --json` otherwise.
 
 Full integration reference: [docs/agent-integration.md](docs/agent-integration.md).
 
@@ -79,7 +141,7 @@ brew install tristanmanchester/tap/sifs
 
 # From source
 cargo build --release
-target/release/sifs search "authentication flow" --source .
+target/release/sifs search "authentication flow" --source . --mode bm25 --offline
 ```
 
 Keep installed binaries current with:
@@ -323,7 +385,8 @@ SIFS indexes code files by default, skipping generated files, dependency directo
 
 Recognized extensions: Python, JavaScript, TypeScript, Go, Rust, Java, Kotlin, Ruby, PHP, C, C++, C#, Swift, Scala, Elixir, Dart, Lua, SQL, Bash, Zig, Haskell, Markdown, YAML, TOML, JSON.
 
-Text-like documents (Markdown, YAML, TOML, JSON) are available through library options.
+Text-like documents (Markdown, YAML, TOML, JSON, and plain text) are available
+with `--include-docs`, repeatable `--extension`, and matching library options.
 
 ## Documentation
 
