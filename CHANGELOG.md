@@ -36,6 +36,9 @@ versioning where practical.
   status, get, related-code, and MCP serving use the pinned branch or tag.
 - Fixed profile-backed file listing, status, get, and related-code inspection
   so saved document and extension indexing options are honored.
+- Updated `tree-sitter-language-pack` from `1.8.0-rc.26` to `1.8.1` to fix a
+  broken parser manifest download URL that caused all tree-sitter-backed
+  chunking and symbol extraction to silently fall back to line-based chunking.
 
 ## 0.3.3 - 2026-05-07
 
