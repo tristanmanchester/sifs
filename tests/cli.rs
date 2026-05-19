@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::fs;
 use std::os::unix::net::UnixListener;
+use std::path::Path;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,6 +25,20 @@ fn fixture() -> tempfile::TempDir {
     .unwrap();
     fs::write(dir.path().join("README.md"), "# Auth flow\n").unwrap();
     dir
+}
+
+fn git(args: &[&str], cwd: &Path) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?} failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 struct ChildGuard(Child);
@@ -344,6 +359,46 @@ fn search_uses_running_daemon_and_populates_status() {
 }
 
 #[test]
+fn daemon_search_honors_explain_flag() {
+    let repo = fixture();
+    let runtime = tempfile::tempdir().unwrap();
+    let socket = runtime.path().join("sifs.sock");
+    let child = sifs()
+        .args(["daemon", "run", "--replace-existing-socket"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .spawn()
+        .unwrap();
+    let _guard = ChildGuard(child);
+    wait_for_daemon(&socket);
+
+    let output = sifs()
+        .args([
+            "search",
+            "token validation",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--explain",
+            "--json",
+        ])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let results = value["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert!(results[0]["explanation"]["bm25_rank"].is_number());
+    assert!(results[0]["explanation"]["final_score"].is_number());
+}
+
+#[test]
 fn daemon_search_honors_document_and_extension_filters() {
     let repo = fixture();
     fs::write(
@@ -636,13 +691,47 @@ fn agent_context_json_describes_agent_native_contract() {
     assert_eq!(value["cli"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(value["commands"]["search"]["flags"]["--source"].is_object());
     assert!(value["commands"]["search"]["flags"]["--limit"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--encoder"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["search"]["flags"]["--project-cache"].is_object());
     assert!(value["commands"]["search"]["flags"]["--include-docs"].is_object());
     assert!(value["commands"]["search"]["flags"]["--extension"].is_object());
     assert!(value["commands"]["search"]["flags"]["--explain"].is_object());
     assert!(value["commands"]["pack"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--encoder"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["pack"]["flags"]["--project-cache"].is_object());
     assert!(value["commands"]["eval"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--encoder"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["eval"]["flags"]["--no-download"].is_object());
+    assert_eq!(value["commands"]["eval"]["flags"]["--limit"]["default"], 10);
     assert!(value["commands"]["tune"].is_object());
+    assert!(value["commands"]["tune"]["flags"]["--model"].is_object());
     assert!(value["commands"]["list-files"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--encoder"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["find-related"]["flags"]["--project-cache"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["get"]["flags"]["--model"].is_object());
+    assert!(value["commands"]["get"]["flags"]["--offline"].is_object());
+    assert!(value["commands"]["get"]["flags"]["--no-download"].is_object());
     assert_eq!(value["commands"]["update"]["output"], "update_report");
     assert_eq!(
         value["commands"]["update"]["flags"]["--update-timeout"]["default"],
@@ -1150,6 +1239,75 @@ fn profiles_and_feedback_are_json_capable_and_isolated_by_home() {
 }
 
 #[test]
+fn profile_index_options_apply_to_inspection_commands() {
+    let dir = fixture();
+    let home = tempfile::tempdir().unwrap();
+
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "docs-only",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--include-docs",
+            "--extension",
+            "md",
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+
+    let list_files = sifs()
+        .args(["list-files", "--profile", "docs-only", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        list_files.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list_files.stderr)
+    );
+    let listed: Value = serde_json::from_slice(&list_files.stdout).unwrap();
+    assert_eq!(listed["total"], 1);
+    assert_eq!(listed["files"][0], "README.md");
+
+    let status = sifs()
+        .args(["status", "--profile", "docs-only", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        status.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status_payload: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_payload["index_stats"]["indexed_files"], 1);
+
+    let get = sifs()
+        .args(["get", "README.md", "1", "--profile", "docs-only", "--json"])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        get.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&get.stderr)
+    );
+    let chunk: Value = serde_json::from_slice(&get.stdout).unwrap();
+    assert_eq!(chunk["chunk"]["file_path"], "README.md");
+}
+
+#[test]
 fn explicit_encoder_overrides_profile_encoder() {
     let dir = fixture();
     let home = tempfile::tempdir().unwrap();
@@ -1198,6 +1356,97 @@ fn explicit_encoder_overrides_profile_encoder() {
     let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
     assert_eq!(searched["mode"], "semantic");
     assert!(!searched["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn profile_git_ref_is_used_for_profile_backed_search() {
+    let repo = tempfile::tempdir().unwrap();
+    git(&["init", "--initial-branch", "main"], repo.path());
+    fs::write(repo.path().join("lib.rs"), "fn main_branch_marker() {}\n").unwrap();
+    git(&["add", "lib.rs"], repo.path());
+    git(
+        &[
+            "-c",
+            "user.name=SIFS Test",
+            "-c",
+            "user.email=sifs@example.com",
+            "commit",
+            "-m",
+            "main",
+        ],
+        repo.path(),
+    );
+    git(&["checkout", "-b", "feature-ref"], repo.path());
+    fs::write(
+        repo.path().join("lib.rs"),
+        "fn feature_branch_marker() {}\n",
+    )
+    .unwrap();
+    git(&["add", "lib.rs"], repo.path());
+    git(
+        &[
+            "-c",
+            "user.name=SIFS Test",
+            "-c",
+            "user.email=sifs@example.com",
+            "commit",
+            "-m",
+            "feature",
+        ],
+        repo.path(),
+    );
+    git(&["checkout", "main"], repo.path());
+
+    let home = tempfile::tempdir().unwrap();
+    let source = format!("file://{}", repo.path().display());
+    let save = sifs()
+        .args([
+            "profile",
+            "save",
+            "git-ref-test",
+            "--source",
+            &source,
+            "--ref",
+            "feature-ref",
+            "--mode",
+            "bm25",
+            "--no-cache",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        save.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&save.stderr)
+    );
+
+    let search = sifs()
+        .args([
+            "search",
+            "feature_branch_marker",
+            "--profile",
+            "git-ref-test",
+            "--json",
+        ])
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(
+        search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let searched: Value = serde_json::from_slice(&search.stdout).unwrap();
+    let results = searched["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|result| {
+        result["content"]
+            .as_str()
+            .unwrap()
+            .contains("feature_branch_marker")
+    }));
 }
 
 #[test]
