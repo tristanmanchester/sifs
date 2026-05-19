@@ -17,6 +17,10 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed tree-sitter code chunking by upgrading `tree-sitter-language-pack`
+  from `1.8.0-rc.26` to `1.8.1`, which restores working parser downloads
+  and the new owned-`Node` API.
+
 - Fixed `sifs agent-context --json` so file inspection and related-code
   commands advertise their model, cache, and download-safety flags in the
   machine-readable contract.
