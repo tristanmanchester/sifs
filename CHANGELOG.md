@@ -25,6 +25,8 @@ versioning where practical.
   term frequency scoring.
 - Fixed daemon startup so dangling symlinks at the socket path are reclaimed
   instead of causing bind failures.
+- Fixed skill uninstall safety so directories without `SKILL.md` require
+  `--force` before recursive removal.
 - Fixed `sifs agent-context --json` so file inspection and related-code
   commands advertise their model, cache, and download-safety flags in the
   machine-readable contract.

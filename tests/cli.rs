@@ -1023,6 +1023,54 @@ fn agent_skill_install_writes_package_and_is_idempotent() {
 }
 
 #[test]
+fn agent_skill_uninstall_preserves_unverified_directory_without_force() {
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("sifs-search");
+
+    let install = sifs()
+        .args([
+            "agent",
+            "install",
+            "--target",
+            "generic",
+            "--artifact",
+            "skill",
+            "--destination",
+            destination.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+
+    let user_file = destination.join("my-notes.md");
+    fs::write(&user_file, "# my important notes\n").unwrap();
+    fs::remove_file(destination.join("SKILL.md")).unwrap();
+
+    let uninstall = sifs()
+        .args([
+            "agent",
+            "uninstall",
+            "--target",
+            "generic",
+            "--artifact",
+            "skill",
+            "--destination",
+            destination.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!uninstall.status.success());
+    let stderr = String::from_utf8(uninstall.stderr).unwrap();
+    assert!(stderr.contains("does not contain a SKILL.md"));
+    assert!(user_file.exists());
+}
+
+#[test]
 fn agent_doctor_json_reports_readiness_matrix() {
     let output = sifs()
         .args([
