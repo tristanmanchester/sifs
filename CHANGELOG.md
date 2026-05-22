@@ -17,6 +17,8 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed default indexing ignores so generated directories and lockfiles are
+  skipped case-insensitively on Linux.
 - Fixed `sifs agent-context --json` so file inspection and related-code
   commands advertise their model, cache, and download-safety flags in the
   machine-readable contract.
