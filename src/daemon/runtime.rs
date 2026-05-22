@@ -42,16 +42,38 @@ pub fn run_foreground(options: DaemonRuntimeOptions) -> Result<()> {
 }
 
 fn prepare_socket(paths: &DaemonPaths, replace_existing_socket: bool) -> Result<()> {
-    if !paths.socket.exists() {
-        return Ok(());
-    }
+    let link_metadata = match std::fs::symlink_metadata(&paths.socket) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect daemon socket path {}", paths.socket.display()));
+        }
+    };
     if replace_existing_socket {
         std::fs::remove_file(&paths.socket)
             .with_context(|| format!("remove old daemon socket {}", paths.socket.display()))?;
         return Ok(());
     }
-    let metadata = std::fs::metadata(&paths.socket)
-        .with_context(|| format!("inspect daemon socket path {}", paths.socket.display()))?;
+    let metadata = match std::fs::metadata(&paths.socket) {
+        Ok(metadata) => metadata,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && link_metadata.file_type().is_symlink() =>
+        {
+            std::fs::remove_file(&paths.socket).with_context(|| {
+                format!(
+                    "remove dangling daemon socket symlink {}",
+                    paths.socket.display()
+                )
+            })?;
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect daemon socket path {}", paths.socket.display()));
+        }
+    };
     if !metadata.file_type().is_socket() {
         bail!(
             "SIFS daemon socket path already exists but is not a socket: {}",
@@ -262,6 +284,24 @@ mod tests {
 
         prepare_socket(&paths, false).unwrap();
 
-        assert!(!link.exists());
+        assert!(std::fs::symlink_metadata(&link).is_err());
+    }
+
+    #[test]
+    fn prepare_socket_reclaims_dangling_socket_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("missing.sock");
+        let link = temp.path().join("linked.sock");
+        symlink(&target, &link).unwrap();
+        let paths = DaemonPaths {
+            runtime_dir: temp.path().to_path_buf(),
+            socket: link.clone(),
+            pid_file: temp.path().join("sifs.pid"),
+            log_file: temp.path().join("sifs.log"),
+        };
+
+        prepare_socket(&paths, false).unwrap();
+
+        assert!(std::fs::symlink_metadata(&link).is_err());
     }
 }
