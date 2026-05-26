@@ -18,7 +18,7 @@ The pipeline stages are:
 1. Walk supported files under a local root or temporary Git checkout.
 2. Read each file as UTF-8 text.
 3. Chunk source with a Tree-sitter parser when one is available.
-4. Fall back to overlapping line chunks when syntax-aware chunking fails.
+4. Fall back to character-based chunks with symbol breadcrumbs when syntax-aware chunking fails.
 5. Build enriched BM25 documents from chunks.
 6. Store file and language mappings for filters and chunk lookup.
 7. For semantic-capable indexes, lazily load the configured encoder and embed
@@ -58,7 +58,9 @@ Syntax-aware chunks store:
 - The detected language name.
 
 When parsing isn't available or returns no useful chunks, SIFS falls back to
-line chunks with a default maximum of `50` lines and `5` overlapping lines.
+character-based chunks of up to 1500 characters each. The fallback still
+extracts symbol names and breadcrumbs from the chunk content, so symbol
+metadata is preserved even without a tree-sitter parser.
 
 ## Embedding model
 
