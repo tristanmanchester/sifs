@@ -19,6 +19,9 @@ versioning where practical.
 
 ### Fixed
 
+- Fixed code chunking fallback behavior so fresh machines without cached
+  tree-sitter language parsers still produce non-overlapping chunks with symbol
+  breadcrumbs.
 - Fixed default indexing ignores so generated directories and lockfiles are
   skipped case-insensitively on Linux.
 - Fixed search path filters so relative paths containing `..` parent segments
