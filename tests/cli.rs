@@ -1,7 +1,8 @@
 use serde_json::Value;
 use std::fs;
+use std::io::ErrorKind;
 use std::os::unix::net::UnixListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +26,29 @@ fn fixture() -> tempfile::TempDir {
     .unwrap();
     fs::write(dir.path().join("README.md"), "# Auth flow\n").unwrap();
     dir
+}
+
+fn short_socket_tempdir() -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix("sifs-")
+        .tempdir_in("/tmp")
+        .unwrap()
+}
+
+fn socket_path(dir: &tempfile::TempDir) -> PathBuf {
+    dir.path().join("sifs.sock")
+}
+
+fn unix_sockets_available() -> bool {
+    let dir = short_socket_tempdir();
+    match UnixListener::bind(socket_path(&dir)) {
+        Ok(listener) => {
+            drop(listener);
+            true
+        }
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => false,
+        Err(error) => panic!("bind test socket in {}: {error}", dir.path().display()),
+    }
 }
 
 fn git(args: &[&str], cwd: &Path) {
@@ -237,8 +261,11 @@ fn mcp_help_documents_server_options() {
 
 #[test]
 fn daemon_run_ping_and_status_work_over_socket() {
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("sifs.sock");
+    if !unix_sockets_available() {
+        return;
+    }
+    let dir = short_socket_tempdir();
+    let socket = socket_path(&dir);
     let child = sifs()
         .args(["daemon", "run", "--replace-existing-socket"])
         .env("SIFS_DAEMON_SOCKET", &socket)
@@ -284,8 +311,11 @@ fn daemon_run_ping_and_status_work_over_socket() {
 
 #[test]
 fn daemon_run_reclaims_stale_socket_without_replace_flag() {
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("sifs.sock");
+    let dir = short_socket_tempdir();
+    let socket = socket_path(&dir);
+    if !unix_sockets_available() {
+        return;
+    }
     drop(UnixListener::bind(&socket).unwrap());
 
     let child = sifs()
@@ -319,9 +349,12 @@ fn daemon_install_agent_dry_run_prints_launch_agent() {
 
 #[test]
 fn search_uses_running_daemon_and_populates_status() {
+    if !unix_sockets_available() {
+        return;
+    }
     let repo = fixture();
-    let runtime = tempfile::tempdir().unwrap();
-    let socket = runtime.path().join("sifs.sock");
+    let runtime = short_socket_tempdir();
+    let socket = socket_path(&runtime);
     let child = sifs()
         .args(["daemon", "run", "--replace-existing-socket"])
         .env("SIFS_DAEMON_SOCKET", &socket)
@@ -360,9 +393,12 @@ fn search_uses_running_daemon_and_populates_status() {
 
 #[test]
 fn daemon_search_honors_explain_flag() {
+    if !unix_sockets_available() {
+        return;
+    }
     let repo = fixture();
-    let runtime = tempfile::tempdir().unwrap();
-    let socket = runtime.path().join("sifs.sock");
+    let runtime = short_socket_tempdir();
+    let socket = socket_path(&runtime);
     let child = sifs()
         .args(["daemon", "run", "--replace-existing-socket"])
         .env("SIFS_DAEMON_SOCKET", &socket)
@@ -400,14 +436,17 @@ fn daemon_search_honors_explain_flag() {
 
 #[test]
 fn daemon_search_honors_document_and_extension_filters() {
+    if !unix_sockets_available() {
+        return;
+    }
     let repo = fixture();
     fs::write(
         repo.path().join("release-notes.md"),
         "# Release notes\n\nThe zephyr changelog explains the agent-facing docs contract.\n",
     )
     .unwrap();
-    let runtime = tempfile::tempdir().unwrap();
-    let socket = runtime.path().join("sifs.sock");
+    let runtime = short_socket_tempdir();
+    let socket = socket_path(&runtime);
     let child = sifs()
         .args(["daemon", "run", "--replace-existing-socket"])
         .env("SIFS_DAEMON_SOCKET", &socket)

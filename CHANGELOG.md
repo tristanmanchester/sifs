@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.3.4 - 2026-05-26
+
 ### Changed
 
 - Improved README first-run onboarding so new users can tell what SIFS is,

@@ -265,15 +265,28 @@ fn elapsed_ms(started: Instant) -> u64 {
 mod tests {
     use super::prepare_socket;
     use crate::daemon::paths::DaemonPaths;
+    use std::io::ErrorKind;
     use std::os::unix::fs::symlink;
     use std::os::unix::net::UnixListener;
 
+    fn short_socket_tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("sifs-")
+            .tempdir_in("/tmp")
+            .unwrap()
+    }
+
     #[test]
     fn prepare_socket_reclaims_stale_socket_through_symlink() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = short_socket_tempdir();
         let target = temp.path().join("target.sock");
         let link = temp.path().join("linked.sock");
-        drop(UnixListener::bind(&target).unwrap());
+        let listener = match UnixListener::bind(&target) {
+            Ok(listener) => listener,
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => return,
+            Err(error) => panic!("bind test socket {}: {error}", target.display()),
+        };
+        drop(listener);
         symlink(&target, &link).unwrap();
         let paths = DaemonPaths {
             runtime_dir: temp.path().to_path_buf(),
@@ -289,7 +302,7 @@ mod tests {
 
     #[test]
     fn prepare_socket_reclaims_dangling_socket_symlink() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = short_socket_tempdir();
         let target = temp.path().join("missing.sock");
         let link = temp.path().join("linked.sock");
         symlink(&target, &link).unwrap();
