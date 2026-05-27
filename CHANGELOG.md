@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed Clippy warnings for stable Rust: type complexity, boolean expression
+  simplification, manual div_ceil usage, and redundant conditional branches.
+
 ## 0.3.4 - 2026-05-26
 
 ### Changed
@@ -54,7 +59,7 @@ versioning where practical.
 - Fixed tree-sitter code chunking by upgrading `tree-sitter-language-pack`
   from `1.8.0-rc.26` to `1.8.1`, fixing a broken parser manifest download URL
   that caused tree-sitter-backed chunking and symbol extraction to fall back to
-  line-based chunking.
+  line-based chunking and restoring the new owned-`Node` API.
 - Fixed `--force` uninstall help text to document that directories missing
   `SKILL.md` also require `--force`.
 

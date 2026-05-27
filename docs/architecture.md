@@ -166,7 +166,7 @@ user-modified managed block.
 
 MCP remains optional for these artifacts. Generated instructions tell agents to
 use MCP tools only when visible in the current session and to fall back to shell
-commands such as `sifs search`, `sifs list-files`, `sifs get`, and
+commands such as `sifs search`, `sifs pack`, `sifs list-files`, `sifs get`, and
 `sifs agent-context --json`.
 
 ## Persistent local indexes
