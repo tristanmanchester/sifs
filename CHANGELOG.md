@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed Clippy warnings for stable Rust: type complexity, boolean expression
+  simplification, manual div_ceil usage, and redundant conditional branches.
+
 ## 0.3.4 - 2026-05-26
 
 ### Changed
