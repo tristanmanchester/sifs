@@ -169,7 +169,15 @@ fn newline_initialize_and_tools_list_get_newline_responses() {
     );
     assert_eq!(responses[0]["id"], 1);
     assert_eq!(responses[1]["id"], 2);
-    assert!(responses[1]["result"]["tools"].as_array().unwrap().len() >= 5);
+    let tools = responses[1]["result"]["tools"].as_array().unwrap();
+    assert!(tools.len() >= 5);
+    let names = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"symbol"));
+    assert!(names.contains(&"outline"));
+    assert!(names.contains(&"pack"));
 }
 
 #[test]
@@ -306,6 +314,100 @@ fn invalid_search_mode_returns_actionable_tool_error() {
     let text = response["result"]["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("mode must be one of: hybrid, semantic, bm25"));
     assert!(text.contains("lexical"));
+}
+
+#[test]
+fn symbol_tool_returns_structured_symbol_postings() {
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "symbol",
+            "arguments": {"name": "token_validation"}
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp(input.as_bytes());
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 10);
+    let symbols = response["result"]["structuredContent"]["symbols"]
+        .as_array()
+        .unwrap();
+    assert_eq!(symbols[0]["name"], "token_validation");
+    assert_eq!(symbols[0]["file_path"], "src/lib.rs");
+}
+
+#[test]
+fn outline_tool_returns_indexed_file_outline() {
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+            "name": "outline",
+            "arguments": {"file_path": "src/lib.rs"}
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp(input.as_bytes());
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 11);
+    let outline = &response["result"]["structuredContent"]["outline"];
+    assert_eq!(outline["file_path"], "src/lib.rs");
+    assert_eq!(outline["symbols"][0]["name"], "token_validation");
+}
+
+#[test]
+fn pack_tool_returns_bounded_context_items() {
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": {
+            "name": "pack",
+            "arguments": {
+                "query": "token validation",
+                "mode": "bm25",
+                "budget_tokens": 200,
+                "include_symbol_definitions": true
+            }
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp(input.as_bytes());
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 12);
+    let structured = &response["result"]["structuredContent"];
+    assert_eq!(structured["query"], "token validation");
+    assert!(!structured["items"].as_array().unwrap().is_empty());
 }
 
 #[test]

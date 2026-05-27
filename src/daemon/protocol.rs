@@ -1,5 +1,6 @@
 use crate::index::CacheConfig;
 use crate::model2vec::{EncoderSpec, ModelLoadPolicy, ModelOptions};
+use crate::symbol_index::{FileOutline, SymbolPosting};
 use crate::types::{Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult};
 use crate::utils::is_git_url;
 use anyhow::{Context, Result, bail};
@@ -347,6 +348,18 @@ pub enum DaemonRequest {
         source: SourceSpec,
         options: IndexRuntimeOptions,
         limit: usize,
+        prefix: Option<String>,
+    },
+    Symbol {
+        source: SourceSpec,
+        options: IndexRuntimeOptions,
+        name: String,
+        limit: usize,
+    },
+    Outline {
+        source: SourceSpec,
+        options: IndexRuntimeOptions,
+        file_path: String,
     },
     GetChunk {
         source: SourceSpec,
@@ -452,6 +465,18 @@ pub enum DaemonResult {
         source: SourceSpec,
         total: usize,
         files: Vec<String>,
+        prefix: Option<String>,
+    },
+    Symbol {
+        source: SourceSpec,
+        name: String,
+        total: usize,
+        postings: Vec<SymbolPosting>,
+    },
+    Outline {
+        source: SourceSpec,
+        file_path: String,
+        outline: FileOutline,
     },
     GetChunk {
         source: SourceSpec,

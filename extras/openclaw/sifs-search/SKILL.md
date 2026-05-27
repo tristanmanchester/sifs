@@ -32,13 +32,16 @@ Inspect indexed files and chunks before reading broad files:
 
 ```bash
 sifs list-files --source <project> --limit 200 --json
+sifs list-files --source <project> --prefix src/auth/ --json
+sifs symbol SessionToken --source <project> --json
+sifs outline src/auth.rs --source <project> --json
 sifs get src/auth.rs 42 --source <project>
 sifs find-related src/auth.rs 42 --source <project>
 ```
 
 Use `--source <project>` when the agent may not be running from the target checkout. Use `--filter-path <repo-relative-path>` for path narrowing and `--limit` for bounded results.
 
-If MCP tools named `search`, `get_chunk`, or `list_files` are visible, they may be used for the same workflow. If they are missing, configured-but-invisible, or failing, fall back to the CLI immediately.
+If MCP tools named `search`, `symbol`, `outline`, `pack`, `get_chunk`, or `list_files` are visible, they may be used for the same workflow. If they are missing, configured-but-invisible, or failing, fall back to the CLI immediately.
 
 Bundled support files:
 

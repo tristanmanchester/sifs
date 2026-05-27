@@ -240,6 +240,11 @@ enum Command {
         source: Option<String>,
         #[arg(long, help = "Saved profile to use for source defaults.")]
         profile: Option<String>,
+        #[arg(
+            long,
+            help = "Only list indexed file paths with this repository-relative prefix."
+        )]
+        prefix: Option<String>,
         #[arg(long, help = "Maximum number of file paths to print.")]
         limit: Option<usize>,
         #[command(flatten)]
@@ -250,6 +255,90 @@ enum Command {
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
         no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
+    },
+    #[command(about = "Look up indexed symbol definitions by exact or folded name.")]
+    Symbol {
+        #[arg(help = "Symbol name to find, such as TokenManager or tokenmanager.")]
+        name: String,
+        #[arg(long, help = "Local directory or Git URL to index and inspect.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source defaults.")]
+        profile: Option<String>,
+        #[arg(long, help = "Maximum number of symbol postings to print.")]
+        limit: Option<usize>,
+        #[command(flatten)]
+        output: OutputArgs,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
+    },
+    #[command(about = "Print an outline for one indexed repository-relative file path.")]
+    Outline {
+        #[arg(help = "Repository-relative file path to outline.")]
+        file_path: String,
+        #[arg(long, help = "Local directory or Git URL to index and inspect.")]
+        source: Option<String>,
+        #[arg(long, help = "Saved profile to use for source defaults.")]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+        #[arg(long, help = "Model path or Hugging Face model id.")]
+        model: Option<String>,
+        #[arg(long, help = "Disable model downloads and remote Git sources.")]
+        offline: bool,
+        #[arg(long = "no-download", help = "Disable model downloads.")]
+        no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
     },
     #[command(about = "Print index status for a local directory or Git URL.")]
     Status {
@@ -1079,11 +1168,17 @@ fn main() -> Result<()> {
         Some(Command::ListFiles {
             source,
             profile,
+            prefix,
             limit,
             output,
             model,
             offline,
             no_download,
+            cache_dir,
+            no_cache,
+            project_cache,
+            include_docs,
+            extensions,
         }) => {
             let resolved = resolve_invocation(
                 profile.as_deref(),
@@ -1094,11 +1189,70 @@ fn main() -> Result<()> {
                 None,
                 offline,
                 no_download,
-                CacheConfig::Platform,
-                false,
-                Vec::new(),
+                cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
             )?;
-            run_files(&resolved, limit.unwrap_or(200), output)?
+            run_files(&resolved, prefix.as_deref(), limit.unwrap_or(200), output)?
+        }
+        Some(Command::Symbol {
+            name,
+            source,
+            profile,
+            limit,
+            output,
+            model,
+            offline,
+            no_download,
+            cache_dir,
+            no_cache,
+            project_cache,
+            include_docs,
+            extensions,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                None,
+                limit,
+                model,
+                None,
+                offline,
+                no_download,
+                cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
+            )?;
+            run_symbol(&name, &resolved, output)?
+        }
+        Some(Command::Outline {
+            file_path,
+            source,
+            profile,
+            output,
+            model,
+            offline,
+            no_download,
+            cache_dir,
+            no_cache,
+            project_cache,
+            include_docs,
+            extensions,
+        }) => {
+            let resolved = resolve_invocation(
+                profile.as_deref(),
+                source,
+                None,
+                None,
+                model,
+                None,
+                offline,
+                no_download,
+                cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
+            )?;
+            run_outline(&file_path, &resolved, output)?
         }
         Some(Command::Status {
             source,
@@ -1995,33 +2149,46 @@ fn cache_config(cache_dir: Option<PathBuf>, no_cache: bool, project_cache: bool)
     }
 }
 
-fn run_files(resolved: &ResolvedInvocation, limit: usize, output: OutputArgs) -> Result<()> {
+fn run_files(
+    resolved: &ResolvedInvocation,
+    prefix: Option<&str>,
+    limit: usize,
+    output: OutputArgs,
+) -> Result<()> {
     if let Some(DaemonResult::ListFiles {
         source,
         total,
         files,
-    }) = try_daemon_list_files(resolved, limit)?
+        prefix,
+    }) = try_daemon_list_files(resolved, prefix, limit)?
     {
-        print_files_output(&source.source, total, limit, 0, files, output)?;
+        print_files_output(
+            &source.source,
+            total,
+            prefix.as_deref(),
+            limit,
+            0,
+            files,
+            output,
+        )?;
         return Ok(());
     }
-    let policy = model_policy(resolved.offline, resolved.no_download);
     let started = Instant::now();
-    let index = build_hybrid_index(
+    let index = build_sparse_index(
         &resolved.source,
         resolved.ref_name.as_deref(),
-        encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
         resolved.cache.clone(),
         resolved.offline,
         resolved.include_docs,
         extension_set(&resolved.extensions),
     )?;
     let elapsed_ms = started.elapsed().as_millis();
-    let files = index.indexed_files();
-    let shown: Vec<_> = files.iter().take(limit).cloned().collect();
+    let total = index.indexed_files_with_prefix(prefix, usize::MAX).len();
+    let shown = index.indexed_files_with_prefix(prefix, limit);
     print_files_output(
         &resolved.source,
-        files.len(),
+        total,
+        prefix,
         limit,
         elapsed_ms,
         shown,
@@ -2032,6 +2199,7 @@ fn run_files(resolved: &ResolvedInvocation, limit: usize, output: OutputArgs) ->
 fn print_files_output(
     source: &str,
     total: usize,
+    prefix: Option<&str>,
     limit: usize,
     elapsed_ms: u128,
     shown: Vec<String>,
@@ -2040,6 +2208,7 @@ fn print_files_output(
     let payload = json!({
         "source": source,
         "total": total,
+        "prefix": prefix,
         "limit": limit,
         "truncated": total > shown.len(),
         "hint": if total > shown.len() { Some("Increase --limit or narrow by source to inspect more indexed files.") } else { None },
@@ -2084,6 +2253,7 @@ fn print_files_output(
 
 fn try_daemon_list_files(
     resolved: &ResolvedInvocation,
+    prefix: Option<&str>,
     limit: usize,
 ) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
     let Some(client) = daemon_client_if_running()? else {
@@ -2094,20 +2264,260 @@ fn try_daemon_list_files(
         resolved.ref_name.clone(),
         resolved.offline,
     )?;
-    let policy = model_policy(resolved.offline, resolved.no_download);
     match client.send(DaemonRequest::ListFiles {
         source,
         options: with_index_filters(
-            IndexRuntimeOptions::with_encoder(
-                encoder_spec(resolved.encoder, resolved.model.as_deref(), policy),
-                resolved.cache.clone(),
-            ),
+            IndexRuntimeOptions::sparse(resolved.cache.clone()),
             resolved.include_docs,
             &resolved.extensions,
         ),
         limit,
+        prefix: prefix.map(str::to_owned),
     }) {
         Ok(result @ DaemonResult::ListFiles { .. }) => Ok(Some(result)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
+}
+
+fn run_symbol(name: &str, resolved: &ResolvedInvocation, output: OutputArgs) -> Result<()> {
+    if name.trim().is_empty() {
+        bail!("symbol name must not be empty");
+    }
+    if let Some(DaemonResult::Symbol {
+        source,
+        name,
+        total,
+        postings,
+    }) = try_daemon_symbol(name, resolved)?
+    {
+        print_symbol_output(
+            &source.source,
+            &name,
+            total,
+            resolved.limit,
+            postings,
+            output,
+        )?;
+        return Ok(());
+    }
+    let started = Instant::now();
+    let index = build_sparse_index(
+        &resolved.source,
+        resolved.ref_name.as_deref(),
+        resolved.cache.clone(),
+        resolved.offline,
+        resolved.include_docs,
+        extension_set(&resolved.extensions),
+    )?;
+    let total = index.symbol_lookup_total(name);
+    let postings = index.symbol_lookup(name, resolved.limit);
+    let elapsed_ms = started.elapsed().as_millis();
+    print_symbol_output_with_elapsed(
+        &resolved.source,
+        name,
+        total,
+        resolved.limit,
+        elapsed_ms,
+        postings,
+        output,
+    )
+}
+
+fn print_symbol_output(
+    source: &str,
+    name: &str,
+    total: usize,
+    limit: usize,
+    postings: Vec<sifs::SymbolPosting>,
+    output: OutputArgs,
+) -> Result<()> {
+    print_symbol_output_with_elapsed(source, name, total, limit, 0, postings, output)
+}
+
+fn print_symbol_output_with_elapsed(
+    source: &str,
+    name: &str,
+    total: usize,
+    limit: usize,
+    elapsed_ms: u128,
+    postings: Vec<sifs::SymbolPosting>,
+    output: OutputArgs,
+) -> Result<()> {
+    let payload = json!({
+        "source": source,
+        "name": name,
+        "total": total,
+        "limit": limit,
+        "truncated": total > postings.len(),
+        "elapsed_ms": elapsed_ms,
+        "symbols": &postings,
+    });
+    if output.json {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else if output.jsonl {
+        for posting in payload["symbols"].as_array().into_iter().flatten() {
+            println!("{}", serde_json::to_string(posting)?);
+        }
+    } else if postings.is_empty() {
+        println!("No indexed symbols found for {name:?}.");
+    } else {
+        match output.format {
+            TextFormat::Human => {
+                println!("Indexed symbols for {name:?} in {source:?}:");
+                for posting in postings {
+                    println!(
+                        "{}:{} {} {}",
+                        posting.file_path, posting.line, posting.kind, posting.name
+                    );
+                }
+            }
+            TextFormat::Compact => {
+                for posting in postings {
+                    println!(
+                        "{}\t{}\t{}\t{}",
+                        posting.file_path, posting.line, posting.kind, posting.name
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn try_daemon_symbol(
+    name: &str,
+    resolved: &ResolvedInvocation,
+) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(
+        &resolved.source,
+        resolved.ref_name.clone(),
+        resolved.offline,
+    )?;
+    match client.send(DaemonRequest::Symbol {
+        source,
+        options: with_index_filters(
+            IndexRuntimeOptions::sparse(resolved.cache.clone()),
+            resolved.include_docs,
+            &resolved.extensions,
+        ),
+        name: name.to_owned(),
+        limit: resolved.limit,
+    }) {
+        Ok(result @ DaemonResult::Symbol { .. }) => Ok(Some(result)),
+        Ok(other) => bail!("unexpected daemon response: {other:?}"),
+        Err(_) => Ok(None),
+    }
+}
+
+fn run_outline(file_path: &str, resolved: &ResolvedInvocation, output: OutputArgs) -> Result<()> {
+    if file_path.trim().is_empty() {
+        bail!("file_path must not be empty");
+    }
+    if let Some(DaemonResult::Outline {
+        source,
+        file_path: _,
+        outline,
+    }) = try_daemon_outline(file_path, resolved)?
+    {
+        print_outline_output(&source.source, outline, 0, output)?;
+        return Ok(());
+    }
+    let started = Instant::now();
+    let index = build_sparse_index(
+        &resolved.source,
+        resolved.ref_name.as_deref(),
+        resolved.cache.clone(),
+        resolved.offline,
+        resolved.include_docs,
+        extension_set(&resolved.extensions),
+    )?;
+    let Some(outline) = index.file_outline(file_path) else {
+        eprintln!(
+            "No indexed file found at {file_path}. Use `sifs list-files` to check indexed paths."
+        );
+        std::process::exit(1);
+    };
+    print_outline_output(
+        &resolved.source,
+        outline,
+        started.elapsed().as_millis(),
+        output,
+    )
+}
+
+fn print_outline_output(
+    source: &str,
+    outline: sifs::FileOutline,
+    elapsed_ms: u128,
+    output: OutputArgs,
+) -> Result<()> {
+    let payload = json!({
+        "source": source,
+        "elapsed_ms": elapsed_ms,
+        "outline": &outline,
+    });
+    if output.json {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else if output.jsonl {
+        println!("{}", serde_json::to_string(&payload)?);
+    } else {
+        match output.format {
+            TextFormat::Human => {
+                println!(
+                    "{}:{}-{} ({}, {} chunks, {} symbols)",
+                    outline.file_path,
+                    outline.start_line,
+                    outline.end_line,
+                    outline.language.as_deref().unwrap_or("unknown"),
+                    outline.chunk_count,
+                    outline.symbol_count
+                );
+                for symbol in outline.symbols {
+                    println!(
+                        "{}:{} {} {}",
+                        symbol.file_path, symbol.line, symbol.kind, symbol.name
+                    );
+                }
+            }
+            TextFormat::Compact => {
+                for symbol in outline.symbols {
+                    println!(
+                        "{}\t{}\t{}\t{}",
+                        symbol.file_path, symbol.line, symbol.kind, symbol.name
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn try_daemon_outline(
+    file_path: &str,
+    resolved: &ResolvedInvocation,
+) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
+    let Some(client) = daemon_client_if_running()? else {
+        return Ok(None);
+    };
+    let source = SourceSpec::resolve(
+        &resolved.source,
+        resolved.ref_name.clone(),
+        resolved.offline,
+    )?;
+    match client.send(DaemonRequest::Outline {
+        source,
+        options: with_index_filters(
+            IndexRuntimeOptions::sparse(resolved.cache.clone()),
+            resolved.include_docs,
+            &resolved.extensions,
+        ),
+        file_path: file_path.to_owned(),
+    }) {
+        Ok(result @ DaemonResult::Outline { .. }) => Ok(Some(result)),
         Ok(other) => bail!("unexpected daemon response: {other:?}"),
         Err(_) => Ok(None),
     }

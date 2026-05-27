@@ -215,13 +215,49 @@ fn execute_request(request: DaemonRequest, manager: &mut IndexManager) -> Result
             source,
             options,
             limit,
+            prefix,
         } => {
             let index = manager.get(source.clone(), options)?;
-            let files = index.indexed_files();
+            let total = index
+                .indexed_files_with_prefix(prefix.as_deref(), usize::MAX)
+                .len();
+            let files = index.indexed_files_with_prefix(prefix.as_deref(), limit);
             Ok(DaemonResult::ListFiles {
                 source,
-                total: files.len(),
-                files: files.into_iter().take(limit).collect(),
+                total,
+                files,
+                prefix,
+            })
+        }
+        DaemonRequest::Symbol {
+            source,
+            options,
+            name,
+            limit,
+        } => {
+            let index = manager.get(source.clone(), options)?;
+            let total = index.symbol_lookup_total(&name);
+            let postings = index.symbol_lookup(&name, limit);
+            Ok(DaemonResult::Symbol {
+                source,
+                name,
+                total,
+                postings,
+            })
+        }
+        DaemonRequest::Outline {
+            source,
+            options,
+            file_path,
+        } => {
+            let index = manager.get(source.clone(), options)?;
+            let Some(outline) = index.file_outline(&file_path) else {
+                bail!("No indexed file found at {file_path}");
+            };
+            Ok(DaemonResult::Outline {
+                source,
+                file_path,
+                outline,
             })
         }
         DaemonRequest::GetChunk {

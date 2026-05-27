@@ -20,6 +20,9 @@ const MCP_INSTRUCTIONS: &str = include_str!("agents/mcp-instructions.md");
 const SEARCH_DESCRIPTION: &str = include_str!("agents/tools/search.md");
 const FIND_RELATED_DESCRIPTION: &str = include_str!("agents/tools/find-related.md");
 const INDEX_STATUS_DESCRIPTION: &str = include_str!("agents/tools/index-status.md");
+const SYMBOL_DESCRIPTION: &str = include_str!("agents/tools/symbol.md");
+const OUTLINE_DESCRIPTION: &str = include_str!("agents/tools/outline.md");
+const PACK_DESCRIPTION: &str = include_str!("agents/tools/pack.md");
 const NO_RESULTS_MESSAGE: &str = include_str!("agents/messages/no-results.md");
 const NO_REPO_MESSAGE: &str = include_str!("agents/messages/no-repo.md");
 const MCP_MAX_LIMIT: usize = 50;
@@ -393,6 +396,9 @@ fn handle_tool_call(
         "clear_index" => tool_clear_index(args, cache, default_source, ref_name),
         "list_files" => tool_list_files(args, cache, default_source, ref_name),
         "get_chunk" => tool_get_chunk(args, cache, default_source, ref_name),
+        "symbol" => tool_symbol(args, cache, default_source, ref_name),
+        "outline" => tool_outline(args, cache, default_source, ref_name),
+        "pack" | "context_pack" => tool_pack(args, cache, default_source, ref_name),
         "agent_context" => tool_agent_context(),
         "profile_list" => tool_profile_list(),
         "profile_show" => tool_profile_show(args),
@@ -742,6 +748,10 @@ fn tool_list_files(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
+    let prefix = args
+        .get("prefix")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
     let profile = match selected_profile(&args) {
         Ok(profile) => profile,
         Err(message) => return ToolText::error(message),
@@ -749,16 +759,16 @@ fn tool_list_files(
     let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
-            let files = index.indexed_files();
-            let shown: Vec<_> = files.iter().take(limit).cloned().collect();
+            let total = index.indexed_files_with_prefix(prefix, usize::MAX).len();
+            let shown = index.indexed_files_with_prefix(prefix, limit);
             ToolText::ok_structured(
                 format!(
                     "Indexed files for {source:?} (showing {} of {}):\n{}",
                     shown.len(),
-                    files.len(),
+                    total,
                     shown.join("\n")
                 ),
-                json!({"source": source, "total": files.len(), "limit": limit, "truncated": files.len() > shown.len(), "hint": if files.len() > shown.len() { Some("Increase limit to inspect more indexed files.") } else { None }, "warnings": index_warnings(index), "files": shown}),
+                json!({"source": source, "total": total, "prefix": prefix, "limit": limit, "truncated": total > shown.len(), "hint": if total > shown.len() { Some("Increase limit or prefix to inspect more indexed files.") } else { None }, "warnings": index_warnings(index), "files": shown}),
             )
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
@@ -804,6 +814,396 @@ fn tool_get_chunk(
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
     }
+}
+
+fn tool_symbol(
+    args: Value,
+    cache: &mut IndexCache,
+    default_source: Option<&str>,
+    ref_name: Option<&str>,
+) -> ToolText {
+    let name = args.get("name").and_then(Value::as_str).unwrap_or_default();
+    if name.trim().is_empty() {
+        return ToolText::error("name is required");
+    }
+    let source = match selected_source(&args, default_source) {
+        Ok(Some(source)) => source,
+        Ok(None) => return ToolText::error(no_repo_message()),
+        Err(message) => return ToolText::error(message),
+    };
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let limit = match parse_mcp_limit(&args, "limit", None, 20) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
+        Ok(index) => {
+            let total = index.symbol_lookup_total(name);
+            let postings = index.symbol_lookup(name, limit);
+            let structured = json!({
+                "source": source,
+                "name": name,
+                "limit": limit,
+                "total": total,
+                "truncated": total > postings.len(),
+                "warnings": index_warnings(index),
+                "symbols": &postings,
+            });
+            if postings.is_empty() {
+                ToolText::ok_structured(
+                    format!("No indexed symbols found for {name:?}."),
+                    structured,
+                )
+            } else {
+                ToolText::ok_structured(
+                    format_symbol_postings(name, structured["symbols"].as_array()),
+                    structured,
+                )
+            }
+        }
+        Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
+    }
+}
+
+fn tool_outline(
+    args: Value,
+    cache: &mut IndexCache,
+    default_source: Option<&str>,
+    ref_name: Option<&str>,
+) -> ToolText {
+    let file_path = args
+        .get("file_path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if file_path.trim().is_empty() {
+        return ToolText::error("file_path is required");
+    }
+    let source = match selected_source(&args, default_source) {
+        Ok(Some(source)) => source,
+        Ok(None) => return ToolText::error(no_repo_message()),
+        Err(message) => return ToolText::error(message),
+    };
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
+        Ok(index) => {
+            let Some(outline) = index.file_outline(file_path) else {
+                return ToolText::ok_structured(
+                    format!(
+                        "No indexed file found at {file_path}. Use list_files to check indexed paths."
+                    ),
+                    json!({"source": source, "file_path": file_path, "found": false, "warnings": index_warnings(index)}),
+                );
+            };
+            let text = format!(
+                "{}:{}-{} ({} chunks, {} symbols)",
+                outline.file_path,
+                outline.start_line,
+                outline.end_line,
+                outline.chunk_count,
+                outline.symbol_count
+            );
+            ToolText::ok_structured(
+                text,
+                json!({"source": source, "file_path": file_path, "found": true, "warnings": index_warnings(index), "outline": outline}),
+            )
+        }
+        Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
+    }
+}
+
+fn tool_pack(
+    args: Value,
+    cache: &mut IndexCache,
+    default_source: Option<&str>,
+    ref_name: Option<&str>,
+) -> ToolText {
+    let query = args
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if query.trim().is_empty() {
+        return ToolText::error("query is required");
+    }
+    let source = match selected_source(&args, default_source) {
+        Ok(Some(source)) => source,
+        Ok(None) => return ToolText::error(no_repo_message()),
+        Err(message) => return ToolText::error(message),
+    };
+    let profile = match selected_profile(&args) {
+        Ok(profile) => profile,
+        Err(message) => return ToolText::error(message),
+    };
+    let mode = match parse_mcp_mode(&args, profile.as_ref()) {
+        Ok(mode) => mode,
+        Err(message) => return ToolText::error(message),
+    };
+    let limit = match parse_mcp_limit(&args, "limit", profile.as_ref().and_then(|p| p.limit), 20) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    let budget_tokens = match parse_mcp_positive_usize(&args, "budget_tokens", 6000) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    let include_neighbors = match parse_mcp_nonnegative_usize(&args, "include_neighbors", 0) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    let include_symbol_definitions = args
+        .get("include_symbol_definitions")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let options = SearchOptions::new(limit).with_mode(mode);
+    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    match cache.get(&source, ref_name, &index_options) {
+        Ok(index) => {
+            let results = match index.search_with(query, &options) {
+                Ok(results) => results,
+                Err(err) => return ToolText::error(format!("Pack search failed: {err}")),
+            };
+            let structured = context_pack_payload(
+                index,
+                &source,
+                query,
+                mode,
+                limit,
+                budget_tokens,
+                include_neighbors,
+                include_symbol_definitions,
+                &results,
+            );
+            ToolText::ok_structured(
+                serde_json::to_string_pretty(&structured).unwrap_or_default(),
+                structured,
+            )
+        }
+        Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn context_pack_payload(
+    index: &SifsIndex,
+    source: &str,
+    query: &str,
+    mode: SearchMode,
+    limit: usize,
+    budget_tokens: usize,
+    include_neighbors: usize,
+    include_symbol_definitions: bool,
+    results: &[crate::types::SearchResult],
+) -> Value {
+    let mut remaining_chars = budget_tokens.saturating_mul(4);
+    let mut seen_files = std::collections::HashSet::new();
+    let mut seen_chunks = std::collections::HashSet::new();
+    let mut items = Vec::new();
+    let definitions = if include_symbol_definitions {
+        query_symbol_definition_chunks(index, query)
+    } else {
+        Vec::new()
+    };
+    for result in results {
+        if remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
+            continue;
+        }
+        push_pack_item(
+            &mut items,
+            &mut seen_chunks,
+            &mut remaining_chars,
+            &result.chunk,
+            Some(result.score),
+            result.source.to_string(),
+            "primary",
+            format!("ranked by {mode} for the pack query"),
+        );
+        if let Some(header) = file_header_chunk(&index.chunks, &result.chunk) {
+            push_pack_item(
+                &mut items,
+                &mut seen_chunks,
+                &mut remaining_chars,
+                header,
+                None,
+                "file_header".to_owned(),
+                "file_header",
+                format!("file header context for {}", result.chunk.file_path),
+            );
+        }
+        for neighbor in adjacent_chunks(&index.chunks, &result.chunk, include_neighbors) {
+            if remaining_chars == 0 {
+                break;
+            }
+            push_pack_item(
+                &mut items,
+                &mut seen_chunks,
+                &mut remaining_chars,
+                neighbor,
+                None,
+                "adjacent".to_owned(),
+                "neighbor",
+                format!(
+                    "adjacent context for {}:{}-{}",
+                    result.chunk.file_path, result.chunk.start_line, result.chunk.end_line
+                ),
+            );
+        }
+        for definition in &definitions {
+            if remaining_chars == 0 {
+                break;
+            }
+            push_pack_item(
+                &mut items,
+                &mut seen_chunks,
+                &mut remaining_chars,
+                definition,
+                None,
+                "symbol".to_owned(),
+                "symbol_definition",
+                "defines a symbol named in the pack query".to_owned(),
+            );
+        }
+    }
+    json!({
+        "query": query,
+        "source": source,
+        "mode": mode.to_string(),
+        "limit": limit,
+        "budget_tokens": budget_tokens,
+        "include_neighbors": include_neighbors,
+        "include_symbol_definitions": include_symbol_definitions,
+        "estimated_tokens_used": budget_tokens.saturating_mul(4).saturating_sub(remaining_chars).div_ceil(4),
+        "stats": index.stats(),
+        "warnings": index_warnings(index),
+        "items": items,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_pack_item(
+    items: &mut Vec<Value>,
+    seen_chunks: &mut std::collections::HashSet<(String, usize, usize)>,
+    remaining_chars: &mut usize,
+    chunk: &crate::types::Chunk,
+    score: Option<f32>,
+    source: String,
+    kind: &str,
+    why: String,
+) {
+    if *remaining_chars == 0
+        || !seen_chunks.insert((chunk.file_path.clone(), chunk.start_line, chunk.end_line))
+    {
+        return;
+    }
+    let content = if chunk.content.len() > *remaining_chars {
+        chunk.content.chars().take(*remaining_chars).collect()
+    } else {
+        chunk.content.clone()
+    };
+    *remaining_chars = remaining_chars.saturating_sub(content.len());
+    items.push(json!({
+        "kind": kind,
+        "file_path": chunk.file_path,
+        "start_line": chunk.start_line,
+        "end_line": chunk.end_line,
+        "score": score,
+        "source": source,
+        "why": why,
+        "symbols": chunk.symbols,
+        "breadcrumbs": chunk.breadcrumbs,
+        "content": content,
+    }));
+}
+
+fn file_header_chunk<'a>(
+    chunks: &'a [crate::types::Chunk],
+    chunk: &crate::types::Chunk,
+) -> Option<&'a crate::types::Chunk> {
+    if chunk.start_line == 1 {
+        return None;
+    }
+    chunks
+        .iter()
+        .find(|candidate| candidate.file_path == chunk.file_path && candidate.start_line == 1)
+}
+
+fn adjacent_chunks<'a>(
+    chunks: &'a [crate::types::Chunk],
+    target: &crate::types::Chunk,
+    include_neighbors: usize,
+) -> Vec<&'a crate::types::Chunk> {
+    let mut before: Vec<_> = chunks
+        .iter()
+        .filter(|chunk| chunk.file_path == target.file_path && chunk.start_line < target.start_line)
+        .collect();
+    before.sort_by_key(|chunk| std::cmp::Reverse(chunk.end_line));
+    let mut after: Vec<_> = chunks
+        .iter()
+        .filter(|chunk| chunk.file_path == target.file_path && chunk.start_line > target.start_line)
+        .collect();
+    after.sort_by_key(|chunk| chunk.start_line);
+    before
+        .into_iter()
+        .take(include_neighbors)
+        .chain(after.into_iter().take(include_neighbors))
+        .collect()
+}
+
+fn query_symbol_definition_chunks<'a>(
+    index: &'a SifsIndex,
+    query: &str,
+) -> Vec<&'a crate::types::Chunk> {
+    let mut chunks = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for term in query.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')) {
+        if term.len() < 3 {
+            continue;
+        }
+        for posting in index.symbol_lookup(term, MCP_MAX_LIMIT) {
+            if !matches!(
+                posting.kind.as_str(),
+                "class"
+                    | "const"
+                    | "def"
+                    | "enum"
+                    | "fn"
+                    | "function"
+                    | "impl"
+                    | "interface"
+                    | "struct"
+                    | "trait"
+                    | "type"
+            ) {
+                continue;
+            }
+            if seen.insert(posting.chunk_id)
+                && let Some(chunk) = index.chunks.get(posting.chunk_id)
+            {
+                chunks.push(chunk);
+            }
+        }
+    }
+    chunks
+}
+
+fn format_symbol_postings(name: &str, postings: Option<&Vec<Value>>) -> String {
+    let mut lines = vec![format!("Indexed symbols for {name:?}:")];
+    for posting in postings.into_iter().flatten() {
+        lines.push(format!(
+            "{}:{} {} {}",
+            posting["file_path"].as_str().unwrap_or_default(),
+            posting["line"].as_u64().unwrap_or_default(),
+            posting["kind"].as_str().unwrap_or_default(),
+            posting["name"].as_str().unwrap_or_default()
+        ));
+    }
+    lines.join("\n")
 }
 
 fn tool_agent_print(args: Value) -> ToolText {
@@ -1020,6 +1420,37 @@ fn parse_mcp_limit(
         return Err(format!("{key} must be at most {MCP_MAX_LIMIT}"));
     }
     Ok(limit as usize)
+}
+
+fn parse_mcp_positive_usize(
+    args: &Value,
+    key: &str,
+    default: usize,
+) -> std::result::Result<usize, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(default);
+    };
+    let Some(limit) = value.as_u64() else {
+        return Err(format!("{key} must be an integer >= 1"));
+    };
+    if limit == 0 {
+        return Err(format!("{key} must be at least 1"));
+    }
+    Ok(limit as usize)
+}
+
+fn parse_mcp_nonnegative_usize(
+    args: &Value,
+    key: &str,
+    default: usize,
+) -> std::result::Result<usize, String> {
+    let Some(value) = args.get(key) else {
+        return Ok(default);
+    };
+    value
+        .as_u64()
+        .map(|limit| limit as usize)
+        .ok_or_else(|| format!("{key} must be an integer >= 0"))
 }
 
 fn string_array_arg(args: &Value, key: &str) -> std::result::Result<Vec<String>, String> {
@@ -1374,6 +1805,9 @@ fn tool_names() -> Vec<&'static str> {
         "clear_index",
         "list_files",
         "get_chunk",
+        "symbol",
+        "outline",
+        "pack",
         "agent_context",
         "profile_list",
         "profile_show",
@@ -1478,6 +1912,7 @@ fn tool_schemas() -> Vec<Value> {
                 "properties": {
                     "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
                     "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
+                    "prefix": {"type": ["string", "null"], "description": "Optional repository-relative path prefix."},
                     "limit": {"type": "integer", "minimum": 1, "default": 200, "description": "Maximum number of file paths to return."}
                 }
             }
@@ -1494,6 +1929,51 @@ fn tool_schemas() -> Vec<Value> {
                     "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
                 },
                 "required": ["file_path", "line"]
+            }
+        }),
+        json!({
+            "name": "symbol",
+            "description": SYMBOL_DESCRIPTION.trim(),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Exact or folded symbol name to look up."},
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
+                    "limit": {"type": "integer", "minimum": 1, "default": 20, "description": "Maximum number of symbol postings to return."}
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
+            "name": "outline",
+            "description": OUTLINE_DESCRIPTION.trim(),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Repository-relative indexed file path."},
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
+                },
+                "required": ["file_path"]
+            }
+        }),
+        json!({
+            "name": "pack",
+            "description": PACK_DESCRIPTION.trim(),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Task query for the context pack."},
+                    "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source and search defaults."},
+                    "mode": {"type": "string", "enum": ["hybrid", "semantic", "bm25"], "default": "hybrid"},
+                    "limit": {"type": "integer", "minimum": 1, "default": 20},
+                    "budget_tokens": {"type": "integer", "minimum": 1, "default": 6000},
+                    "include_neighbors": {"type": "integer", "minimum": 0, "default": 0},
+                    "include_symbol_definitions": {"type": "boolean", "default": false}
+                },
+                "required": ["query"]
             }
         }),
         json!({

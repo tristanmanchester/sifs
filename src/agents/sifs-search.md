@@ -13,6 +13,9 @@ sifs search "authentication flow" --source ./my-project
 sifs search "save_pretrained" --source ./my-project
 sifs search "save model to disk" --source ./my-project --limit 10
 sifs search "auth flow" --source ./my-project --mode semantic --encoder hashing
+sifs symbol SessionToken --source ./my-project --json
+sifs outline src/auth.py --source ./my-project --json
+sifs pack "how auth flow works" --source ./my-project --budget-tokens 6000 --json
 ```
 
 Use `sifs find-related` to discover code similar to a known location. Pass
@@ -39,6 +42,7 @@ If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 
 - Search local directories and Git URLs with hybrid, semantic, or BM25 ranking.
 - Discover related code from a known file and line.
+- Inspect indexed symbols, file outlines, file paths, chunks, and context packs.
 - Discover the CLI/MCP contract with `sifs agent-context --json`.
 - Save reusable source/search defaults with `sifs profile`.
 - Record local feedback with `sifs feedback create`.
@@ -50,7 +54,7 @@ If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 ## Workflow
 
 1. Start with `sifs search` to find relevant chunks.
-2. Inspect full files only when the returned chunk is not enough context.
+2. Use `sifs symbol`, `sifs outline`, `sifs get`, or `sifs pack` to narrow context before reading full files.
 3. Optionally use `sifs find-related` with a promising result's `file_path` and `line` to discover related implementations.
 4. Use grep only when you need exhaustive literal matches or quick confirmation of an exact string.
 

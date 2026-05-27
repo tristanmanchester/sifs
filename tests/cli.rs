@@ -260,6 +260,97 @@ fn mcp_help_documents_server_options() {
 }
 
 #[test]
+fn symbol_command_returns_indexed_symbol_json_without_semantic_model() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "symbol",
+            "token_validation",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["name"], "token_validation");
+    assert!(
+        value["symbols"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|symbol| symbol["file_path"] == "src/lib.rs" && symbol["kind"] == "function")
+    );
+}
+
+#[test]
+fn outline_command_returns_indexed_file_structure_json() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "outline",
+            "src/lib.rs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["outline"]["file_path"], "src/lib.rs");
+    assert_eq!(value["outline"]["symbols"][0]["name"], "token_validation");
+    assert_eq!(value["outline"]["chunk_count"], 1);
+}
+
+#[test]
+fn list_files_accepts_repository_relative_prefix() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "list-files",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--prefix",
+            "src/",
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let files = value["files"].as_array().unwrap();
+    assert!(
+        files
+            .iter()
+            .all(|file| file.as_str().unwrap().starts_with("src/"))
+    );
+    assert_eq!(value["prefix"], "src/");
+}
+
+#[test]
 fn daemon_run_ping_and_status_work_over_socket() {
     if !unix_sockets_available() {
         return;
@@ -758,6 +849,11 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["list-files"]["flags"]["--model"].is_object());
     assert!(value["commands"]["list-files"]["flags"]["--offline"].is_object());
     assert!(value["commands"]["list-files"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--prefix"].is_object());
+    assert!(value["commands"]["symbol"].is_object());
+    assert_eq!(value["commands"]["symbol"]["output"], "symbol_postings");
+    assert!(value["commands"]["outline"].is_object());
+    assert_eq!(value["commands"]["outline"]["output"], "file_outline");
     assert!(value["commands"]["find-related"]["flags"]["--model"].is_object());
     assert!(value["commands"]["find-related"]["flags"]["--encoder"].is_object());
     assert!(value["commands"]["find-related"]["flags"]["--offline"].is_object());
@@ -788,6 +884,20 @@ fn agent_context_json_describes_agent_native_contract() {
             .unwrap()
             .iter()
             .any(|tool| tool == "list_files")
+    );
+    assert!(
+        value["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "symbol")
+    );
+    assert!(
+        value["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "pack")
     );
     assert!(value["integrations"]["targets"].is_array());
     assert_eq!(
@@ -832,6 +942,8 @@ fn agent_print_snippet_json_is_cli_first_and_mcp_optional() {
     let content = value["content"].as_str().unwrap();
     assert!(content.contains("sifs agent-context --json"));
     assert!(content.contains("sifs search"));
+    assert!(content.contains("sifs symbol"));
+    assert!(content.contains("sifs outline"));
     assert!(content.contains("fall back to the CLI"));
 }
 

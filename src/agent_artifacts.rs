@@ -324,7 +324,7 @@ fn render_snippet(target: AgentTarget, source: Option<&str>, profile: Option<&st
         .map(|profile| format!("\n- A SIFS profile named `{profile}` is available; use `--profile {profile}` when it matches this task."))
         .unwrap_or_default();
     format!(
-        "## SIFS Code Search\n\nUse SIFS for codebase search before broad file reads when you need to find behavior, symbols, related implementations, or relevant files.\n\n- Discover the current contract with `sifs agent-context --json`.\n- Search with `sifs search \"<query>\"{source_arg} --limit 10`.\n- Narrow by path with `--filter-path <repo-relative-path>` and use `--mode bm25` for exact symbols.\n- Inspect results with `sifs get <file_path> <line>{source_arg}` and `sifs find-related <file_path> <line>{source_arg}`.\n- If SIFS MCP tools are visible in the current session, they may be used; if not, fall back to the CLI immediately.{profile_line}\n\nThis block is intended for `{file_name}` and is managed by `sifs agent install`."
+        "## SIFS Code Search\n\nUse SIFS for codebase search before broad file reads when you need to find behavior, symbols, related implementations, or relevant files.\n\n- Discover the current contract with `sifs agent-context --json`.\n- Search with `sifs search \"<query>\"{source_arg} --limit 10`.\n- Narrow by path with `--filter-path <repo-relative-path>` and use `--mode bm25` for exact symbols.\n- Inspect structure with `sifs symbol <name>{source_arg}`, `sifs outline <file_path>{source_arg}`, and `sifs list-files{source_arg} --json`.\n- Retrieve context with `sifs get <file_path> <line>{source_arg}`, `sifs find-related <file_path> <line>{source_arg}`, and `sifs pack \"<query>\"{source_arg} --json`.\n- If SIFS MCP tools are visible in the current session, they may be used; if not, fall back to the CLI immediately.{profile_line}\n\nThis block is intended for `{file_name}` and is managed by `sifs agent install`."
     )
 }
 
@@ -335,7 +335,7 @@ fn render_mcp_guidance(target: AgentTarget) -> String {
         _ => "all",
     };
     format!(
-        "SIFS MCP is optional. Configure it with:\n\n```bash\nsifs mcp install --client {client} --dry-run\nsifs mcp doctor --offline --no-cache\n```\n\nOnly use MCP tools when they are visible in the current agent session. Otherwise use `sifs search`, `sifs list-files`, `sifs get`, and `sifs agent-context --json` from the shell.\n"
+        "SIFS MCP is optional. Configure it with:\n\n```bash\nsifs mcp install --client {client} --dry-run\nsifs mcp doctor --offline --no-cache\n```\n\nOnly use MCP tools when they are visible in the current agent session. Otherwise use `sifs search`, `sifs symbol`, `sifs outline`, `sifs pack`, `sifs list-files`, `sifs get`, and `sifs agent-context --json` from the shell.\n"
     )
 }
 

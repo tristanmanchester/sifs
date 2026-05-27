@@ -9,6 +9,18 @@ versioning where practical.
 
 ## Unreleased
 
+### Added
+
+- Added indexed structural inspection with `sifs symbol`, `sifs outline`,
+  `list-files --prefix`, and matching MCP `symbol`, `outline`, and `pack`
+  tools over existing SIFS index data.
+
+### Changed
+
+- Updated the machine-readable agent context, MCP guidance, CLI docs, README,
+  and bundled SIFS skill guidance to teach symbol lookup, file outlines,
+  indexed-path narrowing, and MCP context packs.
+
 ### Fixed
 
 - Fixed Clippy warnings for stable Rust: type complexity, boolean expression

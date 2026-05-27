@@ -21,8 +21,12 @@ sifs search "parser error handling" --source <project> --filter-path src/parser.
 
 ```bash
 sifs list-files --source <project> --limit 200 --json
+sifs list-files --source <project> --prefix src/ --json
+sifs symbol <symbol_name> --source <project> --json
+sifs outline <file_path> --source <project> --json
 sifs get <file_path> <line> --source <project>
 sifs find-related <file_path> <line> --source <project> --limit 10 --json
+sifs pack "task query" --source <project> --budget-tokens 6000 --json
 ```
 
 ## Profiles
