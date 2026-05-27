@@ -1127,7 +1127,13 @@ fn normalize_filter_path(path: &str) -> String {
     for part in normalized.split('/') {
         match part {
             "" | "." => {}
-            ".." => parts.push(part),
+            ".." => {
+                if parts.last().is_some_and(|segment| *segment != "..") {
+                    parts.pop();
+                } else {
+                    parts.push(part);
+                }
+            }
             value => parts.push(value),
         }
     }
