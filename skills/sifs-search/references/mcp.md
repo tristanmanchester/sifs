@@ -17,6 +17,7 @@ Fallback immediately to shell commands:
 
 ```bash
 sifs search "query" --source <project>
+sifs pack "query" --source <project> --budget-tokens 6000 --json
 sifs list-files --source <project> --json
 sifs get <file_path> <line> --source <project>
 ```

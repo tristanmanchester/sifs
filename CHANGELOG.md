@@ -57,8 +57,9 @@ versioning where practical.
 - Fixed profile-backed file listing, status, get, and related-code inspection
   so saved document and extension indexing options are honored.
 - Fixed tree-sitter code chunking by upgrading `tree-sitter-language-pack`
-  from `1.8.0-rc.26` to `1.8.1`, which restores working parser downloads
-  and the new owned-`Node` API.
+  from `1.8.0-rc.26` to `1.8.1`, fixing a broken parser manifest download URL
+  that caused tree-sitter-backed chunking and symbol extraction to fall back to
+  line-based chunking and restoring the new owned-`Node` API.
 - Fixed `--force` uninstall help text to document that directories missing
   `SKILL.md` also require `--force`.
 
