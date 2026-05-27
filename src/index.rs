@@ -48,7 +48,7 @@ const SPARSE_CACHE_FILE: &str = "index-v6-sparse.bin";
 const SEMANTIC_CACHE_PREFIX: &str = "semantic-v6";
 const DEFAULT_QUERY_CACHE_ENTRIES: usize = 256;
 
-type ChunkMappings = (
+type IndexMappings = (
     HashMap<String, Vec<usize>>,
     HashMap<String, Vec<usize>>,
     HashMap<String, Vec<usize>>,
@@ -1127,14 +1127,20 @@ fn normalize_filter_path(path: &str) -> String {
     for part in normalized.split('/') {
         match part {
             "" | "." => {}
-            ".." => parts.push(part),
+            ".." => {
+                if parts.last().is_some_and(|segment| *segment != "..") {
+                    parts.pop();
+                } else {
+                    parts.push(part);
+                }
+            }
             value => parts.push(value),
         }
     }
     parts.join("/")
 }
 
-fn populate_mapping(chunks: &[Chunk]) -> ChunkMappings {
+fn populate_mapping(chunks: &[Chunk]) -> IndexMappings {
     let mut file_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut language_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut symbol_mapping: HashMap<String, Vec<usize>> = HashMap::new();

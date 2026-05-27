@@ -48,8 +48,9 @@ Snippet installs write only a SIFS managed block:
 <!-- END SIFS AGENT INSTRUCTIONS -->
 ```
 
-Re-running an identical install is a no-op. User-modified managed blocks require
-`--force`. See [agent-integration.md](agent-integration.md) for target details.
+Re-running an identical install is a no-op. User-modified managed blocks and
+skill directories that lack a `SKILL.md` file require `--force` to remove. See
+[agent-integration.md](agent-integration.md) for target details.
 
 ## Search
 

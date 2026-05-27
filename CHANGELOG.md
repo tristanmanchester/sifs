@@ -14,6 +14,53 @@ versioning where practical.
 - Fixed Clippy warnings for stable Rust: type complexity, boolean expression
   simplification, manual div_ceil usage, and redundant conditional branches.
 
+## 0.3.4 - 2026-05-26
+
+### Changed
+
+- Improved README first-run onboarding so new users can tell what SIFS is,
+  run a fully offline first search, and choose the right next command for
+  agent, semantic search, context-pack, and inspection workflows.
+
+### Fixed
+
+- Fixed code chunking fallback behavior so fresh machines without cached
+  tree-sitter language parsers still produce non-overlapping chunks with symbol
+  breadcrumbs.
+- Fixed default indexing ignores so generated directories and lockfiles are
+  skipped case-insensitively on Linux.
+- Fixed search path filters so relative paths containing `..` parent segments
+  match their normalized indexed files.
+- Fixed BM25 indexing so symbol names and file stems are not double-counted in
+  term frequency scoring.
+- Fixed daemon startup so dangling symlinks at the socket path are reclaimed
+  instead of causing bind failures.
+- Fixed skill uninstall safety so directories without `SKILL.md` require
+  `--force` before recursive removal.
+- Fixed `sifs agent-context --json` so file inspection and related-code
+  commands advertise their model, cache, and download-safety flags in the
+  machine-readable contract.
+- Fixed `sifs agent-context --json` so eval and tune advertise their model,
+  encoder, and download-safety flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so search and pack advertise their
+  persistent cache-control flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so search and pack advertise their
+  model, encoder, and download-safety flags in the machine-readable contract.
+- Fixed `sifs agent-context --json` so the advertised `eval --limit` default
+  matches the CLI's actual default.
+- Fixed explicit `--encoder` flags so they override saved profile encoder
+  defaults for search, pack, and related-code commands.
+- Fixed daemon-backed `sifs search --explain` so JSON results include ranking
+  evidence when a running daemon handles the search.
+- Fixed saved profile Git refs so profile-backed search, pack, file listing,
+  status, get, related-code, and MCP serving use the pinned branch or tag.
+- Fixed profile-backed file listing, status, get, and related-code inspection
+  so saved document and extension indexing options are honored.
+- Fixed tree-sitter code chunking by upgrading `tree-sitter-language-pack`
+  from `1.8.0-rc.26` to `1.8.1`, which restores working parser downloads.
+- Fixed `--force` uninstall help text to document that directories missing
+  `SKILL.md` also require `--force`.
+
 ## 0.3.3 - 2026-05-07
 
 ### Added

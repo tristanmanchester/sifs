@@ -107,9 +107,7 @@ impl Bm25Index {
 fn tokens_for_chunk(chunk: &Chunk) -> Vec<String> {
     let mut tokens = tokenize(&chunk.content);
     for symbol in &chunk.symbols {
-        let symbol_tokens = tokenize(&symbol.name);
-        tokens.extend(symbol_tokens.iter().cloned());
-        tokens.extend(symbol_tokens);
+        tokens.extend(tokenize(&symbol.name));
         tokens.extend(tokenize(&symbol.kind));
     }
     for breadcrumb in &chunk.breadcrumbs {
@@ -117,9 +115,7 @@ fn tokens_for_chunk(chunk: &Chunk) -> Vec<String> {
     }
     let path = Path::new(&chunk.file_path);
     if let Some(stem) = path.file_stem().map(|s| s.to_string_lossy()) {
-        let stem_tokens = tokenize(&stem);
-        tokens.extend(stem_tokens.iter().cloned());
-        tokens.extend(stem_tokens);
+        tokens.extend(tokenize(&stem));
     }
     if let Some(parent) = path.parent() {
         let parts = parent
@@ -144,7 +140,7 @@ fn tokens_for_chunk(chunk: &Chunk) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::Bm25Index;
-    use crate::types::Chunk;
+    use crate::types::{Chunk, Symbol};
 
     fn chunk(content: &str, file_path: &str) -> Chunk {
         Chunk {
@@ -169,6 +165,22 @@ mod tests {
         let results = index.search("session", 1, None);
 
         assert_eq!(results[0].0, 0);
+    }
+
+    #[test]
+    fn bm25_metadata_tokens_are_counted_once_per_source() {
+        let mut symbol_chunk = chunk("fn unrelated() {}", "src/other.rs");
+        symbol_chunk.symbols.push(Symbol {
+            name: "ParseSession".to_owned(),
+            kind: "function".to_owned(),
+            line: 1,
+        });
+        let stem_chunk = chunk("fn unrelated() {}", "src/parse_session.rs");
+        let index = Bm25Index::build_from_chunks(&[symbol_chunk, stem_chunk]);
+
+        let postings = index.postings.get("parse").unwrap();
+
+        assert_eq!(postings, &vec![(0, 1), (1, 1)]);
     }
 
     #[test]

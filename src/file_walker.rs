@@ -334,7 +334,9 @@ pub fn walk_files(
         .require_git(false)
         .filter_entry(move |entry| {
             let name = entry.file_name().to_string_lossy();
-            !DEFAULT_IGNORED_DIRS.contains(name.as_ref()) && !ignore_owned.contains(name.as_ref())
+            let default_name = name.to_lowercase();
+            !DEFAULT_IGNORED_DIRS.contains(default_name.as_str())
+                && !ignore_owned.contains(name.as_ref())
         });
     let files: Vec<PathBuf> = builder
         .build()
@@ -345,7 +347,7 @@ pub fn walk_files(
             if path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| DEFAULT_IGNORED_FILES.contains(name))
+                .is_some_and(|name| DEFAULT_IGNORED_FILES.contains(name.to_lowercase().as_str()))
             {
                 return false;
             }
@@ -464,6 +466,30 @@ mod tests {
         assert!(files.iter().any(|path| path.ends_with("README.md")));
         assert!(files.iter().any(|path| path.ends_with("config.json")));
         assert!(!files.iter().any(|path| path.ends_with("package-lock.json")));
+    }
+
+    #[test]
+    fn walk_files_ignores_default_names_case_insensitively() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("NODE_MODULES")).unwrap();
+        fs::write(dir.path().join("src.rs"), "fn visible() {}\n").unwrap();
+        fs::write(
+            dir.path().join("NODE_MODULES").join("lib.rs"),
+            "fn ignored_dir() {}\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("PACKAGE-LOCK.JSON"), "{}\n").unwrap();
+        let extensions = filter_extensions(None, true);
+
+        let files = walk_files(dir.path(), &extensions, None);
+
+        assert!(files.iter().any(|path| path.ends_with("src.rs")));
+        assert!(
+            !files
+                .iter()
+                .any(|path| path.ends_with("NODE_MODULES/lib.rs"))
+        );
+        assert!(!files.iter().any(|path| path.ends_with("PACKAGE-LOCK.JSON")));
     }
 
     #[test]

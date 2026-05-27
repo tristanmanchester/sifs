@@ -6,7 +6,7 @@ pub fn chunk_source(source: &str, file_path: &str, language: Option<String>) -> 
         return Vec::new();
     }
     chunk_code_aware(source, file_path, language.clone())
-        .unwrap_or_else(|| chunk_lines(source, file_path, language, 50, 5))
+        .unwrap_or_else(|| chunk_code_fallback(source, file_path, language, 1500))
 }
 
 pub fn chunk_lines(
@@ -49,7 +49,7 @@ pub fn chunk_lines(
 fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> Option<Vec<Chunk>> {
     let language = language?;
     let mut parser = tree_sitter_language_pack::get_parser(&language).ok()?;
-    let tree = parser.parse(source.as_bytes(), None)?;
+    let tree = parser.parse(source)?;
     let root = tree.root_node();
     let (node_groups, _) = group_child_nodes(source, root, 1500);
     let ranges = text_ranges_from_node_groups(source, &node_groups);
@@ -60,7 +60,10 @@ fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> 
             if content.trim().is_empty() {
                 return None;
             }
-            let end_index = range.end.saturating_sub(1).max(range.start);
+            let trimmed_len = content.trim_end().len();
+            let end_index = (range.start + trimmed_len)
+                .saturating_sub(1)
+                .max(range.start);
             let start_line = line_number_at_byte(source, range.start);
             let end_line = line_number_at_byte(source, end_index);
             let symbols = extract_symbols(&content, start_line);
@@ -80,6 +83,41 @@ fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> 
         })
         .collect();
     (!chunks.is_empty()).then_some(chunks)
+}
+
+fn chunk_code_fallback(
+    source: &str,
+    file_path: &str,
+    language: Option<String>,
+    chunk_size: usize,
+) -> Vec<Chunk> {
+    let ranges = split_source_by_chars(source, chunk_size);
+    ranges
+        .into_iter()
+        .filter_map(|range| {
+            let content = source.get(range.clone())?.to_owned();
+            if content.trim().is_empty() {
+                return None;
+            }
+            let end_index = range.end.saturating_sub(1).max(range.start);
+            let start_line = line_number_at_byte(source, range.start);
+            let end_line = line_number_at_byte(source, end_index);
+            let symbols = extract_symbols(&content, start_line);
+            let breadcrumbs = symbols
+                .iter()
+                .map(|symbol| format!("{} {}", symbol.kind, symbol.name))
+                .collect();
+            Some(Chunk {
+                content,
+                file_path: file_path.to_owned(),
+                start_line,
+                end_line,
+                language: language.clone(),
+                symbols,
+                breadcrumbs,
+            })
+        })
+        .collect()
 }
 
 fn extract_symbols(content: &str, start_line: usize) -> Vec<Symbol> {
@@ -216,12 +254,13 @@ fn symbol_name(rest: &str) -> Option<String> {
 
 fn group_child_nodes(
     source: &str,
-    node: tree_sitter::Node<'_>,
+    node: tree_sitter_language_pack::Node,
     chunk_size: usize,
 ) -> (Vec<Vec<Range<usize>>>, Vec<usize>) {
     let child_count = node.child_count();
     if child_count == 0 {
-        let range = node.byte_range();
+        let br = node.byte_range();
+        let range = br.start..br.end;
         let count = token_count(source, &range);
         if count > chunk_size {
             let ranges = split_range_by_chars(source, range, chunk_size);
@@ -246,7 +285,8 @@ fn group_child_nodes(
         let Some(child) = node.child(idx as u32) else {
             continue;
         };
-        let range = child.byte_range();
+        let br = child.byte_range();
+        let range = br.start..br.end;
         let count = token_count(source, &range);
         if count > chunk_size {
             if !current_group.is_empty() {
@@ -377,6 +417,44 @@ fn split_range_by_chars(source: &str, range: Range<usize>, chunk_size: usize) ->
     ranges
 }
 
+fn split_source_by_chars(source: &str, chunk_size: usize) -> Vec<Range<usize>> {
+    if chunk_size == 0 {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut chunk_start = 0usize;
+    let mut line_start = 0usize;
+    let mut count = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let line_count = line.chars().count();
+        if line_count > chunk_size {
+            if chunk_start < line_start {
+                ranges.push(chunk_start..line_start);
+            }
+            ranges.extend(split_range_by_chars(
+                source,
+                line_start..line_end,
+                chunk_size,
+            ));
+            chunk_start = line_end;
+            count = 0;
+        } else if count > 0 && count + line_count > chunk_size {
+            ranges.push(chunk_start..line_start);
+            chunk_start = line_start;
+            count = line_count;
+        } else {
+            count += line_count;
+        }
+        line_start = line_end;
+    }
+    if chunk_start < source.len() {
+        ranges.push(chunk_start..source.len());
+    }
+    ranges
+}
+
 fn line_number_at_byte(source: &str, byte_index: usize) -> usize {
     let index = previous_char_boundary(source, byte_index.min(source.len()));
     source[..index].matches('\n').count() + 1
@@ -391,7 +469,7 @@ fn previous_char_boundary(source: &str, mut byte_index: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_lines, chunk_source};
+    use super::{chunk_code_fallback, chunk_lines, chunk_source};
 
     #[test]
     fn chunk_lines_uses_overlap_and_locations() {
@@ -431,6 +509,25 @@ mod tests {
         assert!(chunks.iter().all(|chunk| chunk.content.len() <= 1800));
         assert_eq!(chunks.first().unwrap().start_line, 1);
         assert_eq!(chunks.last().unwrap().end_line, 1);
+    }
+
+    #[test]
+    fn code_fallback_splits_without_losing_symbols() {
+        let source = format!(
+            "class SessionStore:\n    pass\n\ndef load_session():\n    return \"{}\"\n",
+            "x".repeat(2500)
+        );
+        let chunks = chunk_code_fallback(&source, "session.py", Some("python".to_owned()), 1500);
+        let symbols = chunks
+            .iter()
+            .flat_map(|chunk| chunk.symbols.iter().map(|symbol| symbol.name.as_str()))
+            .collect::<Vec<_>>();
+
+        assert!(chunks.len() > 1);
+        assert!(chunks.windows(2).all(|w| w[0].end_line <= w[1].start_line));
+        assert!(chunks.iter().all(|chunk| chunk.content.len() <= 1800));
+        assert!(symbols.contains(&"SessionStore"));
+        assert!(symbols.contains(&"load_session"));
     }
 
     #[test]
