@@ -36,7 +36,7 @@ sha2 = "0.10"
 tempfile = "3.23"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 tree-sitter = "0.26"
-tree-sitter-language-pack = "1.8.0-rc.26"
+tree-sitter-language-pack = "1.8.1"
 ureq = { version = "2.12", features = ["json"] }
 
 [[bin]]

@@ -51,6 +51,10 @@ versioning where practical.
   status, get, related-code, and MCP serving use the pinned branch or tag.
 - Fixed profile-backed file listing, status, get, and related-code inspection
   so saved document and extension indexing options are honored.
+- Fixed tree-sitter code chunking by upgrading `tree-sitter-language-pack`
+  from `1.8.0-rc.26` to `1.8.1`, which restores working parser downloads.
+- Fixed `--force` uninstall help text to document that directories missing
+  `SKILL.md` also require `--force`.
 
 ## 0.3.3 - 2026-05-07
 

@@ -49,7 +49,7 @@ pub fn chunk_lines(
 fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> Option<Vec<Chunk>> {
     let language = language?;
     let mut parser = tree_sitter_language_pack::get_parser(&language).ok()?;
-    let tree = parser.parse(source.as_bytes(), None)?;
+    let tree = parser.parse(source)?;
     let root = tree.root_node();
     let (node_groups, _) = group_child_nodes(source, root, 1500);
     let ranges = text_ranges_from_node_groups(source, &node_groups);
@@ -60,7 +60,10 @@ fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> 
             if content.trim().is_empty() {
                 return None;
             }
-            let end_index = range.end.saturating_sub(1).max(range.start);
+            let trimmed_len = content.trim_end().len();
+            let end_index = (range.start + trimmed_len)
+                .saturating_sub(1)
+                .max(range.start);
             let start_line = line_number_at_byte(source, range.start);
             let end_line = line_number_at_byte(source, end_index);
             let symbols = extract_symbols(&content, start_line);
@@ -251,12 +254,13 @@ fn symbol_name(rest: &str) -> Option<String> {
 
 fn group_child_nodes(
     source: &str,
-    node: tree_sitter::Node<'_>,
+    node: tree_sitter_language_pack::Node,
     chunk_size: usize,
 ) -> (Vec<Vec<Range<usize>>>, Vec<usize>) {
     let child_count = node.child_count();
     if child_count == 0 {
-        let range = node.byte_range();
+        let br = node.byte_range();
+        let range = br.start..br.end;
         let count = token_count(source, &range);
         if count > chunk_size {
             let ranges = split_range_by_chars(source, range, chunk_size);
@@ -281,7 +285,8 @@ fn group_child_nodes(
         let Some(child) = node.child(idx as u32) else {
             continue;
         };
-        let range = child.byte_range();
+        let br = child.byte_range();
+        let range = br.start..br.end;
         let count = token_count(source, &range);
         if count > chunk_size {
             if !current_group.is_empty() {
