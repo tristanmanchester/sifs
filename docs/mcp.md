@@ -143,6 +143,10 @@ Use `list_files` with a bounded limit:
 {"source": "/path/to/project", "prefix": "src/auth/", "limit": 200}
 ```
 
+Pass `include_docs: true` and `extensions: ["md", "json"]` on `list_files`,
+`symbol`, `outline`, or `pack` when the agent needs a one-off document or
+custom-extension index scope without saving a profile.
+
 Use `get_chunk` with a file and one-based line:
 
 ```json
@@ -158,8 +162,11 @@ Use `symbol` when an agent already knows the symbol name:
 Use `outline` to inspect one indexed file before reading raw chunks:
 
 ```json
-{"source": "/path/to/project", "file_path": "src/auth/session.rs"}
+{"source": "/path/to/project", "file_path": "src/auth/session.rs", "symbols_limit": 200, "chunks_limit": 100}
 ```
+
+Use `no_chunks: true` for a symbol-only outline. Missing indexed paths return a
+structured `found: false` response instead of a prose-only failure.
 
 Use `pack` to retrieve task-shaped context through MCP:
 
@@ -173,6 +180,10 @@ Use `pack` to retrieve task-shaped context through MCP:
   "include_symbol_definitions": true
 }
 ```
+
+When the SIFS daemon is running, MCP `search`, `list_files`, `symbol`,
+`outline`, and `pack` reuse its warm index and fall back to the embedded MCP
+index when the daemon is unavailable.
 
 ## Profiles and feedback
 

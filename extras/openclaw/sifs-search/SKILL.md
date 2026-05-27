@@ -34,7 +34,7 @@ Inspect indexed files and chunks before reading broad files:
 sifs list-files --source <project> --limit 200 --json
 sifs list-files --source <project> --prefix src/auth/ --json
 sifs symbol SessionToken --source <project> --json
-sifs outline src/auth.rs --source <project> --json
+sifs outline src/auth.rs --source <project> --symbols-limit 200 --chunks-limit 100 --json
 sifs get src/auth.rs 42 --source <project>
 sifs find-related src/auth.rs 42 --source <project>
 ```

@@ -5,6 +5,7 @@ use crate::types::{Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, S
 use crate::utils::is_git_url;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -361,6 +362,15 @@ pub enum DaemonRequest {
         options: IndexRuntimeOptions,
         file_path: String,
     },
+    Pack {
+        source: SourceSpec,
+        options: IndexRuntimeOptions,
+        query: String,
+        search: SearchOptionsWire,
+        budget_tokens: usize,
+        include_neighbors: usize,
+        include_symbol_definitions: bool,
+    },
     GetChunk {
         source: SourceSpec,
         options: IndexRuntimeOptions,
@@ -477,6 +487,10 @@ pub enum DaemonResult {
         source: SourceSpec,
         file_path: String,
         outline: FileOutline,
+    },
+    Pack {
+        source: SourceSpec,
+        payload: Value,
     },
     GetChunk {
         source: SourceSpec,

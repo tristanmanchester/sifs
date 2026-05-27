@@ -1,3 +1,4 @@
+use crate::context_pack::context_pack_payload;
 use crate::daemon::manager::IndexManager;
 use crate::daemon::paths::DaemonPaths;
 use crate::daemon::protocol::{
@@ -259,6 +260,31 @@ fn execute_request(request: DaemonRequest, manager: &mut IndexManager) -> Result
                 file_path,
                 outline,
             })
+        }
+        DaemonRequest::Pack {
+            source,
+            options,
+            query,
+            search,
+            budget_tokens,
+            include_neighbors,
+            include_symbol_definitions,
+        } => {
+            let index = manager.get(source.clone(), options)?;
+            let search_options = crate::types::SearchOptions::from(search);
+            let results = index.search_with(&query, &search_options)?;
+            let payload = context_pack_payload(
+                index,
+                &source.source,
+                &query,
+                search_options.mode,
+                search_options.top_k,
+                budget_tokens,
+                include_neighbors,
+                include_symbol_definitions,
+                &results,
+            );
+            Ok(DaemonResult::Pack { source, payload })
         }
         DaemonRequest::GetChunk {
             source,

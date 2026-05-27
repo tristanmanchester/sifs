@@ -1,5 +1,6 @@
 use crate::SifsIndex;
 use crate::agent_artifacts::{AgentArtifact, AgentTarget, render_artifact};
+use crate::context_pack::context_pack_payload;
 use crate::daemon::{
     DaemonClient, DaemonRequest, DaemonResult, IndexRuntimeOptions, SearchOptionsWire, SourceSpec,
     default_daemon_paths,
@@ -267,6 +268,131 @@ impl IndexCache {
             _ => None,
         }
     }
+
+    fn daemon_list_files(
+        &self,
+        source: &str,
+        ref_name: Option<&str>,
+        limit: usize,
+        prefix: Option<&str>,
+        index_options: &McpIndexOptions,
+    ) -> Option<DaemonResult> {
+        let paths = default_daemon_paths().ok()?;
+        if !paths.socket.exists() {
+            return None;
+        }
+        let source = SourceSpec::resolve(
+            source,
+            ref_name.map(str::to_owned),
+            self.offline || index_options.offline,
+        )
+        .ok()?;
+        let runtime_options = index_options.runtime_options(SearchMode::Bm25);
+        match DaemonClient::new(paths).send(DaemonRequest::ListFiles {
+            source,
+            options: runtime_options,
+            limit,
+            prefix: prefix.map(str::to_owned),
+        }) {
+            Ok(result @ DaemonResult::ListFiles { .. }) => Some(result),
+            _ => None,
+        }
+    }
+
+    fn daemon_symbol(
+        &self,
+        source: &str,
+        ref_name: Option<&str>,
+        name: &str,
+        limit: usize,
+        index_options: &McpIndexOptions,
+    ) -> Option<DaemonResult> {
+        let paths = default_daemon_paths().ok()?;
+        if !paths.socket.exists() {
+            return None;
+        }
+        let source = SourceSpec::resolve(
+            source,
+            ref_name.map(str::to_owned),
+            self.offline || index_options.offline,
+        )
+        .ok()?;
+        let runtime_options = index_options.runtime_options(SearchMode::Bm25);
+        match DaemonClient::new(paths).send(DaemonRequest::Symbol {
+            source,
+            options: runtime_options,
+            name: name.to_owned(),
+            limit,
+        }) {
+            Ok(result @ DaemonResult::Symbol { .. }) => Some(result),
+            _ => None,
+        }
+    }
+
+    fn daemon_outline(
+        &self,
+        source: &str,
+        ref_name: Option<&str>,
+        file_path: &str,
+        index_options: &McpIndexOptions,
+    ) -> Option<DaemonResult> {
+        let paths = default_daemon_paths().ok()?;
+        if !paths.socket.exists() {
+            return None;
+        }
+        let source = SourceSpec::resolve(
+            source,
+            ref_name.map(str::to_owned),
+            self.offline || index_options.offline,
+        )
+        .ok()?;
+        let runtime_options = index_options.runtime_options(SearchMode::Bm25);
+        match DaemonClient::new(paths).send(DaemonRequest::Outline {
+            source,
+            options: runtime_options,
+            file_path: file_path.to_owned(),
+        }) {
+            Ok(result @ DaemonResult::Outline { .. }) => Some(result),
+            _ => None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn daemon_pack(
+        &self,
+        source: &str,
+        ref_name: Option<&str>,
+        query: &str,
+        search: &SearchOptions,
+        budget_tokens: usize,
+        include_neighbors: usize,
+        include_symbol_definitions: bool,
+        index_options: &McpIndexOptions,
+    ) -> Option<DaemonResult> {
+        let paths = default_daemon_paths().ok()?;
+        if !paths.socket.exists() {
+            return None;
+        }
+        let source = SourceSpec::resolve(
+            source,
+            ref_name.map(str::to_owned),
+            self.offline || index_options.offline,
+        )
+        .ok()?;
+        let runtime_options = index_options.runtime_options(search.mode);
+        match DaemonClient::new(paths).send(DaemonRequest::Pack {
+            source,
+            options: runtime_options,
+            query: query.to_owned(),
+            search: SearchOptionsWire::from(search.clone()),
+            budget_tokens,
+            include_neighbors,
+            include_symbol_definitions,
+        }) {
+            Ok(result @ DaemonResult::Pack { .. }) => Some(result),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -373,6 +499,56 @@ impl McpIndexOptions {
     }
 }
 
+fn mcp_index_options(
+    args: &Value,
+    cache: &IndexCache,
+    profile: Option<&profiles::Profile>,
+) -> std::result::Result<McpIndexOptions, String> {
+    let mut options = McpIndexOptions::from_cache(cache, profile);
+    if let Some(value) = args.get("include_docs") {
+        options.include_docs = value
+            .as_bool()
+            .ok_or_else(|| "include_docs must be a boolean".to_owned())?;
+    }
+    let extensions = extension_args(args)?;
+    if !extensions.is_empty() {
+        options.extensions = normalized_extensions(&extensions);
+    }
+    Ok(options)
+}
+
+fn extension_args(args: &Value) -> std::result::Result<Vec<String>, String> {
+    let mut values = Vec::new();
+    if let Some(value) = args.get("extension") {
+        match value {
+            Value::String(value) => values.push(value.clone()),
+            Value::Array(items) => {
+                for item in items {
+                    values.push(
+                        item.as_str()
+                            .ok_or_else(|| "extension must contain only strings".to_owned())?
+                            .to_owned(),
+                    );
+                }
+            }
+            _ => return Err("extension must be a string or array of strings".to_owned()),
+        }
+    }
+    if let Some(value) = args.get("extensions") {
+        let Some(items) = value.as_array() else {
+            return Err("extensions must be an array of strings".to_owned());
+        };
+        for item in items {
+            values.push(
+                item.as_str()
+                    .ok_or_else(|| "extensions must contain only strings".to_owned())?
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(values)
+}
+
 fn handle_tool_call(
     message: &Value,
     cache: &mut IndexCache,
@@ -398,7 +574,7 @@ fn handle_tool_call(
         "get_chunk" => tool_get_chunk(args, cache, default_source, ref_name),
         "symbol" => tool_symbol(args, cache, default_source, ref_name),
         "outline" => tool_outline(args, cache, default_source, ref_name),
-        "pack" | "context_pack" => tool_pack(args, cache, default_source, ref_name),
+        "pack" => tool_pack(args, cache, default_source, ref_name),
         "agent_context" => tool_agent_context(),
         "profile_list" => tool_profile_list(),
         "profile_show" => tool_profile_show(args),
@@ -585,7 +761,10 @@ fn tool_find_related(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
@@ -642,7 +821,10 @@ fn tool_index_status(
         Ok(profile) => profile,
         Err(message) => return ToolText::error(message),
     };
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let stats = index.stats();
@@ -744,7 +926,7 @@ fn tool_list_files(
         Ok(None) => return ToolText::error(no_repo_message()),
         Err(message) => return ToolText::error(message),
     };
-    let limit = match parse_mcp_limit(&args, "limit", None, 200) {
+    let limit = match parse_mcp_limit_with_max(&args, "limit", None, 200, 200) {
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
@@ -756,7 +938,28 @@ fn tool_list_files(
         Ok(profile) => profile,
         Err(message) => return ToolText::error(message),
     };
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
+    if let Some(DaemonResult::ListFiles {
+        source,
+        total,
+        files,
+        prefix,
+    }) = cache.daemon_list_files(&source, ref_name, limit, prefix, &index_options)
+    {
+        return ToolText::ok_structured(
+            format!(
+                "Indexed files for {:?} (showing {} of {}):\n{}",
+                source.source,
+                files.len(),
+                total,
+                files.join("\n")
+            ),
+            json!({"source": source.source, "total": total, "prefix": prefix, "limit": limit, "truncated": total > files.len(), "hint": if total > files.len() { Some("Increase limit or prefix to inspect more indexed files.") } else { None }, "files": files}),
+        );
+    }
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let total = index.indexed_files_with_prefix(prefix, usize::MAX).len();
@@ -795,7 +998,10 @@ fn tool_get_chunk(
         Ok(profile) => profile,
         Err(message) => return ToolText::error(message),
     };
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let Some(chunk) = resolve_chunk(&index.chunks, file_path, line) else {
@@ -839,7 +1045,37 @@ fn tool_symbol(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
+    if let Some(DaemonResult::Symbol {
+        source,
+        name,
+        total,
+        postings,
+    }) = cache.daemon_symbol(&source, ref_name, name, limit, &index_options)
+    {
+        let structured = json!({
+            "source": source.source,
+            "name": &name,
+            "limit": limit,
+            "total": total,
+            "truncated": total > postings.len(),
+            "symbols": &postings,
+        });
+        return if postings.is_empty() {
+            ToolText::ok_structured(
+                format!("No indexed symbols found for {name:?}."),
+                structured,
+            )
+        } else {
+            ToolText::ok_structured(
+                format_symbol_postings(&name, structured["symbols"].as_array()),
+                structured,
+            )
+        };
+    }
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let total = index.symbol_lookup_total(name);
@@ -891,7 +1127,49 @@ fn tool_outline(
         Ok(profile) => profile,
         Err(message) => return ToolText::error(message),
     };
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let symbols_limit = match parse_mcp_limit_with_max(&args, "symbols_limit", None, 200, 1000) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    let chunks_limit = match parse_mcp_limit_with_max(&args, "chunks_limit", None, 100, 1000) {
+        Ok(limit) => limit,
+        Err(message) => return ToolText::error(message),
+    };
+    let include_chunks = !args
+        .get("no_chunks")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
+    if let Some(DaemonResult::Outline {
+        source,
+        file_path: _,
+        outline,
+    }) = cache.daemon_outline(&source, ref_name, file_path, &index_options)
+    {
+        let text = format!(
+            "{}:{}-{} ({} chunks, {} symbols)",
+            outline.file_path,
+            outline.start_line,
+            outline.end_line,
+            outline.chunk_count,
+            outline.symbol_count
+        );
+        return ToolText::ok_structured(
+            text,
+            mcp_outline_payload(
+                &source.source,
+                file_path,
+                outline,
+                json!([]),
+                symbols_limit,
+                chunks_limit,
+                include_chunks,
+            ),
+        );
+    }
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let Some(outline) = index.file_outline(file_path) else {
@@ -912,11 +1190,50 @@ fn tool_outline(
             );
             ToolText::ok_structured(
                 text,
-                json!({"source": source, "file_path": file_path, "found": true, "warnings": index_warnings(index), "outline": outline}),
+                mcp_outline_payload(
+                    &source,
+                    file_path,
+                    outline,
+                    index_warnings(index),
+                    symbols_limit,
+                    chunks_limit,
+                    include_chunks,
+                ),
             )
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
     }
+}
+
+fn mcp_outline_payload(
+    source: &str,
+    file_path: &str,
+    outline: crate::symbol_index::FileOutline,
+    warnings: Value,
+    symbols_limit: usize,
+    chunks_limit: usize,
+    include_chunks: bool,
+) -> Value {
+    let total_symbols = outline.symbols.len();
+    let total_chunks = outline.chunks.len();
+    let chunks_limit = if include_chunks { chunks_limit } else { 0 };
+    let symbols: Vec<_> = outline.symbols.iter().take(symbols_limit).collect();
+    let chunks: Vec<_> = outline.chunks.iter().take(chunks_limit).collect();
+    let mut outline_value = serde_json::to_value(&outline).unwrap_or_else(|_| json!({}));
+    outline_value["symbols"] = json!(symbols);
+    outline_value["chunks"] = json!(chunks);
+    json!({
+        "source": source,
+        "file_path": file_path,
+        "found": true,
+        "warnings": warnings,
+        "total_symbols": total_symbols,
+        "total_chunks": total_chunks,
+        "symbols_limit": symbols_limit,
+        "chunks_limit": chunks_limit,
+        "truncated": total_symbols > symbols_limit || total_chunks > chunks_limit,
+        "outline": outline_value,
+    })
 }
 
 fn tool_pack(
@@ -962,7 +1279,25 @@ fn tool_pack(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let options = SearchOptions::new(limit).with_mode(mode);
-    let index_options = McpIndexOptions::from_cache(cache, profile.as_ref());
+    let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
+        Ok(options) => options,
+        Err(message) => return ToolText::error(message),
+    };
+    if let Some(DaemonResult::Pack { payload, .. }) = cache.daemon_pack(
+        &source,
+        ref_name,
+        query,
+        &options,
+        budget_tokens,
+        include_neighbors,
+        include_symbol_definitions,
+        &index_options,
+    ) {
+        return ToolText::ok_structured(
+            serde_json::to_string_pretty(&payload).unwrap_or_default(),
+            payload,
+        );
+    }
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
             let results = match index.search_with(query, &options) {
@@ -987,209 +1322,6 @@ fn tool_pack(
         }
         Err(err) => ToolText::error(format!("Failed to index {source:?}: {err}")),
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn context_pack_payload(
-    index: &SifsIndex,
-    source: &str,
-    query: &str,
-    mode: SearchMode,
-    limit: usize,
-    budget_tokens: usize,
-    include_neighbors: usize,
-    include_symbol_definitions: bool,
-    results: &[crate::types::SearchResult],
-) -> Value {
-    let mut remaining_chars = budget_tokens.saturating_mul(4);
-    let mut seen_files = std::collections::HashSet::new();
-    let mut seen_chunks = std::collections::HashSet::new();
-    let mut items = Vec::new();
-    let definitions = if include_symbol_definitions {
-        query_symbol_definition_chunks(index, query)
-    } else {
-        Vec::new()
-    };
-    for result in results {
-        if remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
-            continue;
-        }
-        push_pack_item(
-            &mut items,
-            &mut seen_chunks,
-            &mut remaining_chars,
-            &result.chunk,
-            Some(result.score),
-            result.source.to_string(),
-            "primary",
-            format!("ranked by {mode} for the pack query"),
-        );
-        if let Some(header) = file_header_chunk(&index.chunks, &result.chunk) {
-            push_pack_item(
-                &mut items,
-                &mut seen_chunks,
-                &mut remaining_chars,
-                header,
-                None,
-                "file_header".to_owned(),
-                "file_header",
-                format!("file header context for {}", result.chunk.file_path),
-            );
-        }
-        for neighbor in adjacent_chunks(&index.chunks, &result.chunk, include_neighbors) {
-            if remaining_chars == 0 {
-                break;
-            }
-            push_pack_item(
-                &mut items,
-                &mut seen_chunks,
-                &mut remaining_chars,
-                neighbor,
-                None,
-                "adjacent".to_owned(),
-                "neighbor",
-                format!(
-                    "adjacent context for {}:{}-{}",
-                    result.chunk.file_path, result.chunk.start_line, result.chunk.end_line
-                ),
-            );
-        }
-        for definition in &definitions {
-            if remaining_chars == 0 {
-                break;
-            }
-            push_pack_item(
-                &mut items,
-                &mut seen_chunks,
-                &mut remaining_chars,
-                definition,
-                None,
-                "symbol".to_owned(),
-                "symbol_definition",
-                "defines a symbol named in the pack query".to_owned(),
-            );
-        }
-    }
-    json!({
-        "query": query,
-        "source": source,
-        "mode": mode.to_string(),
-        "limit": limit,
-        "budget_tokens": budget_tokens,
-        "include_neighbors": include_neighbors,
-        "include_symbol_definitions": include_symbol_definitions,
-        "estimated_tokens_used": budget_tokens.saturating_mul(4).saturating_sub(remaining_chars).div_ceil(4),
-        "stats": index.stats(),
-        "warnings": index_warnings(index),
-        "items": items,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_pack_item(
-    items: &mut Vec<Value>,
-    seen_chunks: &mut std::collections::HashSet<(String, usize, usize)>,
-    remaining_chars: &mut usize,
-    chunk: &crate::types::Chunk,
-    score: Option<f32>,
-    source: String,
-    kind: &str,
-    why: String,
-) {
-    if *remaining_chars == 0
-        || !seen_chunks.insert((chunk.file_path.clone(), chunk.start_line, chunk.end_line))
-    {
-        return;
-    }
-    let content = if chunk.content.len() > *remaining_chars {
-        chunk.content.chars().take(*remaining_chars).collect()
-    } else {
-        chunk.content.clone()
-    };
-    *remaining_chars = remaining_chars.saturating_sub(content.len());
-    items.push(json!({
-        "kind": kind,
-        "file_path": chunk.file_path,
-        "start_line": chunk.start_line,
-        "end_line": chunk.end_line,
-        "score": score,
-        "source": source,
-        "why": why,
-        "symbols": chunk.symbols,
-        "breadcrumbs": chunk.breadcrumbs,
-        "content": content,
-    }));
-}
-
-fn file_header_chunk<'a>(
-    chunks: &'a [crate::types::Chunk],
-    chunk: &crate::types::Chunk,
-) -> Option<&'a crate::types::Chunk> {
-    if chunk.start_line == 1 {
-        return None;
-    }
-    chunks
-        .iter()
-        .find(|candidate| candidate.file_path == chunk.file_path && candidate.start_line == 1)
-}
-
-fn adjacent_chunks<'a>(
-    chunks: &'a [crate::types::Chunk],
-    target: &crate::types::Chunk,
-    include_neighbors: usize,
-) -> Vec<&'a crate::types::Chunk> {
-    let mut before: Vec<_> = chunks
-        .iter()
-        .filter(|chunk| chunk.file_path == target.file_path && chunk.start_line < target.start_line)
-        .collect();
-    before.sort_by_key(|chunk| std::cmp::Reverse(chunk.end_line));
-    let mut after: Vec<_> = chunks
-        .iter()
-        .filter(|chunk| chunk.file_path == target.file_path && chunk.start_line > target.start_line)
-        .collect();
-    after.sort_by_key(|chunk| chunk.start_line);
-    before
-        .into_iter()
-        .take(include_neighbors)
-        .chain(after.into_iter().take(include_neighbors))
-        .collect()
-}
-
-fn query_symbol_definition_chunks<'a>(
-    index: &'a SifsIndex,
-    query: &str,
-) -> Vec<&'a crate::types::Chunk> {
-    let mut chunks = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for term in query.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')) {
-        if term.len() < 3 {
-            continue;
-        }
-        for posting in index.symbol_lookup(term, MCP_MAX_LIMIT) {
-            if !matches!(
-                posting.kind.as_str(),
-                "class"
-                    | "const"
-                    | "def"
-                    | "enum"
-                    | "fn"
-                    | "function"
-                    | "impl"
-                    | "interface"
-                    | "struct"
-                    | "trait"
-                    | "type"
-            ) {
-                continue;
-            }
-            if seen.insert(posting.chunk_id)
-                && let Some(chunk) = index.chunks.get(posting.chunk_id)
-            {
-                chunks.push(chunk);
-            }
-        }
-    }
-    chunks
 }
 
 fn format_symbol_postings(name: &str, postings: Option<&Vec<Value>>) -> String {
@@ -1407,6 +1539,16 @@ fn parse_mcp_limit(
     profile_default: Option<usize>,
     default: usize,
 ) -> std::result::Result<usize, String> {
+    parse_mcp_limit_with_max(args, key, profile_default, default, MCP_MAX_LIMIT)
+}
+
+fn parse_mcp_limit_with_max(
+    args: &Value,
+    key: &str,
+    profile_default: Option<usize>,
+    default: usize,
+    max: usize,
+) -> std::result::Result<usize, String> {
     let Some(value) = args.get(key) else {
         return Ok(profile_default.unwrap_or(default));
     };
@@ -1416,8 +1558,8 @@ fn parse_mcp_limit(
     if limit == 0 {
         return Err(format!("{key} must be at least 1"));
     }
-    if limit as usize > MCP_MAX_LIMIT {
-        return Err(format!("{key} must be at most {MCP_MAX_LIMIT}"));
+    if limit as usize > max {
+        return Err(format!("{key} must be at most {max}"));
     }
     Ok(limit as usize)
 }
@@ -1913,7 +2055,9 @@ fn tool_schemas() -> Vec<Value> {
                     "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
                     "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
                     "prefix": {"type": ["string", "null"], "description": "Optional repository-relative path prefix."},
-                    "limit": {"type": "integer", "minimum": 1, "default": 200, "description": "Maximum number of file paths to return."}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 200, "description": "Maximum number of file paths to return."},
+                    "include_docs": {"type": "boolean", "default": false, "description": "Include Markdown, JSON, YAML, TOML, and text-like files for this call."},
+                    "extensions": {"type": "array", "items": {"type": "string"}, "description": "Optional file extensions to index for this call, such as [\"rs\", \"md\"]."}
                 }
             }
         }),
@@ -1940,7 +2084,9 @@ fn tool_schemas() -> Vec<Value> {
                     "name": {"type": "string", "description": "Exact or folded symbol name to look up."},
                     "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
                     "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
-                    "limit": {"type": "integer", "minimum": 1, "default": 20, "description": "Maximum number of symbol postings to return."}
+                    "limit": {"type": "integer", "minimum": 1, "default": 20, "description": "Maximum number of symbol postings to return."},
+                    "include_docs": {"type": "boolean", "default": false, "description": "Include Markdown, JSON, YAML, TOML, and text-like files for this call."},
+                    "extensions": {"type": "array", "items": {"type": "string"}, "description": "Optional file extensions to index for this call."}
                 },
                 "required": ["name"]
             }
@@ -1953,7 +2099,12 @@ fn tool_schemas() -> Vec<Value> {
                 "properties": {
                     "file_path": {"type": "string", "description": "Repository-relative indexed file path."},
                     "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
-                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."}
+                    "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
+                    "symbols_limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+                    "chunks_limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                    "no_chunks": {"type": "boolean", "default": false},
+                    "include_docs": {"type": "boolean", "default": false, "description": "Include Markdown, JSON, YAML, TOML, and text-like files for this call."},
+                    "extensions": {"type": "array", "items": {"type": "string"}, "description": "Optional file extensions to index for this call."}
                 },
                 "required": ["file_path"]
             }
@@ -1971,7 +2122,9 @@ fn tool_schemas() -> Vec<Value> {
                     "limit": {"type": "integer", "minimum": 1, "default": 20},
                     "budget_tokens": {"type": "integer", "minimum": 1, "default": 6000},
                     "include_neighbors": {"type": "integer", "minimum": 0, "default": 0},
-                    "include_symbol_definitions": {"type": "boolean", "default": false}
+                    "include_symbol_definitions": {"type": "boolean", "default": false},
+                    "include_docs": {"type": "boolean", "default": false, "description": "Include Markdown, JSON, YAML, TOML, and text-like files for this call."},
+                    "extensions": {"type": "array", "items": {"type": "string"}, "description": "Optional file extensions to index for this call."}
                 },
                 "required": ["query"]
             }

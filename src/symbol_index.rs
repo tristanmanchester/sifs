@@ -8,6 +8,7 @@ pub struct SymbolPosting {
     pub kind: String,
     pub line: usize,
     pub file_path: String,
+    #[serde(skip)]
     pub chunk_id: usize,
     pub start_line: usize,
     pub end_line: usize,

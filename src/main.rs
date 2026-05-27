@@ -3,16 +3,16 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use sifs::agent_artifacts::{AgentArtifact, AgentTarget, render_artifact};
 use sifs::agent_installer::{AgentMutationOptions, AgentOperation, apply_mutation};
+use sifs::context_pack::context_pack_payload;
 use sifs::daemon::{
     DaemonClient, DaemonRequest, DaemonResult, DaemonRuntimeOptions, IndexRuntimeOptions,
     SearchOptionsWire, SourceSpec, default_daemon_paths, run_foreground,
 };
 use sifs::update::{UpdateMode, UpdateOptions, run_update};
 use sifs::{
-    CacheConfig, Chunk, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions,
-    SearchMode, SearchOptions, SearchResult, SifsIndex, cache_summary, fenced_code_block,
-    format_results, is_git_url, load_model_with_options, model_status, platform_cache_root,
-    resolve_chunk,
+    CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
+    SearchOptions, SearchResult, SifsIndex, cache_summary, fenced_code_block, format_results,
+    is_git_url, load_model_with_options, model_status, platform_cache_root, resolve_chunk,
 };
 use sifs::{agent_context, feedback, profiles};
 use std::fs;
@@ -311,6 +311,20 @@ enum Command {
     Outline {
         #[arg(help = "Repository-relative file path to outline.")]
         file_path: String,
+        #[arg(
+            long,
+            default_value_t = 200,
+            help = "Maximum number of symbols to include in structured and human output."
+        )]
+        symbols_limit: usize,
+        #[arg(
+            long,
+            default_value_t = 100,
+            help = "Maximum number of chunk outlines to include in structured output."
+        )]
+        chunks_limit: usize,
+        #[arg(long, help = "Omit chunk outlines from structured output.")]
+        no_chunks: bool,
         #[arg(long, help = "Local directory or Git URL to index and inspect.")]
         source: Option<String>,
         #[arg(long, help = "Saved profile to use for source defaults.")]
@@ -1227,6 +1241,9 @@ fn main() -> Result<()> {
         }
         Some(Command::Outline {
             file_path,
+            symbols_limit,
+            chunks_limit,
+            no_chunks,
             source,
             profile,
             output,
@@ -1252,7 +1269,16 @@ fn main() -> Result<()> {
                 include_docs,
                 extensions,
             )?;
-            run_outline(&file_path, &resolved, output)?
+            run_outline(
+                &file_path,
+                &resolved,
+                OutlineOutputOptions {
+                    symbols_limit,
+                    chunks_limit,
+                    include_chunks: !no_chunks,
+                },
+                output,
+            )?
         }
         Some(Command::Status {
             source,
@@ -1451,209 +1477,19 @@ fn run_pack(
     )?;
     let options = SearchOptions::new(invocation.limit).with_mode(invocation.mode);
     let results = index.search_with(&query, &options)?;
-    let mut remaining_chars = budget_tokens.saturating_mul(4);
-    let mut seen_files = std::collections::HashSet::new();
-    let mut seen_chunks = std::collections::HashSet::new();
-    let mut packed = Vec::new();
-    let mut state = PackState {
-        packed: &mut packed,
-        seen_chunks: &mut seen_chunks,
-        remaining_chars: &mut remaining_chars,
-    };
-    let chunks = &index.chunks;
-    let symbol_definition_chunks = if include_symbol_definitions {
-        query_symbol_definition_chunks(&query, chunks)
-    } else {
-        Vec::new()
-    };
-    for result in results {
-        if *state.remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
-            continue;
-        }
-        push_pack_chunk(
-            &mut state,
-            &result.chunk,
-            Some(result.score),
-            result.source.to_string(),
-            "primary",
-            format!("ranked by {} for the pack query", invocation.mode),
-        );
-        if let Some(header) = file_header_chunk(chunks, &result.chunk) {
-            push_pack_chunk(
-                &mut state,
-                header,
-                None,
-                "file_header".to_owned(),
-                "file_header",
-                format!("file header context for {}", result.chunk.file_path),
-            );
-        }
-        if include_neighbors > 0 {
-            for neighbor in adjacent_chunks(chunks, &result.chunk, include_neighbors) {
-                if *state.remaining_chars == 0 {
-                    break;
-                }
-                push_pack_chunk(
-                    &mut state,
-                    neighbor,
-                    None,
-                    "adjacent".to_owned(),
-                    "neighbor",
-                    format!(
-                        "adjacent context for {}:{}-{}",
-                        result.chunk.file_path, result.chunk.start_line, result.chunk.end_line
-                    ),
-                );
-            }
-        }
-        if include_symbol_definitions {
-            for definition in &symbol_definition_chunks {
-                if *state.remaining_chars == 0 {
-                    break;
-                }
-                push_pack_chunk(
-                    &mut state,
-                    definition,
-                    None,
-                    "symbol".to_owned(),
-                    "symbol_definition",
-                    "defines a symbol named in the pack query".to_owned(),
-                );
-            }
-        }
-    }
-    let payload = json!({
-        "query": query,
-        "source": invocation.source,
-        "mode": invocation.mode.to_string(),
-        "limit": invocation.limit,
-        "budget_tokens": budget_tokens,
-        "include_neighbors": include_neighbors,
-        "include_symbol_definitions": include_symbol_definitions,
-        "estimated_tokens_used": budget_tokens.saturating_mul(4).saturating_sub(remaining_chars).div_ceil(4),
-        "stats": index.stats(),
-        "warnings": index.warnings(),
-        "items": packed,
-    });
+    let payload = context_pack_payload(
+        &index,
+        &invocation.source,
+        &query,
+        invocation.mode,
+        invocation.limit,
+        budget_tokens,
+        include_neighbors,
+        include_symbol_definitions,
+        &results,
+    );
     println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
-}
-
-fn file_header_chunk<'a>(chunks: &'a [Chunk], chunk: &Chunk) -> Option<&'a Chunk> {
-    if chunk.start_line == 1 {
-        return None;
-    }
-    chunks
-        .iter()
-        .find(|candidate| candidate.file_path == chunk.file_path && candidate.start_line == 1)
-}
-
-struct PackState<'a> {
-    packed: &'a mut Vec<Value>,
-    seen_chunks: &'a mut std::collections::HashSet<(String, usize, usize)>,
-    remaining_chars: &'a mut usize,
-}
-
-fn push_pack_chunk(
-    state: &mut PackState,
-    chunk: &Chunk,
-    score: Option<f32>,
-    source: String,
-    kind: &str,
-    why: String,
-) {
-    if *state.remaining_chars == 0
-        || !state
-            .seen_chunks
-            .insert((chunk.file_path.clone(), chunk.start_line, chunk.end_line))
-    {
-        return;
-    }
-    let content = if chunk.content.len() > *state.remaining_chars {
-        chunk
-            .content
-            .chars()
-            .take(*state.remaining_chars)
-            .collect::<String>()
-    } else {
-        chunk.content.clone()
-    };
-    *state.remaining_chars = state.remaining_chars.saturating_sub(content.len());
-    state.packed.push(json!({
-        "kind": kind,
-        "file_path": chunk.file_path,
-        "start_line": chunk.start_line,
-        "end_line": chunk.end_line,
-        "score": score,
-        "source": source,
-        "why": why,
-        "symbols": chunk.symbols,
-        "breadcrumbs": chunk.breadcrumbs,
-        "content": content,
-    }));
-}
-
-fn adjacent_chunks<'a>(
-    chunks: &'a [Chunk],
-    target: &Chunk,
-    include_neighbors: usize,
-) -> Vec<&'a Chunk> {
-    let mut before: Vec<&Chunk> = chunks
-        .iter()
-        .filter(|chunk| {
-            chunk.file_path == target.file_path
-                && chunk.start_line < target.start_line
-                && !(chunk.start_line == target.start_line && chunk.end_line == target.end_line)
-        })
-        .collect();
-    before.sort_by_key(|chunk| std::cmp::Reverse(chunk.end_line));
-    let mut after: Vec<&Chunk> = chunks
-        .iter()
-        .filter(|chunk| {
-            chunk.file_path == target.file_path
-                && chunk.start_line > target.start_line
-                && !(chunk.start_line == target.start_line && chunk.end_line == target.end_line)
-        })
-        .collect();
-    after.sort_by_key(|chunk| chunk.start_line);
-    before
-        .into_iter()
-        .take(include_neighbors)
-        .chain(after.into_iter().take(include_neighbors))
-        .collect()
-}
-
-fn query_symbol_definition_chunks<'a>(query: &str, chunks: &'a [Chunk]) -> Vec<&'a Chunk> {
-    let terms: std::collections::HashSet<String> = query
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
-        .filter(|term| term.len() >= 3)
-        .map(|term| term.to_ascii_lowercase())
-        .collect();
-    if terms.is_empty() {
-        return Vec::new();
-    }
-    chunks
-        .iter()
-        .filter(|chunk| {
-            chunk.symbols.iter().any(|symbol| {
-                terms.contains(&symbol.name.to_ascii_lowercase())
-                    && matches!(
-                        symbol.kind.as_str(),
-                        "class"
-                            | "const"
-                            | "def"
-                            | "enum"
-                            | "fn"
-                            | "function"
-                            | "impl"
-                            | "interface"
-                            | "struct"
-                            | "trait"
-                            | "type"
-                    )
-            })
-        })
-        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2224,7 +2060,9 @@ fn print_files_output(
                 serde_json::to_string(&json!({
                     "source": source,
                     "total": total,
+                    "prefix": prefix,
                     "limit": limit,
+                    "truncated": total > shown.len(),
                     "file_path": file,
                 }))?
             );
@@ -2357,7 +2195,17 @@ fn print_symbol_output_with_elapsed(
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else if output.jsonl {
         for posting in payload["symbols"].as_array().into_iter().flatten() {
-            println!("{}", serde_json::to_string(posting)?);
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "source": source,
+                    "name": name,
+                    "total": total,
+                    "limit": limit,
+                    "truncated": total > postings.len(),
+                    "symbol": posting,
+                }))?
+            );
         }
     } else if postings.is_empty() {
         println!("No indexed symbols found for {name:?}.");
@@ -2413,7 +2261,32 @@ fn try_daemon_symbol(
     }
 }
 
-fn run_outline(file_path: &str, resolved: &ResolvedInvocation, output: OutputArgs) -> Result<()> {
+#[derive(Clone, Copy)]
+struct OutlineOutputOptions {
+    symbols_limit: usize,
+    chunks_limit: usize,
+    include_chunks: bool,
+}
+
+impl OutlineOutputOptions {
+    fn validate(self) -> Result<Self> {
+        if self.symbols_limit == 0 {
+            bail!("--symbols-limit must be at least 1");
+        }
+        if self.include_chunks && self.chunks_limit == 0 {
+            bail!("--chunks-limit must be at least 1 unless --no-chunks is set");
+        }
+        Ok(self)
+    }
+}
+
+fn run_outline(
+    file_path: &str,
+    resolved: &ResolvedInvocation,
+    outline_options: OutlineOutputOptions,
+    output: OutputArgs,
+) -> Result<()> {
+    let outline_options = outline_options.validate()?;
     if file_path.trim().is_empty() {
         bail!("file_path must not be empty");
     }
@@ -2423,7 +2296,7 @@ fn run_outline(file_path: &str, resolved: &ResolvedInvocation, output: OutputArg
         outline,
     }) = try_daemon_outline(file_path, resolved)?
     {
-        print_outline_output(&source.source, outline, 0, output)?;
+        print_outline_output(&source.source, outline, 0, outline_options, output)?;
         return Ok(());
     }
     let started = Instant::now();
@@ -2436,15 +2309,18 @@ fn run_outline(file_path: &str, resolved: &ResolvedInvocation, output: OutputArg
         extension_set(&resolved.extensions),
     )?;
     let Some(outline) = index.file_outline(file_path) else {
-        eprintln!(
-            "No indexed file found at {file_path}. Use `sifs list-files` to check indexed paths."
+        return print_outline_not_found(
+            &resolved.source,
+            file_path,
+            started.elapsed().as_millis(),
+            output,
         );
-        std::process::exit(1);
     };
     print_outline_output(
         &resolved.source,
         outline,
         started.elapsed().as_millis(),
+        outline_options,
         output,
     )
 }
@@ -2453,12 +2329,37 @@ fn print_outline_output(
     source: &str,
     outline: sifs::FileOutline,
     elapsed_ms: u128,
+    outline_options: OutlineOutputOptions,
     output: OutputArgs,
 ) -> Result<()> {
+    let total_symbols = outline.symbols.len();
+    let total_chunks = outline.chunks.len();
+    let symbols: Vec<_> = outline
+        .symbols
+        .iter()
+        .take(outline_options.symbols_limit)
+        .collect();
+    let chunks_limit = if outline_options.include_chunks {
+        outline_options.chunks_limit
+    } else {
+        0
+    };
+    let chunks: Vec<_> = outline.chunks.iter().take(chunks_limit).collect();
+    let mut outline_value = serde_json::to_value(&outline)?;
+    outline_value["symbols"] = json!(symbols);
+    outline_value["chunks"] = json!(chunks);
+    let truncated_symbols = total_symbols > outline_options.symbols_limit;
+    let truncated_chunks = total_chunks > chunks_limit;
     let payload = json!({
         "source": source,
+        "found": true,
         "elapsed_ms": elapsed_ms,
-        "outline": &outline,
+        "total_symbols": total_symbols,
+        "total_chunks": total_chunks,
+        "symbols_limit": outline_options.symbols_limit,
+        "chunks_limit": chunks_limit,
+        "truncated": truncated_symbols || truncated_chunks,
+        "outline": outline_value,
     });
     if output.json {
         println!("{}", serde_json::to_string_pretty(&payload)?);
@@ -2476,15 +2377,26 @@ fn print_outline_output(
                     outline.chunk_count,
                     outline.symbol_count
                 );
-                for symbol in outline.symbols {
+                for symbol in outline
+                    .symbols
+                    .into_iter()
+                    .take(outline_options.symbols_limit)
+                {
                     println!(
                         "{}:{} {} {}",
                         symbol.file_path, symbol.line, symbol.kind, symbol.name
                     );
                 }
+                if truncated_symbols {
+                    println!("... truncated; increase --symbols-limit to inspect more symbols.");
+                }
             }
             TextFormat::Compact => {
-                for symbol in outline.symbols {
+                for symbol in outline
+                    .symbols
+                    .into_iter()
+                    .take(outline_options.symbols_limit)
+                {
                     println!(
                         "{}\t{}\t{}\t{}",
                         symbol.file_path, symbol.line, symbol.kind, symbol.name
@@ -2494,6 +2406,38 @@ fn print_outline_output(
         }
     }
     Ok(())
+}
+
+fn print_outline_not_found(
+    source: &str,
+    file_path: &str,
+    elapsed_ms: u128,
+    output: OutputArgs,
+) -> Result<()> {
+    let message = format!(
+        "No indexed file found at {file_path}. Use `sifs list-files` to check indexed paths."
+    );
+    if output.json || output.jsonl {
+        let payload = json!({
+            "source": source,
+            "file_path": file_path,
+            "found": false,
+            "elapsed_ms": elapsed_ms,
+            "error": {
+                "code": "not_indexed",
+                "message": message,
+                "next_actions": ["Run `sifs list-files --json` to inspect indexed paths."]
+            }
+        });
+        if output.json {
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            println!("{}", serde_json::to_string(&payload)?);
+        }
+    } else {
+        eprintln!("{message}");
+    }
+    bail!("outline not found for {file_path}")
 }
 
 fn try_daemon_outline(

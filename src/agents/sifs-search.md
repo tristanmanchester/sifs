@@ -14,7 +14,7 @@ sifs search "save_pretrained" --source ./my-project
 sifs search "save model to disk" --source ./my-project --limit 10
 sifs search "auth flow" --source ./my-project --mode semantic --encoder hashing
 sifs symbol SessionToken --source ./my-project --json
-sifs outline src/auth.py --source ./my-project --json
+sifs outline src/auth.py --source ./my-project --symbols-limit 200 --chunks-limit 100 --json
 sifs pack "how auth flow works" --source ./my-project --budget-tokens 6000 --json
 ```
 

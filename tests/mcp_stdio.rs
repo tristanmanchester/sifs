@@ -1,7 +1,11 @@
 use serde_json::{Value, json};
 use std::fs;
 use std::io::Write;
-use std::process::{Command, Output, Stdio};
+use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 fn sifs() -> Command {
     Command::new(env!("CARGO_BIN_EXE_sifs"))
@@ -13,6 +17,11 @@ fn fixture() -> tempfile::TempDir {
     fs::write(
         dir.path().join("src/lib.rs"),
         "pub fn token_validation() -> bool {\n    true\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("src/auth.rs"),
+        "pub fn auth_flow() -> bool {\n    token_validation()\n}\n",
     )
     .unwrap();
     dir
@@ -61,6 +70,51 @@ fn run_mcp_without_source(input: &[u8], envs: &[(&str, &std::path::Path)]) -> Ou
     child.stdin.as_mut().unwrap().write_all(input).unwrap();
     drop(child.stdin.take());
     child.wait_with_output().unwrap()
+}
+
+fn short_socket_tempdir() -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix("sifs-")
+        .tempdir_in("/tmp")
+        .unwrap()
+}
+
+fn socket_path(dir: &tempfile::TempDir) -> PathBuf {
+    dir.path().join("sifs.sock")
+}
+
+fn unix_sockets_available() -> bool {
+    let dir = short_socket_tempdir();
+    UnixListener::bind(socket_path(&dir)).is_ok()
+}
+
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn wait_for_daemon(socket: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let output = sifs()
+            .args(["daemon", "ping"])
+            .env("SIFS_DAEMON_SOCKET", socket)
+            .output()
+            .unwrap();
+        if output.status.success() {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "daemon did not become ready: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn content_length_message(message: &Value) -> Vec<u8> {
@@ -377,6 +431,105 @@ fn outline_tool_returns_indexed_file_outline() {
 }
 
 #[test]
+fn list_files_tool_accepts_documented_limit_and_per_call_docs_scope() {
+    let repo = fixture();
+    fs::write(repo.path().join("notes.md"), "# Token notes\n").unwrap();
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "tools/call",
+        "params": {
+            "name": "list_files",
+            "arguments": {"limit": 200, "include_docs": true, "extensions": ["md"]}
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp_for_source(input.as_bytes(), repo.path(), &[]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 13);
+    let structured = &response["result"]["structuredContent"];
+    assert_eq!(structured["limit"], 200);
+    assert!(
+        structured["files"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("notes.md"))
+    );
+}
+
+#[test]
+fn structural_mcp_tools_work_with_running_daemon() {
+    if !unix_sockets_available() {
+        return;
+    }
+    let repo = fixture();
+    let runtime = short_socket_tempdir();
+    let socket = socket_path(&runtime);
+    let child = sifs()
+        .args(["daemon", "run", "--replace-existing-socket"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .spawn()
+        .unwrap();
+    let _guard = ChildGuard(child);
+    wait_for_daemon(&socket);
+
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 14,
+        "method": "tools/call",
+        "params": {
+            "name": "pack",
+            "arguments": {
+                "query": "auth_flow token_validation",
+                "mode": "bm25",
+                "budget_tokens": 400,
+                "include_symbol_definitions": true
+            }
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp_for_source(
+        input.as_bytes(),
+        repo.path(),
+        &[("SIFS_DAEMON_SOCKET", &socket)],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    assert_eq!(response["id"], 14);
+    let structured = &response["result"]["structuredContent"];
+    assert_eq!(structured["query"], "auth_flow token_validation");
+    assert!(structured["items"].as_array().unwrap().iter().any(|item| {
+        item["kind"] == "symbol_definition"
+            && item["file_path"].as_str().unwrap().starts_with("src/")
+    }));
+
+    let status = sifs()
+        .args(["daemon", "status", "--json"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    let status_value: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_value["indexes"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn pack_tool_returns_bounded_context_items() {
     let input = json!({
         "jsonrpc": "2.0",
@@ -385,9 +538,9 @@ fn pack_tool_returns_bounded_context_items() {
         "params": {
             "name": "pack",
             "arguments": {
-                "query": "token validation",
+                "query": "auth_flow token_validation",
                 "mode": "bm25",
-                "budget_tokens": 200,
+                "budget_tokens": 400,
                 "include_symbol_definitions": true
             }
         }
@@ -406,8 +559,12 @@ fn pack_tool_returns_bounded_context_items() {
         serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
     assert_eq!(response["id"], 12);
     let structured = &response["result"]["structuredContent"];
-    assert_eq!(structured["query"], "token validation");
-    assert!(!structured["items"].as_array().unwrap().is_empty());
+    assert_eq!(structured["query"], "auth_flow token_validation");
+    assert_eq!(structured["include_symbol_definitions"], true);
+    assert!(structured["estimated_tokens_used"].as_u64().unwrap() <= 400);
+    let items = structured["items"].as_array().unwrap();
+    assert!(!items.is_empty());
+    assert!(items.iter().any(|item| item["kind"] == "symbol_definition"));
 }
 
 #[test]

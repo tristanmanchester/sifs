@@ -20,9 +20,23 @@ versioning where practical.
 - Updated the machine-readable agent context, MCP guidance, CLI docs, README,
   and bundled SIFS skill guidance to teach symbol lookup, file outlines,
   indexed-path narrowing, and MCP context packs.
+- Bumped the machine-readable agent context schema version for the structural
+  tool contract expansion.
+- Bounded `outline` output by default with symbol and chunk limits so large
+  files remain agent-safe.
 
 ### Fixed
 
+- Fixed MCP `list_files` so the documented explicit `limit: 200` value is
+  accepted instead of failing the shared search-result limit cap.
+- Fixed MCP structural tools so `list_files`, `symbol`, `outline`, and `pack`
+  reuse a running SIFS daemon before falling back to the embedded MCP index.
+- Fixed `outline --json` misses so agents receive a structured `found: false`
+  payload before the command exits non-zero.
+- Fixed `symbol --jsonl` and `list-files --jsonl` records so each line keeps
+  lookup metadata and truncation context.
+- Fixed MCP structural tools so per-call document and extension indexing
+  options can be supplied without relying on a saved profile.
 - Fixed Clippy warnings for stable Rust: type complexity, boolean expression
   simplification, manual div_ceil usage, and redundant conditional branches.
 

@@ -7,7 +7,7 @@
   {
     "name": "symbol_lookup",
     "prompt": "Where is AgentTarget parsed in this checkout?",
-    "expected_behavior": "Uses sifs search with a symbol-oriented query and a bounded --limit or JSON output, then inspects specific results with sifs get or normal file reads."
+    "expected_behavior": "Prefers sifs symbol AgentTarget --source <project> --json for symbol lookup, then falls back to sifs search --mode bm25 with a bounded --limit only if the symbol lookup misses."
   },
   {
     "name": "mcp_is_optional",

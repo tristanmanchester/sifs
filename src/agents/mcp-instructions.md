@@ -8,7 +8,9 @@ coverage and retrieve focused context before or after searching. Use
 `refresh_index` after files change in a long-lived MCP session.
 
 Tool calls use `source` for local paths or Git URLs and `limit` for result
-bounds. Do not use the old `repo` or `top_k` names.
+bounds. Use `symbols_limit`, `chunks_limit`, or `no_chunks` to keep outlines
+compact, and pass `include_docs` or `extensions` for one-off document/custom
+extension scopes. Do not use the old `repo` or `top_k` names.
 
 Search mode guidance:
 - `hybrid`: default for most questions.

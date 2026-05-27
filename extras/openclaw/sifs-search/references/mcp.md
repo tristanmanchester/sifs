@@ -22,7 +22,7 @@ Fallback immediately to shell commands:
 sifs search "query" --source <project>
 sifs pack "query" --source <project> --budget-tokens 6000 --json
 sifs symbol <symbol_name> --source <project> --json
-sifs outline <file_path> --source <project> --json
+sifs outline <file_path> --source <project> --symbols-limit 200 --chunks-limit 100 --json
 sifs list-files --source <project> --json
 sifs get <file_path> <line> --source <project>
 ```

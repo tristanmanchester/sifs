@@ -3,6 +3,7 @@ pub mod agent_context;
 pub mod agent_doctor;
 pub mod agent_installer;
 pub mod chunker;
+pub mod context_pack;
 pub mod daemon;
 pub mod dense;
 pub mod feedback;
