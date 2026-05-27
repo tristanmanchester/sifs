@@ -286,6 +286,11 @@ fn uninstall_skill(
                     destination.display()
                 );
             }
+        } else if !options.force {
+            bail!(
+                "{} does not contain a SKILL.md file. Re-run with --force to remove it.",
+                destination.display()
+            );
         }
         if !options.dry_run {
             fs::remove_dir_all(&destination)?;

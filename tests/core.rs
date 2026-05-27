@@ -102,6 +102,16 @@ fn index_search_modes_and_filters_work() {
         )
         .unwrap();
     assert!(filtered.iter().all(|r| r.chunk.file_path == "utils.py"));
+
+    let parent_segment_path = vec!["src/../utils.py".to_owned()];
+    let filtered = index
+        .search_with(
+            "format",
+            &SearchOptions::new(3).with_paths(parent_segment_path),
+        )
+        .unwrap();
+    assert!(!filtered.is_empty());
+    assert!(filtered.iter().all(|r| r.chunk.file_path == "utils.py"));
 }
 
 #[test]

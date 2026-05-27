@@ -723,7 +723,10 @@ enum AgentCommand {
         file: Option<PathBuf>,
         #[arg(long, help = "Preview planned removals without changing files.")]
         dry_run: bool,
-        #[arg(long, help = "Remove stale or user-modified managed artifacts.")]
+        #[arg(
+            long,
+            help = "Remove stale, user-modified, or unverified (missing SKILL.md) managed artifacts."
+        )]
         force: bool,
         #[arg(long, help = "Print structured JSON output.")]
         json: bool,
