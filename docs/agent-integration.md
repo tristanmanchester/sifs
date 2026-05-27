@@ -69,7 +69,7 @@ Rules:
 - Existing user content outside the block is preserved.
 - Re-running the same install is a no-op.
 - Stale generated blocks are updated in place.
-- User-modified managed blocks require `--force`.
+- User-modified managed blocks and skill directories missing `SKILL.md` require `--force`.
 - Uninstall removes only the managed block.
 
 ## Doctor States
