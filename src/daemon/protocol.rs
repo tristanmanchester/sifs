@@ -361,6 +361,12 @@ pub enum DaemonRequest {
         source: SourceSpec,
         options: IndexRuntimeOptions,
         file_path: String,
+        #[serde(default = "default_true")]
+        include_chunks: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        symbols_limit: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chunks_limit: Option<usize>,
     },
     Pack {
         source: SourceSpec,
@@ -385,6 +391,10 @@ pub enum DaemonRequest {
         source: SourceSpec,
         options: IndexRuntimeOptions,
     },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

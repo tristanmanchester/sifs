@@ -250,11 +250,24 @@ fn execute_request(request: DaemonRequest, manager: &mut IndexManager) -> Result
             source,
             options,
             file_path,
+            include_chunks,
+            symbols_limit,
+            chunks_limit,
         } => {
             let index = manager.get(source.clone(), options)?;
-            let Some(outline) = index.file_outline(&file_path) else {
+            let Some(mut outline) = index.file_outline(&file_path) else {
                 bail!("No indexed file found at {file_path}");
             };
+            if let Some(limit) = symbols_limit {
+                outline.symbols.truncate(limit);
+            }
+            if include_chunks {
+                if let Some(limit) = chunks_limit {
+                    outline.chunks.truncate(limit);
+                }
+            } else {
+                outline.chunks.clear();
+            }
             Ok(DaemonResult::Outline {
                 source,
                 file_path,

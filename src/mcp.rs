@@ -335,6 +335,7 @@ impl IndexCache {
         ref_name: Option<&str>,
         file_path: &str,
         index_options: &McpIndexOptions,
+        outline_options: DaemonOutlineOptions,
     ) -> Option<DaemonResult> {
         let paths = default_daemon_paths().ok()?;
         if !paths.socket.exists() {
@@ -351,6 +352,11 @@ impl IndexCache {
             source,
             options: runtime_options,
             file_path: file_path.to_owned(),
+            include_chunks: outline_options.include_chunks,
+            symbols_limit: Some(outline_options.symbols_limit),
+            chunks_limit: outline_options
+                .include_chunks
+                .then_some(outline_options.chunks_limit),
         }) {
             Ok(result @ DaemonResult::Outline { .. }) => Some(result),
             _ => None,
@@ -393,6 +399,13 @@ impl IndexCache {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct DaemonOutlineOptions {
+    symbols_limit: usize,
+    chunks_limit: usize,
+    include_chunks: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1159,7 +1172,17 @@ fn tool_outline(
             source,
             file_path: _,
             outline,
-        }) = cache.daemon_outline(&source, ref_name, file_path, &index_options)
+        }) = cache.daemon_outline(
+            &source,
+            ref_name,
+            file_path,
+            &index_options,
+            DaemonOutlineOptions {
+                symbols_limit,
+                chunks_limit,
+                include_chunks,
+            },
+        )
     {
         let text = format!(
             "{}:{}-{} ({} chunks, {} symbols)",
@@ -1238,8 +1261,8 @@ fn mcp_outline_payload(
     options: McpOutlineOptions<'_>,
 ) -> Value {
     filter_mcp_outline_symbols(&mut outline, options.kinds);
-    let total_symbols = outline.symbols.len();
-    let total_chunks = outline.chunks.len();
+    let total_symbols = outline.symbol_count;
+    let total_chunks = outline.chunk_count;
     let chunks_limit = if options.include_chunks {
         options.chunks_limit
     } else {

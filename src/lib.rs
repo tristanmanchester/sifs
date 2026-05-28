@@ -23,7 +23,8 @@ pub mod update;
 pub mod utils;
 
 pub use index::{
-    CacheConfig, CacheSummary, IndexOptions, SifsIndex, cache_summary, platform_cache_root,
+    CacheConfig, CacheSummary, IndexOptions, NavigationFileOutline, NavigationIndex,
+    NavigationSymbolLookup, SifsIndex, StructuralIndex, cache_summary, platform_cache_root,
 };
 pub use model2vec::{
     Encoder, EncoderSpec, HashingEncoder, ModelLoadPolicy, ModelOptions, ModelStatus,

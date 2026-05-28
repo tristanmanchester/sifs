@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 pub struct SifsIndex {
@@ -36,6 +36,38 @@ pub struct SifsIndex {
     warnings: Vec<IndexWarning>,
 }
 
+#[derive(Clone, Debug)]
+pub struct StructuralIndex {
+    files: Vec<String>,
+    stats: IndexStats,
+    symbol_index: SymbolIndex,
+    outlines: HashMap<String, FileOutline>,
+    warnings: Vec<IndexWarning>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NavigationIndex {
+    files: Vec<String>,
+    stats: IndexStats,
+    symbol_index: SymbolIndex,
+    warnings: Vec<IndexWarning>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NavigationSymbolLookup {
+    pub stats: IndexStats,
+    pub warnings: Vec<IndexWarning>,
+    pub total: usize,
+    pub postings: Vec<SymbolPosting>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NavigationFileOutline {
+    pub stats: IndexStats,
+    pub warnings: Vec<IndexWarning>,
+    pub outline: FileOutline,
+}
+
 struct SemanticState {
     model: Box<dyn Encoder>,
     index: DenseIndex,
@@ -46,6 +78,11 @@ const CACHE_VERSION: u32 = 6;
 const CACHE_DIR: &str = ".sifs";
 const PLATFORM_CACHE_DIR: &str = "sifs";
 const SPARSE_CACHE_FILE: &str = "index-v6-sparse.bin";
+const STRUCTURAL_CACHE_FILE: &str = "index-v6-structural.bin";
+const NAVIGATION_CACHE_FILE: &str = "index-v6-navigation.bin";
+const NAVIGATION_MANIFEST_FILE: &str = "index-v6-navigation-manifest.bin";
+const NAVIGATION_SYMBOL_DIR: &str = "index-v6-navigation-symbols";
+const NAVIGATION_OUTLINE_DIR: &str = "index-v6-navigation-outlines";
 const SEMANTIC_CACHE_PREFIX: &str = "semantic-v6";
 const DEFAULT_QUERY_CACHE_ENTRIES: usize = 256;
 
@@ -184,16 +221,88 @@ struct SearchCacheKey {
 struct CachedIndexPayload {
     version: u32,
     context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
     signatures: Vec<FileSignature>,
     chunks: Vec<Chunk>,
     bm25_index: Bm25Index,
+    #[serde(default)]
+    file_mapping: Option<HashMap<String, Vec<usize>>>,
+    #[serde(default)]
+    language_mapping: Option<HashMap<String, Vec<usize>>>,
+    #[serde(default)]
+    symbol_index: Option<SymbolIndex>,
     warnings: Vec<IndexWarning>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedStructuralPayload {
+    version: u32,
+    context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
+    signatures: Vec<FileSignature>,
+    files: Vec<String>,
+    stats: IndexStats,
+    symbol_index: SymbolIndex,
+    outlines: HashMap<String, FileOutline>,
+    warnings: Vec<IndexWarning>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedNavigationPayload {
+    version: u32,
+    context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
+    signatures: Vec<FileSignature>,
+    files: Vec<String>,
+    stats: IndexStats,
+    #[serde(default)]
+    symbol_postings: Vec<SymbolPosting>,
+    #[serde(default)]
+    symbol_index: Option<SymbolIndex>,
+    warnings: Vec<IndexWarning>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedNavigationManifest {
+    version: u32,
+    context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
+    signatures: Vec<FileSignature>,
+    files: Vec<String>,
+    stats: IndexStats,
+    warnings: Vec<IndexWarning>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedSymbolLookupPayload {
+    version: u32,
+    context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
+    key: String,
+    postings: Vec<SymbolPosting>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedFileOutlinePayload {
+    version: u32,
+    context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
+    file_path: String,
+    outline: FileOutline,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CachedSemanticPayload {
     version: u32,
     context: CacheContext,
+    #[serde(default)]
+    source_fingerprint: Option<String>,
     model_fingerprint: String,
     signatures: Vec<FileSignature>,
     semantic_index: DenseIndex,
@@ -293,6 +402,20 @@ impl SifsIndex {
             ignore: options.ignore.clone(),
             include_text_files: options.include_text_files,
         };
+        if let Some(cache_entry) = &cache_entry
+            && let Some(payload) =
+                load_cached_index_payload_by_source_fingerprint(cache_entry, &context, &root)
+        {
+            let index = Self::from_cached_parts(
+                options.semantic_config.clone(),
+                payload,
+                Some(cache_entry.clone()),
+                Some(context),
+                Some(signature_context),
+            )?;
+            write_cached_index_payload(&index);
+            return Ok(index);
+        }
         let signatures = current_file_signatures(
             &root,
             options.extensions.as_ref(),
@@ -303,13 +426,15 @@ impl SifsIndex {
         if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures)
             && let Some(payload) = load_cached_index_payload(cache_entry, &context, signatures)
         {
-            return Self::from_cached_parts(
+            let index = Self::from_cached_parts(
                 options.semantic_config.clone(),
                 payload,
                 Some(cache_entry.clone()),
                 Some(context),
                 Some(signature_context),
-            );
+            )?;
+            write_cached_index_payload(&index);
+            return Ok(index);
         }
         let (chunks, warnings) = create_chunks_from_path_with_warnings(
             &root,
@@ -323,6 +448,8 @@ impl SifsIndex {
         if let (Some(cache_entry), Some(signatures)) = (cache_entry, signatures) {
             index.attach_cache(cache_entry, signatures, context, signature_context);
             write_cached_index_payload(&index);
+            write_cached_navigation_payload(&index);
+            write_cached_structural_payload(&index);
         }
         Ok(index)
     }
@@ -469,8 +596,14 @@ impl SifsIndex {
             bail!("No supported files found.");
         }
         let signatures = payload.signatures.clone();
-        let (file_mapping, language_mapping) = populate_mapping(&payload.chunks);
-        let symbol_index = SymbolIndex::from_chunks(&payload.chunks);
+        let (file_mapping, language_mapping) =
+            match (payload.file_mapping, payload.language_mapping) {
+                (Some(file_mapping), Some(language_mapping)) => (file_mapping, language_mapping),
+                _ => populate_mapping(&payload.chunks),
+            };
+        let symbol_index = payload
+            .symbol_index
+            .unwrap_or_else(|| SymbolIndex::from_chunks(&payload.chunks));
         Ok(Self {
             bm25_index: payload.bm25_index,
             semantic_state: Mutex::new(None),
@@ -763,6 +896,10 @@ impl SifsIndex {
         self.cache_context = Some(context);
     }
 
+    fn cache_source_fingerprint(&self) -> Option<String> {
+        git_source_fingerprint(&self.signature_context.as_ref()?.root)
+    }
+
     fn load_cached_semantic_index(&self, model_fingerprint: &str) -> Option<DenseIndex> {
         let cache_entry = self.cache_entry.as_ref()?;
         let signatures = self.signatures.as_ref()?;
@@ -795,6 +932,7 @@ impl SifsIndex {
         let payload = CachedSemanticPayload {
             version: CACHE_VERSION,
             context: context.clone(),
+            source_fingerprint: self.cache_source_fingerprint(),
             model_fingerprint: model_fingerprint.to_owned(),
             signatures: signatures.clone(),
             semantic_index: semantic_index.clone(),
@@ -860,6 +998,446 @@ impl SifsIndex {
     }
 }
 
+impl StructuralIndex {
+    pub fn from_path_with_index_options(
+        path: impl AsRef<Path>,
+        mut options: IndexOptions,
+    ) -> Result<Self> {
+        options.semantic_config = None;
+        let path = path.as_ref();
+        if !path.exists() {
+            bail!("Path does not exist: {}", path.display());
+        }
+        if !path.is_dir() {
+            bail!("Path is not a directory: {}", path.display());
+        }
+        let root = path.canonicalize()?;
+        let context = CacheContext::for_source(
+            options
+                .source_id_override
+                .clone()
+                .unwrap_or_else(|| format!("path:{}", root.to_string_lossy())),
+            &root,
+            &options.extensions,
+            &options.ignore,
+            options.include_text_files,
+        );
+        let cache_entry = resolve_cache_entry(&options.cache, &root, &context)?;
+        if let Some(cache_entry) = &cache_entry
+            && let Some(payload) =
+                load_cached_structural_payload_by_source_fingerprint(cache_entry, &context, &root)
+        {
+            return Ok(Self::from_cached_payload(payload));
+        }
+        let signatures = current_file_signatures(
+            &root,
+            options.extensions.as_ref(),
+            options.ignore.as_ref(),
+            options.include_text_files,
+        )
+        .ok();
+        if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures)
+            && let Some(payload) = load_cached_structural_payload(cache_entry, &context, signatures)
+        {
+            return Ok(Self::from_cached_payload(payload));
+        }
+        let index = SifsIndex::from_path_with_index_options(&root, options)?;
+        write_cached_navigation_payload(&index);
+        Ok(Self::from_sifs_index(&index))
+    }
+
+    pub fn from_git_with_index_options(
+        url: &str,
+        ref_name: Option<&str>,
+        options: IndexOptions,
+    ) -> Result<Self> {
+        let tmp = tempfile::tempdir()?;
+        let mut cmd = Command::new("git");
+        cmd.arg("clone").arg("--depth").arg("1");
+        if let Some(ref_name) = ref_name {
+            cmd.arg("--branch").arg(ref_name);
+        }
+        cmd.arg("--").arg(url).arg(tmp.path());
+        let output = cmd.stdin(Stdio::null()).output().context("run git clone")?;
+        if !output.status.success() {
+            bail!(
+                "git clone failed for {url:?}:\n{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let source_id = ref_name
+            .map(|name| format!("git:{url}@{name}"))
+            .unwrap_or_else(|| format!("git:{url}"));
+        Self::from_path_with_index_options(tmp.path(), options.with_source_id(source_id))
+    }
+
+    pub fn indexed_files_with_prefix(&self, prefix: Option<&str>, limit: usize) -> Vec<String> {
+        let normalized_prefix = prefix
+            .map(normalize_filter_path)
+            .filter(|prefix| !prefix.is_empty());
+        let mut files = self
+            .files
+            .iter()
+            .filter(|file| {
+                normalized_prefix
+                    .as_ref()
+                    .is_none_or(|prefix| file.starts_with(prefix))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        files.truncate(limit);
+        files
+    }
+
+    pub fn symbol_lookup(&self, name: &str, limit: usize) -> Vec<SymbolPosting> {
+        self.symbol_index.lookup(name, limit)
+    }
+
+    pub fn symbol_lookup_total(&self, name: &str) -> usize {
+        self.symbol_index.lookup_total(name)
+    }
+
+    pub fn file_outline(&self, file_path: &str) -> Option<FileOutline> {
+        let normalized = normalize_filter_path(file_path);
+        self.outlines.get(&normalized).cloned()
+    }
+
+    pub fn stats(&self) -> &IndexStats {
+        &self.stats
+    }
+
+    pub fn warnings(&self) -> &[IndexWarning] {
+        &self.warnings
+    }
+
+    fn from_sifs_index(index: &SifsIndex) -> Self {
+        let outlines = outlines_from_chunks(&index.file_mapping, &index.chunks);
+        let mut files = index.file_mapping.keys().cloned().collect::<Vec<_>>();
+        files.sort();
+        Self {
+            files,
+            stats: index.stats(),
+            symbol_index: index.symbol_index.clone(),
+            outlines,
+            warnings: index.warnings.clone(),
+        }
+    }
+
+    fn from_cached_payload(payload: CachedStructuralPayload) -> Self {
+        Self {
+            files: payload.files,
+            stats: payload.stats,
+            symbol_index: payload.symbol_index,
+            outlines: payload.outlines,
+            warnings: payload.warnings,
+        }
+    }
+}
+
+impl NavigationIndex {
+    pub fn cached_symbol_lookup_from_path_with_index_options(
+        path: impl AsRef<Path>,
+        mut options: IndexOptions,
+        name: &str,
+        limit: usize,
+    ) -> Result<Option<NavigationSymbolLookup>> {
+        options.semantic_config = None;
+        let path = path.as_ref();
+        if !path.exists() || !path.is_dir() || name.trim().is_empty() {
+            return Ok(None);
+        }
+        let root = path.canonicalize()?;
+        let context = CacheContext::for_source(
+            options
+                .source_id_override
+                .clone()
+                .unwrap_or_else(|| format!("path:{}", root.to_string_lossy())),
+            &root,
+            &options.extensions,
+            &options.ignore,
+            options.include_text_files,
+        );
+        let Some(cache_entry) = resolve_cache_entry(&options.cache, &root, &context)? else {
+            return Ok(None);
+        };
+        let Some(manifest) =
+            load_cached_navigation_manifest_by_source_fingerprint(&cache_entry, &context, &root)
+        else {
+            return Ok(None);
+        };
+        let exact_key = symbol_shard_key(name);
+        let folded_key = symbol_shard_key(&symbol_index::fold_symbol_key(name));
+        let payload = load_cached_symbol_lookup_payload(&cache_entry, &context, &root, &exact_key)
+            .or_else(|| {
+                if folded_key == exact_key {
+                    None
+                } else {
+                    load_cached_symbol_lookup_payload(&cache_entry, &context, &root, &folded_key)
+                }
+            });
+        let Some(mut payload) = payload else {
+            return Ok(None);
+        };
+        let total = payload.postings.len();
+        payload.postings.truncate(limit);
+        Ok(Some(NavigationSymbolLookup {
+            stats: manifest.stats,
+            warnings: manifest.warnings,
+            total,
+            postings: payload.postings,
+        }))
+    }
+
+    pub fn cached_file_outline_from_path_with_index_options(
+        path: impl AsRef<Path>,
+        mut options: IndexOptions,
+        file_path: &str,
+    ) -> Result<Option<NavigationFileOutline>> {
+        options.semantic_config = None;
+        let path = path.as_ref();
+        if !path.exists() || !path.is_dir() || file_path.trim().is_empty() {
+            return Ok(None);
+        }
+        let root = path.canonicalize()?;
+        let context = CacheContext::for_source(
+            options
+                .source_id_override
+                .clone()
+                .unwrap_or_else(|| format!("path:{}", root.to_string_lossy())),
+            &root,
+            &options.extensions,
+            &options.ignore,
+            options.include_text_files,
+        );
+        let Some(cache_entry) = resolve_cache_entry(&options.cache, &root, &context)? else {
+            return Ok(None);
+        };
+        let Some(manifest) =
+            load_cached_navigation_manifest_by_source_fingerprint(&cache_entry, &context, &root)
+        else {
+            return Ok(None);
+        };
+        let normalized = normalize_filter_path(file_path);
+        let payload = load_cached_file_outline_payload(&cache_entry, &context, &root, &normalized);
+        let Some(payload) = payload else {
+            return Ok(None);
+        };
+        Ok(Some(NavigationFileOutline {
+            stats: manifest.stats,
+            warnings: manifest.warnings,
+            outline: payload.outline,
+        }))
+    }
+
+    pub fn from_path_with_index_options(
+        path: impl AsRef<Path>,
+        mut options: IndexOptions,
+    ) -> Result<Self> {
+        options.semantic_config = None;
+        let path = path.as_ref();
+        if !path.exists() {
+            bail!("Path does not exist: {}", path.display());
+        }
+        if !path.is_dir() {
+            bail!("Path is not a directory: {}", path.display());
+        }
+        let root = path.canonicalize()?;
+        let context = CacheContext::for_source(
+            options
+                .source_id_override
+                .clone()
+                .unwrap_or_else(|| format!("path:{}", root.to_string_lossy())),
+            &root,
+            &options.extensions,
+            &options.ignore,
+            options.include_text_files,
+        );
+        let cache_entry = resolve_cache_entry(&options.cache, &root, &context)?;
+        if let Some(cache_entry) = &cache_entry
+            && let Some(payload) =
+                load_cached_navigation_payload_by_source_fingerprint(cache_entry, &context, &root)
+        {
+            let source_fingerprint = payload.source_fingerprint.clone();
+            let signatures = payload.signatures.clone();
+            let navigation = Self::from_cached_payload(payload);
+            write_cached_navigation_manifest_and_shards_from_parts(
+                cache_entry,
+                &context,
+                source_fingerprint,
+                &signatures,
+                &navigation,
+            );
+            return Ok(navigation);
+        }
+        let signatures = current_file_signatures(
+            &root,
+            options.extensions.as_ref(),
+            options.ignore.as_ref(),
+            options.include_text_files,
+        )
+        .ok();
+        if let (Some(cache_entry), Some(signatures)) = (&cache_entry, &signatures)
+            && let Some(payload) = load_cached_navigation_payload(cache_entry, &context, signatures)
+        {
+            let source_fingerprint = payload
+                .source_fingerprint
+                .clone()
+                .or_else(|| git_source_fingerprint(&root));
+            let navigation = Self::from_cached_payload(payload);
+            write_cached_navigation_manifest_and_shards_from_parts(
+                cache_entry,
+                &context,
+                source_fingerprint,
+                signatures,
+                &navigation,
+            );
+            return Ok(navigation);
+        }
+        let index = SifsIndex::from_path_with_index_options(&root, options)?;
+        Ok(Self::from_sifs_index(&index))
+    }
+
+    pub fn from_git_with_index_options(
+        url: &str,
+        ref_name: Option<&str>,
+        options: IndexOptions,
+    ) -> Result<Self> {
+        let tmp = tempfile::tempdir()?;
+        let mut cmd = Command::new("git");
+        cmd.arg("clone").arg("--depth").arg("1");
+        if let Some(ref_name) = ref_name {
+            cmd.arg("--branch").arg(ref_name);
+        }
+        cmd.arg("--").arg(url).arg(tmp.path());
+        let output = cmd.stdin(Stdio::null()).output().context("run git clone")?;
+        if !output.status.success() {
+            bail!(
+                "git clone failed for {url:?}:\n{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let source_id = ref_name
+            .map(|name| format!("git:{url}@{name}"))
+            .unwrap_or_else(|| format!("git:{url}"));
+        Self::from_path_with_index_options(tmp.path(), options.with_source_id(source_id))
+    }
+
+    pub fn indexed_files_with_prefix(&self, prefix: Option<&str>, limit: usize) -> Vec<String> {
+        let normalized_prefix = prefix
+            .map(normalize_filter_path)
+            .filter(|prefix| !prefix.is_empty());
+        let mut files = self
+            .files
+            .iter()
+            .filter(|file| {
+                normalized_prefix
+                    .as_ref()
+                    .is_none_or(|prefix| file.starts_with(prefix))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        files.truncate(limit);
+        files
+    }
+
+    pub fn files(&self) -> &[String] {
+        &self.files
+    }
+
+    pub fn symbol_lookup(&self, name: &str, limit: usize) -> Vec<SymbolPosting> {
+        self.symbol_index.lookup(name, limit)
+    }
+
+    pub fn symbol_lookup_total(&self, name: &str) -> usize {
+        self.symbol_index.lookup_total(name)
+    }
+
+    pub fn file_symbol_outline(&self, file_path: &str) -> Option<FileOutline> {
+        let normalized = normalize_filter_path(file_path);
+        if self.files.binary_search(&normalized).is_err() {
+            return None;
+        }
+        let mut symbols = self
+            .symbol_index
+            .postings()
+            .into_iter()
+            .filter(|posting| posting.file_path == normalized)
+            .collect::<Vec<_>>();
+        if symbols.is_empty() {
+            return None;
+        }
+        symbols.sort_by(|left, right| {
+            left.line
+                .cmp(&right.line)
+                .then_with(|| left.name.cmp(&right.name))
+                .then_with(|| left.kind.cmp(&right.kind))
+        });
+        let start_line = symbols
+            .iter()
+            .map(|posting| posting.start_line)
+            .min()
+            .unwrap_or(1);
+        let end_line = symbols
+            .iter()
+            .map(|posting| posting.end_line)
+            .max()
+            .unwrap_or(start_line);
+        let mut language_counts = BTreeMap::<String, usize>::new();
+        let mut chunks = HashSet::<(usize, usize)>::new();
+        for posting in &symbols {
+            if let Some(language) = &posting.language {
+                *language_counts.entry(language.clone()).or_default() += 1;
+            }
+            chunks.insert((posting.start_line, posting.end_line));
+        }
+        let language = language_counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(language, _)| language);
+        Some(FileOutline {
+            file_path: normalized,
+            language,
+            start_line,
+            end_line,
+            chunk_count: chunks.len(),
+            symbol_count: symbols.len(),
+            symbols,
+            chunks: Vec::new(),
+        })
+    }
+
+    pub fn stats(&self) -> &IndexStats {
+        &self.stats
+    }
+
+    pub fn warnings(&self) -> &[IndexWarning] {
+        &self.warnings
+    }
+
+    fn from_sifs_index(index: &SifsIndex) -> Self {
+        let mut files = index.file_mapping.keys().cloned().collect::<Vec<_>>();
+        files.sort();
+        Self {
+            files,
+            stats: index.stats(),
+            symbol_index: index.symbol_index.clone(),
+            warnings: index.warnings.clone(),
+        }
+    }
+
+    fn from_cached_payload(payload: CachedNavigationPayload) -> Self {
+        let symbol_index = payload
+            .symbol_index
+            .unwrap_or_else(|| SymbolIndex::from_postings(payload.symbol_postings));
+        Self {
+            files: payload.files,
+            stats: payload.stats,
+            symbol_index,
+            warnings: payload.warnings,
+        }
+    }
+}
+
 fn load_cached_index_payload(
     cache_entry: &CacheEntry,
     context: &CacheContext,
@@ -872,6 +1450,300 @@ fn load_cached_index_payload(
         && payload.context == *context
         && payload.signatures == signatures)
         .then_some(payload)
+}
+
+fn load_cached_index_payload_by_source_fingerprint(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    root: &Path,
+) -> Option<CachedIndexPayload> {
+    let bytes = fs::read(sparse_cache_path(cache_entry)).ok()?;
+    let (payload, _): (CachedIndexPayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    cached_payload_source_matches(
+        payload.version,
+        &payload.context,
+        payload.source_fingerprint.as_deref(),
+        context,
+        root,
+    )
+    .then_some(payload)
+}
+
+fn load_cached_structural_payload(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    signatures: &[FileSignature],
+) -> Option<CachedStructuralPayload> {
+    let bytes = fs::read(structural_cache_path(cache_entry)).ok()?;
+    let (payload, _): (CachedStructuralPayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    (payload.version == CACHE_VERSION
+        && payload.context == *context
+        && payload.signatures == signatures)
+        .then_some(payload)
+}
+
+fn load_cached_structural_payload_by_source_fingerprint(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    root: &Path,
+) -> Option<CachedStructuralPayload> {
+    let bytes = fs::read(structural_cache_path(cache_entry)).ok()?;
+    let (payload, _): (CachedStructuralPayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    cached_payload_source_matches(
+        payload.version,
+        &payload.context,
+        payload.source_fingerprint.as_deref(),
+        context,
+        root,
+    )
+    .then_some(payload)
+}
+
+fn load_cached_navigation_payload(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    signatures: &[FileSignature],
+) -> Option<CachedNavigationPayload> {
+    let bytes = fs::read(navigation_cache_path(cache_entry)).ok()?;
+    let (payload, _): (CachedNavigationPayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    (payload.version == CACHE_VERSION
+        && payload.context == *context
+        && payload.signatures == signatures)
+        .then_some(payload)
+}
+
+fn load_cached_navigation_payload_by_source_fingerprint(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    root: &Path,
+) -> Option<CachedNavigationPayload> {
+    let bytes = fs::read(navigation_cache_path(cache_entry)).ok()?;
+    let (payload, _): (CachedNavigationPayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    cached_payload_source_matches(
+        payload.version,
+        &payload.context,
+        payload.source_fingerprint.as_deref(),
+        context,
+        root,
+    )
+    .then_some(payload)
+}
+
+fn load_cached_navigation_manifest_by_source_fingerprint(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    root: &Path,
+) -> Option<CachedNavigationManifest> {
+    let bytes = fs::read(navigation_manifest_path(cache_entry)).ok()?;
+    let (payload, _): (CachedNavigationManifest, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    cached_payload_source_matches(
+        payload.version,
+        &payload.context,
+        payload.source_fingerprint.as_deref(),
+        context,
+        root,
+    )
+    .then_some(payload)
+}
+
+fn load_cached_symbol_lookup_payload(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    root: &Path,
+    key: &str,
+) -> Option<CachedSymbolLookupPayload> {
+    let bytes = fs::read(navigation_symbol_shard_path(cache_entry, key)).ok()?;
+    let (payload, _): (CachedSymbolLookupPayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    (payload.key == key
+        && cached_payload_source_matches(
+            payload.version,
+            &payload.context,
+            payload.source_fingerprint.as_deref(),
+            context,
+            root,
+        ))
+    .then_some(payload)
+}
+
+fn load_cached_file_outline_payload(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    root: &Path,
+    file_path: &str,
+) -> Option<CachedFileOutlinePayload> {
+    let bytes = fs::read(navigation_outline_shard_path(cache_entry, file_path)).ok()?;
+    let (payload, _): (CachedFileOutlinePayload, usize) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).ok()?;
+    (payload.file_path == file_path
+        && cached_payload_source_matches(
+            payload.version,
+            &payload.context,
+            payload.source_fingerprint.as_deref(),
+            context,
+            root,
+        ))
+    .then_some(payload)
+}
+
+fn cached_payload_source_matches(
+    version: u32,
+    payload_context: &CacheContext,
+    payload_fingerprint: Option<&str>,
+    context: &CacheContext,
+    root: &Path,
+) -> bool {
+    version == CACHE_VERSION
+        && payload_context == context
+        && payload_fingerprint
+            .zip(git_source_fingerprint(root))
+            .is_some_and(|(left, right)| left == right)
+}
+
+fn git_source_fingerprint(root: &Path) -> Option<String> {
+    let root = root.canonicalize().ok()?;
+    let cache = GIT_SOURCE_FINGERPRINTS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(cache) = cache.lock()
+        && let Some(fingerprint) = cache.get(&root)
+    {
+        return fingerprint.clone();
+    }
+    let fingerprint = compute_git_source_fingerprint(&root);
+    if let Ok(mut cache) = cache.lock() {
+        cache.insert(root, fingerprint.clone());
+    }
+    fingerprint
+}
+
+static GIT_SOURCE_FINGERPRINTS: OnceLock<Mutex<HashMap<PathBuf, Option<String>>>> = OnceLock::new();
+
+fn compute_git_source_fingerprint(root: &Path) -> Option<String> {
+    let top_level = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !top_level.status.success() {
+        return None;
+    }
+    let top_level = PathBuf::from(String::from_utf8_lossy(&top_level.stdout).trim());
+    if top_level.canonicalize().ok()? != root.canonicalize().ok()? {
+        return None;
+    }
+
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !head.status.success() {
+        return None;
+    }
+    let head = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("status")
+        .arg("--porcelain=v1")
+        .arg("-z")
+        .arg("--untracked-files=all")
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !status.status.success() {
+        return None;
+    }
+    if status.stdout.is_empty() {
+        return Some(format!("git-clean:{head}"));
+    }
+
+    let mut dirty_entries = parse_git_status_z(&status.stdout)
+        .into_iter()
+        .filter(|entry| language_for_path(Path::new(&entry.path)).is_some())
+        .collect::<Vec<_>>();
+    dirty_entries.sort();
+    if dirty_entries.is_empty() {
+        return Some(format!("git-clean:{head}"));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"git-dirty-v1\0");
+    hasher.update(head.as_bytes());
+    for entry in dirty_entries {
+        hasher.update(b"\0entry\0");
+        hasher.update(entry.status.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(entry.path.as_bytes());
+        let path = root.join(&entry.path);
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => {
+                hasher.update(b"\0file\0");
+                hasher.update(metadata.len().to_le_bytes());
+                if let Ok(bytes) = fs::read(&path) {
+                    hasher.update(Sha256::digest(bytes));
+                }
+            }
+            Ok(metadata) if metadata.is_dir() => {
+                hasher.update(b"\0dir\0");
+                hasher.update(metadata.len().to_le_bytes());
+            }
+            Ok(_) => {
+                hasher.update(b"\0other\0");
+            }
+            Err(_) => {
+                hasher.update(b"\0missing\0");
+            }
+        }
+    }
+    Some(format!("git-dirty:{:x}", hasher.finalize()))
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct GitStatusEntry {
+    status: String,
+    path: String,
+}
+
+fn parse_git_status_z(output: &[u8]) -> Vec<GitStatusEntry> {
+    let mut entries = Vec::new();
+    let mut fields = output
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty());
+    while let Some(field) = fields.next() {
+        let text = String::from_utf8_lossy(field);
+        let status = text.get(0..2).unwrap_or("").to_owned();
+        let path = text.get(3..).unwrap_or("").to_owned();
+        if !path.is_empty() {
+            entries.push(GitStatusEntry {
+                status: status.clone(),
+                path,
+            });
+        }
+        if (status.starts_with('R') || status.starts_with('C'))
+            && let Some(previous) = fields.next()
+        {
+            let previous = String::from_utf8_lossy(previous).to_string();
+            if !previous.is_empty() {
+                entries.push(GitStatusEntry {
+                    status: format!("{status}:from"),
+                    path: previous,
+                });
+            }
+        }
+    }
+    entries
 }
 
 fn write_cached_index_payload(index: &SifsIndex) {
@@ -887,9 +1759,13 @@ fn write_cached_index_payload(index: &SifsIndex) {
     let payload = CachedIndexPayload {
         version: CACHE_VERSION,
         context: context.clone(),
-        signatures: signatures.clone(),
+        source_fingerprint: index.cache_source_fingerprint(),
+        signatures: signatures.to_vec(),
         chunks: index.chunks.clone(),
         bm25_index: index.bm25_index.clone(),
+        file_mapping: Some(index.file_mapping.clone()),
+        language_mapping: Some(index.language_mapping.clone()),
+        symbol_index: Some(index.symbol_index.clone()),
         warnings: index.warnings.clone(),
     };
     let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
@@ -907,8 +1783,292 @@ fn write_cached_index_payload(index: &SifsIndex) {
     }
 }
 
+fn write_cached_navigation_payload(index: &SifsIndex) {
+    let Some(cache_entry) = index.cache_entry.as_ref() else {
+        return;
+    };
+    let Some(signatures) = index.signatures.as_ref() else {
+        return;
+    };
+    let Some(context) = index.cache_context.as_ref() else {
+        return;
+    };
+    let navigation = NavigationIndex::from_sifs_index(index);
+    write_cached_navigation_manifest_and_shards(index, &navigation);
+    let payload = CachedNavigationPayload {
+        version: CACHE_VERSION,
+        context: context.clone(),
+        source_fingerprint: index.cache_source_fingerprint(),
+        signatures: signatures.to_vec(),
+        files: navigation.files.clone(),
+        stats: navigation.stats.clone(),
+        symbol_postings: navigation.symbol_index.postings(),
+        symbol_index: None,
+        warnings: navigation.warnings.clone(),
+    };
+    let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
+        return;
+    };
+    let cache_path = navigation_cache_path(cache_entry);
+    if let Some(parent) = cache_path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    let tmp_path = cache_path.with_extension("bin.tmp");
+    if fs::write(&tmp_path, bytes).is_ok() {
+        let _ = fs::rename(tmp_path, cache_path);
+    }
+}
+
+fn write_cached_navigation_manifest_and_shards(index: &SifsIndex, navigation: &NavigationIndex) {
+    let Some(cache_entry) = index.cache_entry.as_ref() else {
+        return;
+    };
+    let Some(signatures) = index.signatures.as_ref() else {
+        return;
+    };
+    let Some(context) = index.cache_context.as_ref() else {
+        return;
+    };
+    write_cached_navigation_manifest_and_shards_from_parts(
+        cache_entry,
+        context,
+        index.cache_source_fingerprint(),
+        signatures,
+        navigation,
+    );
+}
+
+fn write_cached_navigation_manifest_and_shards_from_parts(
+    cache_entry: &CacheEntry,
+    context: &CacheContext,
+    source_fingerprint: Option<String>,
+    signatures: &[FileSignature],
+    navigation: &NavigationIndex,
+) {
+    if source_fingerprint.is_some()
+        && fs::read(navigation_manifest_path(cache_entry))
+            .ok()
+            .and_then(|bytes| {
+                bincode::serde::decode_from_slice::<CachedNavigationManifest, _>(
+                    &bytes,
+                    bincode::config::standard(),
+                )
+                .ok()
+                .map(|(payload, _)| payload)
+            })
+            .is_some_and(|payload| {
+                payload.version == CACHE_VERSION
+                    && payload.context == *context
+                    && payload.source_fingerprint == source_fingerprint
+            })
+    {
+        return;
+    }
+    let manifest = CachedNavigationManifest {
+        version: CACHE_VERSION,
+        context: context.clone(),
+        source_fingerprint: source_fingerprint.clone(),
+        signatures: signatures.to_vec(),
+        files: navigation.files.clone(),
+        stats: navigation.stats.clone(),
+        warnings: navigation.warnings.clone(),
+    };
+    write_bincode_atomically(navigation_manifest_path(cache_entry), &manifest);
+
+    let postings = navigation.symbol_index.postings();
+    let mut symbol_shards = BTreeMap::<String, Vec<SymbolPosting>>::new();
+    let mut file_symbols = BTreeMap::<String, Vec<SymbolPosting>>::new();
+    for posting in postings {
+        let exact_key = symbol_shard_key(&posting.name);
+        symbol_shards
+            .entry(exact_key.clone())
+            .or_default()
+            .push(posting.clone());
+        let folded_key = symbol_shard_key(&symbol_index::fold_symbol_key(&posting.name));
+        if folded_key != exact_key {
+            symbol_shards
+                .entry(folded_key)
+                .or_default()
+                .push(posting.clone());
+        }
+        file_symbols
+            .entry(posting.file_path.clone())
+            .or_default()
+            .push(posting);
+    }
+    for (key, mut postings) in symbol_shards {
+        sort_symbol_postings_for_cache(&mut postings);
+        let payload = CachedSymbolLookupPayload {
+            version: CACHE_VERSION,
+            context: context.clone(),
+            source_fingerprint: source_fingerprint.clone(),
+            key: key.clone(),
+            postings,
+        };
+        write_bincode_atomically(navigation_symbol_shard_path(cache_entry, &key), &payload);
+    }
+    for (file_path, mut symbols) in file_symbols {
+        sort_symbol_postings_for_cache(&mut symbols);
+        let Some(outline) = file_symbol_outline_from_postings(file_path.clone(), symbols) else {
+            continue;
+        };
+        let payload = CachedFileOutlinePayload {
+            version: CACHE_VERSION,
+            context: context.clone(),
+            source_fingerprint: source_fingerprint.clone(),
+            file_path: file_path.clone(),
+            outline,
+        };
+        write_bincode_atomically(
+            navigation_outline_shard_path(cache_entry, &file_path),
+            &payload,
+        );
+    }
+}
+
+fn write_bincode_atomically<T: Serialize>(path: PathBuf, value: &T) {
+    let Ok(bytes) = bincode::serde::encode_to_vec(value, bincode::config::standard()) else {
+        return;
+    };
+    if let Some(parent) = path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    let tmp_path = path.with_extension("bin.tmp");
+    if fs::write(&tmp_path, bytes).is_ok() {
+        let _ = fs::rename(tmp_path, path);
+    }
+}
+
+fn symbol_shard_key(name: &str) -> String {
+    name.trim().to_owned()
+}
+
+fn sort_symbol_postings_for_cache(postings: &mut [SymbolPosting]) {
+    postings.sort_by(|left, right| {
+        left.file_path
+            .cmp(&right.file_path)
+            .then_with(|| left.line.cmp(&right.line))
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+}
+
+fn file_symbol_outline_from_postings(
+    file_path: String,
+    mut symbols: Vec<SymbolPosting>,
+) -> Option<FileOutline> {
+    if symbols.is_empty() {
+        return None;
+    }
+    symbols.sort_by(|left, right| {
+        left.line
+            .cmp(&right.line)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.kind.cmp(&right.kind))
+    });
+    let start_line = symbols
+        .iter()
+        .map(|posting| posting.start_line)
+        .min()
+        .unwrap_or(1);
+    let end_line = symbols
+        .iter()
+        .map(|posting| posting.end_line)
+        .max()
+        .unwrap_or(start_line);
+    let mut language_counts = BTreeMap::<String, usize>::new();
+    let mut chunks = HashSet::<(usize, usize)>::new();
+    for posting in &symbols {
+        if let Some(language) = &posting.language {
+            *language_counts.entry(language.clone()).or_default() += 1;
+        }
+        chunks.insert((posting.start_line, posting.end_line));
+    }
+    let language = language_counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(language, _)| language);
+    Some(FileOutline {
+        file_path,
+        language,
+        start_line,
+        end_line,
+        chunk_count: chunks.len(),
+        symbol_count: symbols.len(),
+        symbols,
+        chunks: Vec::new(),
+    })
+}
+
+fn write_cached_structural_payload(index: &SifsIndex) {
+    let Some(cache_entry) = index.cache_entry.as_ref() else {
+        return;
+    };
+    let Some(signatures) = index.signatures.as_ref() else {
+        return;
+    };
+    let Some(context) = index.cache_context.as_ref() else {
+        return;
+    };
+    let structural = StructuralIndex::from_sifs_index(index);
+    let payload = CachedStructuralPayload {
+        version: CACHE_VERSION,
+        context: context.clone(),
+        source_fingerprint: index.cache_source_fingerprint(),
+        signatures: signatures.clone(),
+        files: structural.files,
+        stats: structural.stats,
+        symbol_index: structural.symbol_index,
+        outlines: structural.outlines,
+        warnings: structural.warnings,
+    };
+    let Ok(bytes) = bincode::serde::encode_to_vec(&payload, bincode::config::standard()) else {
+        return;
+    };
+    let cache_path = structural_cache_path(cache_entry);
+    if let Some(parent) = cache_path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    let tmp_path = cache_path.with_extension("bin.tmp");
+    if fs::write(&tmp_path, bytes).is_ok() {
+        let _ = fs::rename(tmp_path, cache_path);
+    }
+}
+
 fn sparse_cache_path(cache_entry: &CacheEntry) -> PathBuf {
     cache_entry.root.join(SPARSE_CACHE_FILE)
+}
+
+fn structural_cache_path(cache_entry: &CacheEntry) -> PathBuf {
+    cache_entry.root.join(STRUCTURAL_CACHE_FILE)
+}
+
+fn navigation_cache_path(cache_entry: &CacheEntry) -> PathBuf {
+    cache_entry.root.join(NAVIGATION_CACHE_FILE)
+}
+
+fn navigation_manifest_path(cache_entry: &CacheEntry) -> PathBuf {
+    cache_entry.root.join(NAVIGATION_MANIFEST_FILE)
+}
+
+fn navigation_symbol_shard_path(cache_entry: &CacheEntry, key: &str) -> PathBuf {
+    cache_entry
+        .root
+        .join(NAVIGATION_SYMBOL_DIR)
+        .join(format!("{}.bin", cache_hash(&("symbol-shard-v1", key))))
+}
+
+fn navigation_outline_shard_path(cache_entry: &CacheEntry, file_path: &str) -> PathBuf {
+    cache_entry.root.join(NAVIGATION_OUTLINE_DIR).join(format!(
+        "{}.bin",
+        cache_hash(&("outline-shard-v1", file_path))
+    ))
 }
 
 fn semantic_cache_path(
@@ -1024,10 +2184,10 @@ fn current_file_signatures(
     let extensions = filter_extensions(extensions.cloned(), include_text_files);
     let files = walk_files(root, &extensions, ignore);
     files
-        .into_iter()
+        .par_iter()
         .map(|path| {
-            let metadata = fs::metadata(&path)?;
-            let rel_path = path.strip_prefix(root).unwrap_or(&path);
+            let metadata = fs::metadata(path)?;
+            let rel_path = path.strip_prefix(root).unwrap_or(path);
             let modified_ns = metadata
                 .modified()
                 .ok()
@@ -1040,7 +2200,7 @@ fn current_file_signatures(
                 modified_ns,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()
 }
 
 fn encode_chunks_batched(model: &dyn Encoder, chunks: &[Chunk]) -> Array2<f32> {
@@ -1188,6 +2348,19 @@ fn populate_mapping(chunks: &[Chunk]) -> IndexMappings {
         }
     }
     (file_mapping, language_mapping)
+}
+
+fn outlines_from_chunks(
+    file_mapping: &HashMap<String, Vec<usize>>,
+    chunks: &[Chunk],
+) -> HashMap<String, FileOutline> {
+    file_mapping
+        .iter()
+        .filter_map(|(file_path, chunk_ids)| {
+            symbol_index::file_outline(file_path, chunk_ids, chunks)
+                .map(|outline| (file_path.clone(), outline))
+        })
+        .collect()
 }
 
 #[cfg(test)]

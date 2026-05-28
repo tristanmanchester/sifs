@@ -1,0 +1,27 @@
+{
+  "repos": {
+    "sifs": "/absolute/path/to/sifs",
+    "other_repo": "/absolute/path/to/another/local/repo"
+  },
+  "tasks": [
+    {
+      "repo": "sifs",
+      "kind": "search",
+      "query": "context_pack_payload",
+      "mode": "bm25",
+      "expected": "src/context_pack.rs"
+    },
+    {
+      "repo": "sifs",
+      "kind": "symbol",
+      "query": "McpIndexOptions",
+      "expected": "src/mcp.rs"
+    },
+    {
+      "repo": "sifs",
+      "kind": "outline",
+      "file": "src/mcp.rs",
+      "symbols_limit": 200
+    }
+  ]
+}

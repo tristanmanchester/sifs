@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use rayon::prelude::*;
 use serde_json::{Value, json};
 use sifs::agent_artifacts::{AgentArtifact, AgentTarget, render_artifact};
 use sifs::agent_installer::{AgentMutationOptions, AgentOperation, apply_mutation};
@@ -10,11 +11,13 @@ use sifs::daemon::{
 };
 use sifs::update::{UpdateMode, UpdateOptions, run_update};
 use sifs::{
-    CacheConfig, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions, SearchMode,
-    SearchOptions, SearchResult, SifsIndex, cache_summary, fenced_code_block, format_results,
-    is_git_url, load_model_with_options, model_status, platform_cache_root, resolve_chunk,
+    CacheConfig, Chunk, EncoderSpec, IndexOptions, IndexStats, ModelLoadPolicy, ModelOptions,
+    SearchMode, SearchOptions, SearchResult, SifsIndex, Symbol, cache_summary, fenced_code_block,
+    format_results, is_git_url, load_model_with_options, model_status, platform_cache_root,
+    resolve_chunk,
 };
 use sifs::{agent_context, feedback, profiles};
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1652,6 +1655,46 @@ fn run_search(command: SearchCommand) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(result) = try_quick_literal_search(&command)? {
+        let mut options = SearchOptions::new(command.limit).with_mode(command.mode);
+        options.filter_languages = command.languages;
+        options.filter_paths = command.filter_paths;
+        options.explain = command.explain;
+        print_search_output(
+            &command.query,
+            &command.source,
+            &options,
+            result.stats,
+            result.elapsed_ms,
+            &result.warnings,
+            &result.results,
+            command.context_lines,
+            command.explain,
+            &command.output,
+        )?;
+        return Ok(());
+    }
+
+    if let Some(result) = try_quick_symbol_search(&command)? {
+        let mut options = SearchOptions::new(command.limit).with_mode(command.mode);
+        options.filter_languages = command.languages;
+        options.filter_paths = command.filter_paths;
+        options.explain = command.explain;
+        print_search_output(
+            &command.query,
+            &command.source,
+            &options,
+            result.stats,
+            result.elapsed_ms,
+            &result.warnings,
+            &result.results,
+            command.context_lines,
+            command.explain,
+            &command.output,
+        )?;
+        return Ok(());
+    }
+
     let policy = model_policy(command.offline, command.no_download);
     let started = Instant::now();
     let index = build_index_for_mode(
@@ -1751,6 +1794,345 @@ fn print_search_output(
         }
     }
     Ok(())
+}
+
+struct QuickSearchResult {
+    stats: IndexStats,
+    warnings: Vec<String>,
+    results: Vec<SearchResult>,
+    elapsed_ms: u128,
+}
+
+const QUICK_LOCAL_SCAN_FILE_LIMIT: usize = 1_200;
+
+fn try_quick_symbol_search(command: &SearchCommand) -> Result<Option<QuickSearchResult>> {
+    if command.mode != SearchMode::Bm25
+        || command.explain
+        || !command.languages.is_empty()
+        || !command.filter_paths.is_empty()
+        || is_git_url(&command.source)
+        || command.query.split_whitespace().count() != 1
+        || !is_exact_identifier_query_term(&command.query)
+        || !is_all_caps_identifier(&command.query)
+    {
+        return Ok(None);
+    }
+    let started = Instant::now();
+    let extensions = extension_set(&command.extensions);
+    if let Some(lookup) = cached_navigation_symbol_lookup(
+        &command.source,
+        command.ref_name.as_deref(),
+        command.cache.clone(),
+        command.offline,
+        command.include_docs,
+        extensions.clone(),
+        &command.query,
+        command.limit,
+    )? {
+        let results =
+            quick_symbol_results_from_postings(&command.source, lookup.postings, command.limit);
+        if !results.is_empty() {
+            let warnings = lookup
+                .warnings
+                .iter()
+                .map(|warning| {
+                    if warning.path.is_empty() {
+                        warning.message.clone()
+                    } else {
+                        format!("{}: {}", warning.path, warning.message)
+                    }
+                })
+                .collect();
+            return Ok(Some(QuickSearchResult {
+                stats: lookup.stats,
+                warnings,
+                results,
+                elapsed_ms: started.elapsed().as_millis(),
+            }));
+        }
+    }
+    let index = build_navigation_index(
+        &command.source,
+        command.ref_name.as_deref(),
+        command.cache.clone(),
+        command.offline,
+        command.include_docs,
+        extensions,
+    )?;
+    let postings = index.symbol_lookup(&command.query, command.limit);
+    let results = quick_symbol_results_from_postings(&command.source, postings, command.limit);
+    if results.is_empty() {
+        return Ok(None);
+    }
+    let warnings = index
+        .warnings()
+        .iter()
+        .map(|warning| {
+            if warning.path.is_empty() {
+                warning.message.clone()
+            } else {
+                format!("{}: {}", warning.path, warning.message)
+            }
+        })
+        .collect();
+    Ok(Some(QuickSearchResult {
+        stats: index.stats().clone(),
+        warnings,
+        results,
+        elapsed_ms: started.elapsed().as_millis(),
+    }))
+}
+
+fn try_quick_literal_search(command: &SearchCommand) -> Result<Option<QuickSearchResult>> {
+    if command.mode != SearchMode::Bm25
+        || command.explain
+        || !command.languages.is_empty()
+        || !command.filter_paths.is_empty()
+        || is_git_url(&command.source)
+        || command.query.split_whitespace().count() != 1
+        || !is_quick_literal_query_term(&command.query)
+    {
+        return Ok(None);
+    }
+    let started = Instant::now();
+    let root = Path::new(&command.source);
+    if !root.exists() || !root.is_dir() {
+        return Ok(None);
+    }
+    let root = root.canonicalize()?;
+    let extensions = sifs::file_walker::filter_extensions(
+        extension_set(&command.extensions),
+        command.include_docs,
+    );
+    let files = sifs::file_walker::walk_files(&root, &extensions, None);
+    if files.len() > QUICK_LOCAL_SCAN_FILE_LIMIT {
+        return Ok(None);
+    }
+    let query = command.query.trim();
+    let query_lower = query.to_ascii_lowercase();
+    let mut language_counts = std::collections::BTreeMap::<String, usize>::new();
+    for path in &files {
+        let Ok(relative) = path.strip_prefix(&root) else {
+            continue;
+        };
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        let language =
+            sifs::file_walker::language_for_path(Path::new(&relative)).map(str::to_owned);
+        if let Some(language) = &language {
+            *language_counts.entry(language.clone()).or_default() += 1;
+        }
+    }
+    let mut scored = files
+        .par_iter()
+        .flat_map_iter(|path| {
+            let Ok(relative) = path.strip_prefix(&root) else {
+                return Vec::new();
+            };
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let language =
+                sifs::file_walker::language_for_path(Path::new(&relative)).map(str::to_owned);
+            let Ok(content) = fs::read_to_string(path) else {
+                return Vec::new();
+            };
+            let mut matches = Vec::new();
+            for (offset, line) in content.lines().enumerate() {
+                if !line_matches_literal_query(line, query, &query_lower) {
+                    continue;
+                }
+                let line_number = offset + 1;
+                let symbols =
+                    sifs::chunker::extract_symbols(line, line_number, language.as_deref());
+                let breadcrumbs = symbols
+                    .iter()
+                    .map(|symbol| format!("{} {}", symbol.kind, symbol.name))
+                    .collect::<Vec<_>>();
+                let score = quick_literal_score(query, &relative, line, &symbols);
+                matches.push((
+                    score,
+                    relative.clone(),
+                    line_number,
+                    SearchResult {
+                        chunk: Chunk {
+                            content: line.to_owned(),
+                            file_path: relative.clone(),
+                            start_line: line_number,
+                            end_line: line_number,
+                            language: language.clone(),
+                            symbols,
+                            breadcrumbs,
+                        },
+                        score,
+                        source: SearchMode::Bm25,
+                        explanation: None,
+                    },
+                ));
+            }
+            matches
+        })
+        .collect::<Vec<_>>();
+    if scored.is_empty() {
+        return Ok(None);
+    }
+    scored.sort_by(|left, right| {
+        right
+            .0
+            .partial_cmp(&left.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+    let results = scored
+        .into_iter()
+        .take(command.limit)
+        .map(|(_, _, _, result)| result)
+        .collect::<Vec<_>>();
+    Ok(Some(QuickSearchResult {
+        stats: IndexStats {
+            indexed_files: files.len(),
+            total_chunks: files.len(),
+            languages: language_counts,
+        },
+        warnings: Vec::new(),
+        results,
+        elapsed_ms: started.elapsed().as_millis(),
+    }))
+}
+
+fn is_quick_literal_query_term(term: &str) -> bool {
+    is_plain_literal_query_term(term) || is_exact_identifier_query_term(term)
+}
+
+fn is_plain_literal_query_term(term: &str) -> bool {
+    let term = term.trim();
+    term.len() >= 3
+        && term
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$')
+}
+
+fn quick_literal_score(query: &str, file_path: &str, line: &str, symbols: &[Symbol]) -> f32 {
+    let query_lower = query.to_ascii_lowercase();
+    let line_lower = line.to_ascii_lowercase();
+    let mut score = 1.0;
+    if literal_word_match(&line_lower, &query_lower) {
+        score += 2.0;
+    }
+    if symbols.iter().any(|symbol| {
+        symbol.name.eq_ignore_ascii_case(query)
+            || symbol.name.to_ascii_lowercase().contains(&query_lower)
+    }) {
+        score += 5.0;
+    }
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("const ")
+        || trimmed.starts_with("let ")
+        || trimmed.starts_with("var ")
+        || trimmed.starts_with("function ")
+        || trimmed.starts_with("export const ")
+        || trimmed.starts_with("export function ")
+        || trimmed.starts_with("def ")
+        || trimmed.starts_with("class ")
+        || trimmed.starts_with("func ")
+    {
+        score += 2.0;
+    }
+    let path_lower = file_path.to_ascii_lowercase();
+    if path_lower.contains(&query_lower) {
+        score += 1.0;
+    }
+    if is_test_path(&path_lower) {
+        score -= 20.0;
+    }
+    score
+}
+
+fn literal_word_match(line_lower: &str, query_lower: &str) -> bool {
+    line_lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .any(|part| part == query_lower)
+}
+
+fn line_matches_literal_query(line: &str, query: &str, query_lower: &str) -> bool {
+    line.contains(query) || line.to_ascii_lowercase().contains(query_lower)
+}
+
+fn is_test_path(path_lower: &str) -> bool {
+    path_lower.starts_with("test/")
+        || path_lower.starts_with("tests/")
+        || path_lower.contains("/test/")
+        || path_lower.contains("/tests/")
+        || path_lower.contains("/__tests__/")
+        || path_lower.contains(".test.")
+        || path_lower.contains(".spec.")
+}
+
+fn is_exact_identifier_query_term(term: &str) -> bool {
+    let term = term.trim();
+    term.len() >= 3
+        && term
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        && (term.contains('_')
+            || term.contains('$')
+            || term.chars().any(|c| c.is_ascii_uppercase())
+            || term.chars().any(|c| c.is_ascii_digit()))
+}
+
+fn quick_symbol_results_from_postings(
+    source: &str,
+    postings: Vec<sifs::SymbolPosting>,
+    limit: usize,
+) -> Vec<SearchResult> {
+    let mut results = Vec::with_capacity(limit);
+    let mut seen = HashSet::new();
+    for posting in postings {
+        if results.len() >= limit {
+            break;
+        }
+        let Some(content) = read_posting_content(source, &posting) else {
+            continue;
+        };
+        if !seen.insert((posting.file_path.clone(), posting.start_line)) {
+            continue;
+        }
+        let rank = results.len();
+        results.push(SearchResult {
+            chunk: Chunk {
+                content,
+                file_path: posting.file_path.clone(),
+                start_line: posting.start_line,
+                end_line: posting.end_line,
+                language: posting.language.clone(),
+                symbols: vec![Symbol {
+                    name: posting.name.clone(),
+                    kind: posting.kind.clone(),
+                    line: posting.line,
+                    role: posting.role.clone(),
+                    confidence: posting.confidence.clone(),
+                    origin: posting.origin.clone(),
+                }],
+                breadcrumbs: posting.breadcrumbs.clone(),
+            },
+            score: 1.0 / (rank + 1) as f32,
+            source: SearchMode::Bm25,
+            explanation: None,
+        });
+    }
+    results
+}
+
+fn read_posting_content(source: &str, posting: &sifs::SymbolPosting) -> Option<String> {
+    let content = fs::read_to_string(Path::new(source).join(&posting.file_path)).ok()?;
+    let lines = content.lines().collect::<Vec<_>>();
+    if lines.is_empty() {
+        return Some(String::new());
+    }
+    let start = posting.start_line.saturating_sub(1).min(lines.len());
+    let end = posting.end_line.min(lines.len());
+    if start >= end {
+        return Some(String::new());
+    }
+    Some(lines[start..end].join("\n"))
 }
 
 fn try_daemon_search(
@@ -1976,6 +2358,106 @@ fn build_sparse_index(
     }
 }
 
+fn build_structural_index(
+    path: &str,
+    ref_name: Option<&str>,
+    cache: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
+) -> Result<sifs::StructuralIndex> {
+    let options = IndexOptions::sparse()
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
+    if is_git_url(path) {
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        sifs::StructuralIndex::from_git_with_index_options(path, ref_name, options)
+    } else {
+        sifs::StructuralIndex::from_path_with_index_options(path, options)
+    }
+}
+
+fn build_navigation_index(
+    path: &str,
+    ref_name: Option<&str>,
+    cache: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
+) -> Result<sifs::NavigationIndex> {
+    let options = IndexOptions::sparse()
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
+    if is_git_url(path) {
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        sifs::NavigationIndex::from_git_with_index_options(path, ref_name, options)
+    } else {
+        sifs::NavigationIndex::from_path_with_index_options(path, options)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cached_navigation_symbol_lookup(
+    path: &str,
+    ref_name: Option<&str>,
+    cache: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
+    name: &str,
+    limit: usize,
+) -> Result<Option<sifs::NavigationSymbolLookup>> {
+    if is_git_url(path) {
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        return Ok(None);
+    }
+    if ref_name.is_some() {
+        return Ok(None);
+    }
+    let options = IndexOptions::sparse()
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
+    sifs::NavigationIndex::cached_symbol_lookup_from_path_with_index_options(
+        path, options, name, limit,
+    )
+}
+
+fn cached_navigation_file_outline(
+    path: &str,
+    ref_name: Option<&str>,
+    cache: CacheConfig,
+    offline: bool,
+    include_docs: bool,
+    extensions: Option<std::collections::HashSet<String>>,
+    file_path: &str,
+) -> Result<Option<sifs::NavigationFileOutline>> {
+    if is_git_url(path) {
+        if offline {
+            bail!("--offline does not allow remote Git sources");
+        }
+        return Ok(None);
+    }
+    if ref_name.is_some() {
+        return Ok(None);
+    }
+    let options = IndexOptions::sparse()
+        .with_cache(cache)
+        .with_include_text_files(include_docs)
+        .with_extensions(extensions);
+    sifs::NavigationIndex::cached_file_outline_from_path_with_index_options(
+        path, options, file_path,
+    )
+}
+
 fn build_hybrid_index(
     path: &str,
     ref_name: Option<&str>,
@@ -2041,7 +2523,7 @@ fn run_files(
         return Ok(());
     }
     let started = Instant::now();
-    let index = build_sparse_index(
+    let index = build_navigation_index(
         &resolved.source,
         resolved.ref_name.as_deref(),
         resolved.cache.clone(),
@@ -2179,7 +2661,54 @@ fn run_symbol(
         return Ok(());
     }
     let started = Instant::now();
-    let index = build_sparse_index(
+    if kinds.is_empty()
+        && should_use_local_symbol_scan(name)
+        && let Some((total, postings)) = local_symbol_lookup(
+            &resolved.source,
+            name,
+            &resolved.extensions,
+            resolved.include_docs,
+        )?
+    {
+        return print_symbol_output_with_elapsed(
+            SymbolOutputOptions {
+                source: &resolved.source,
+                name,
+                total,
+                limit: resolved.limit,
+                elapsed_ms: started.elapsed().as_millis(),
+                kinds: &kinds,
+            },
+            postings.into_iter().take(resolved.limit).collect(),
+            output,
+        );
+    }
+    if kinds.is_empty()
+        && let Some(lookup) = cached_navigation_symbol_lookup(
+            &resolved.source,
+            resolved.ref_name.as_deref(),
+            resolved.cache.clone(),
+            resolved.offline,
+            resolved.include_docs,
+            extension_set(&resolved.extensions),
+            name,
+            resolved.limit,
+        )?
+    {
+        return print_symbol_output_with_elapsed(
+            SymbolOutputOptions {
+                source: &resolved.source,
+                name,
+                total: lookup.total,
+                limit: resolved.limit,
+                elapsed_ms: started.elapsed().as_millis(),
+                kinds: &kinds,
+            },
+            lookup.postings,
+            output,
+        );
+    }
+    let index = build_navigation_index(
         &resolved.source,
         resolved.ref_name.as_deref(),
         resolved.cache.clone(),
@@ -2368,6 +2897,98 @@ fn try_daemon_symbol(
     }
 }
 
+fn should_use_local_symbol_scan(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty()
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+fn is_all_caps_identifier(value: &str) -> bool {
+    let mut has_alphabetic = false;
+    for ch in value.chars().filter(|ch| ch.is_ascii_alphabetic()) {
+        has_alphabetic = true;
+        if !ch.is_ascii_uppercase() {
+            return false;
+        }
+    }
+    has_alphabetic
+}
+
+fn local_symbol_lookup(
+    source: &str,
+    name: &str,
+    extensions: &[String],
+    include_docs: bool,
+) -> Result<Option<(usize, Vec<sifs::SymbolPosting>)>> {
+    if is_git_url(source) {
+        return Ok(None);
+    }
+    let root = Path::new(source);
+    if !root.exists() || !root.is_dir() {
+        return Ok(None);
+    }
+    let root = root.canonicalize()?;
+    let extension_filter =
+        sifs::file_walker::filter_extensions(extension_set(extensions), include_docs);
+    let files = sifs::file_walker::walk_files(&root, &extension_filter, None);
+    if is_all_caps_identifier(name) && files.len() > QUICK_LOCAL_SCAN_FILE_LIMIT {
+        return Ok(None);
+    }
+    let folded_name = sifs::symbol_index::fold_symbol_key(name);
+    let mut postings = files
+        .par_iter()
+        .flat_map_iter(|path| {
+            let Ok(relative) = path.strip_prefix(&root) else {
+                return Vec::new();
+            };
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let language =
+                sifs::file_walker::language_for_path(Path::new(&relative)).map(str::to_owned);
+            let Ok(content) = fs::read_to_string(path) else {
+                return Vec::new();
+            };
+            let mut matches = Vec::new();
+            for (offset, line) in content.lines().enumerate() {
+                let line_number = offset + 1;
+                for symbol in sifs::chunker::extract_symbols(line, line_number, language.as_deref())
+                {
+                    if symbol.name != name
+                        && sifs::symbol_index::fold_symbol_key(&symbol.name) != folded_name
+                    {
+                        continue;
+                    }
+                    matches.push(sifs::SymbolPosting {
+                        name: symbol.name,
+                        kind: symbol.kind,
+                        line: symbol.line,
+                        file_path: relative.clone(),
+                        chunk_id: 0,
+                        role: symbol.role,
+                        confidence: symbol.confidence,
+                        origin: symbol.origin,
+                        start_line: line_number,
+                        end_line: line_number,
+                        language: language.clone(),
+                        breadcrumbs: Vec::new(),
+                    });
+                }
+            }
+            matches
+        })
+        .collect::<Vec<_>>();
+    postings.sort_by(|left, right| {
+        is_test_path(&left.file_path.to_ascii_lowercase())
+            .cmp(&is_test_path(&right.file_path.to_ascii_lowercase()))
+            .then_with(|| left.file_path.cmp(&right.file_path))
+            .then_with(|| left.line.cmp(&right.line))
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    Ok(Some((postings.len(), postings)))
+}
+
 #[derive(Clone)]
 struct OutlineOutputOptions {
     symbols_limit: usize,
@@ -2404,13 +3025,65 @@ fn run_outline(
             source,
             file_path: _,
             outline,
-        }) = try_daemon_outline(file_path, resolved)?
+        }) = try_daemon_outline(file_path, resolved, &outline_options)?
     {
         print_outline_output(&source.source, outline, 0, outline_options, output)?;
         return Ok(());
     }
     let started = Instant::now();
-    let index = build_sparse_index(
+    if !outline_options.include_chunks
+        && outline_options.kinds.is_empty()
+        && let Some(outline) =
+            local_file_outline(&resolved.source, file_path, &resolved.extensions)?
+    {
+        return print_outline_output(
+            &resolved.source,
+            outline,
+            started.elapsed().as_millis(),
+            outline_options,
+            output,
+        );
+    }
+    if !outline_options.include_chunks
+        && outline_options.kinds.is_empty()
+        && let Some(cached) = cached_navigation_file_outline(
+            &resolved.source,
+            resolved.ref_name.as_deref(),
+            resolved.cache.clone(),
+            resolved.offline,
+            resolved.include_docs,
+            extension_set(&resolved.extensions),
+            file_path,
+        )?
+    {
+        return print_outline_output(
+            &resolved.source,
+            cached.outline,
+            started.elapsed().as_millis(),
+            outline_options,
+            output,
+        );
+    }
+    if !outline_options.include_chunks
+        && let Some(outline) = build_navigation_index(
+            &resolved.source,
+            resolved.ref_name.as_deref(),
+            resolved.cache.clone(),
+            resolved.offline,
+            resolved.include_docs,
+            extension_set(&resolved.extensions),
+        )?
+        .file_symbol_outline(file_path)
+    {
+        return print_outline_output(
+            &resolved.source,
+            outline,
+            started.elapsed().as_millis(),
+            outline_options,
+            output,
+        );
+    }
+    let index = build_structural_index(
         &resolved.source,
         resolved.ref_name.as_deref(),
         resolved.cache.clone(),
@@ -2435,6 +3108,70 @@ fn run_outline(
     )
 }
 
+fn local_file_outline(
+    source: &str,
+    file_path: &str,
+    extensions: &[String],
+) -> Result<Option<sifs::FileOutline>> {
+    if is_git_url(source) {
+        return Ok(None);
+    }
+    let relative = Path::new(file_path);
+    if relative.is_absolute() || file_path.split('/').any(|part| part == "..") {
+        return Ok(None);
+    }
+    if !extensions.is_empty() {
+        let file_extension = relative
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default();
+        let allowed = extensions.iter().any(|extension| {
+            extension
+                .trim()
+                .trim_start_matches('.')
+                .eq_ignore_ascii_case(file_extension)
+        });
+        if !allowed {
+            return Ok(None);
+        }
+    }
+    let root = Path::new(source)
+        .canonicalize()
+        .with_context(|| format!("resolve source path {source:?}"))?;
+    let candidate = root.join(relative);
+    let Ok(canonical_file) = candidate.canonicalize() else {
+        return Ok(None);
+    };
+    if !canonical_file.starts_with(&root) || !canonical_file.is_file() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&canonical_file)
+        .with_context(|| format!("read outline file {}", canonical_file.display()))?;
+    let language = sifs::file_walker::language_for_path(relative).map(str::to_owned);
+    let symbols = sifs::chunker::extract_symbols(&content, 1, language.as_deref());
+    if symbols.is_empty() {
+        return Ok(None);
+    }
+    let end_line = content.lines().count().max(1);
+    let breadcrumbs = symbols
+        .iter()
+        .map(|symbol| format!("{} {}", symbol.kind, symbol.name))
+        .collect();
+    let chunks = vec![Chunk {
+        content: String::new(),
+        file_path: file_path.to_owned(),
+        start_line: 1,
+        end_line,
+        language,
+        symbols,
+        breadcrumbs,
+    }];
+    let chunk_ids = (0..chunks.len()).collect::<Vec<_>>();
+    Ok(sifs::symbol_index::file_outline(
+        file_path, &chunk_ids, &chunks,
+    ))
+}
+
 fn print_outline_output(
     source: &str,
     mut outline: sifs::FileOutline,
@@ -2443,8 +3180,8 @@ fn print_outline_output(
     output: OutputArgs,
 ) -> Result<()> {
     filter_outline_symbols(&mut outline, &outline_options.kinds);
-    let total_symbols = outline.symbols.len();
-    let total_chunks = outline.chunks.len();
+    let total_symbols = outline.symbol_count;
+    let total_chunks = outline.chunk_count;
     let symbols: Vec<_> = outline
         .symbols
         .iter()
@@ -2569,6 +3306,7 @@ fn print_outline_not_found(
 fn try_daemon_outline(
     file_path: &str,
     resolved: &ResolvedInvocation,
+    outline_options: &OutlineOutputOptions,
 ) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
@@ -2586,6 +3324,11 @@ fn try_daemon_outline(
             &resolved.extensions,
         ),
         file_path: file_path.to_owned(),
+        include_chunks: outline_options.include_chunks,
+        symbols_limit: Some(outline_options.symbols_limit),
+        chunks_limit: outline_options
+            .include_chunks
+            .then_some(outline_options.chunks_limit),
     }) {
         Ok(result @ DaemonResult::Outline { .. }) => Ok(Some(result)),
         Ok(other) => bail!("unexpected daemon response: {other:?}"),

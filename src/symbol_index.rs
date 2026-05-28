@@ -47,7 +47,7 @@ pub struct FileOutline {
     pub chunks: Vec<FileChunkOutline>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SymbolIndex {
     exact: BTreeMap<String, Vec<SymbolPosting>>,
     folded: BTreeMap<String, Vec<SymbolPosting>>,
@@ -90,6 +90,45 @@ impl SymbolIndex {
             sort_postings(postings);
         }
         index
+    }
+
+    pub fn from_postings(postings: Vec<SymbolPosting>) -> Self {
+        let mut index = Self::default();
+        for posting in postings {
+            index
+                .chunk_mapping
+                .entry(fold_symbol_key(&posting.name))
+                .or_default()
+                .push(posting.chunk_id);
+            index
+                .exact
+                .entry(posting.name.clone())
+                .or_default()
+                .push(posting.clone());
+            index
+                .folded
+                .entry(fold_symbol_key(&posting.name))
+                .or_default()
+                .push(posting);
+        }
+        for ids in index.chunk_mapping.values_mut() {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        for postings in index.exact.values_mut() {
+            sort_postings(postings);
+        }
+        for postings in index.folded.values_mut() {
+            sort_postings(postings);
+        }
+        index
+    }
+
+    pub fn postings(&self) -> Vec<SymbolPosting> {
+        self.exact
+            .values()
+            .flat_map(|postings| postings.iter().cloned())
+            .collect()
     }
 
     pub fn lookup(&self, name: &str, limit: usize) -> Vec<SymbolPosting> {

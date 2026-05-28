@@ -19,6 +19,11 @@ versioning where practical.
   metadata in structured symbol postings.
 - Added `scripts/field-test-structural-tools.sh` for deterministic real-repo
   smoke testing of status, file listing, symbols, outlines, and context packs.
+- Added `benchmarks/codedb_compare.py` and an example task file for repeatable
+  local SIFS-vs-codedb timing and quality comparisons across search, symbol,
+  and outline tasks.
+- Added timeout recording to the codedb comparison benchmark so broad real-repo
+  corpora can report slow setup or query cases instead of aborting the run.
 
 ### Changed
 
@@ -34,6 +39,39 @@ versioning where practical.
 - Limited `pack --include-symbol-definitions` expansion to identifier-like
   query terms so broad lowercase prose queries do not pull unrelated definition
   chunks.
+- Added compact structural and derived-map caches for file lists, symbol lookup,
+  outlines, and warm sparse-index loads so one-shot CLI commands do less
+  repeated index reconstruction when the daemon is not running.
+- Split file/symbol navigation metadata into a smaller cache and use it for
+  one-shot `list-files`, `symbol`, and exact-symbol BM25 search paths.
+- Use the smaller navigation cache for one-shot `outline --no-chunks` when a
+  file has indexed symbols, avoiding full outline-cache loads for symbol-only
+  outline requests.
+- Added clean-Git source fingerprints and sharded navigation manifests so
+  one-shot symbol and symbol-only outline commands can avoid full file-signature
+  scans and monolithic navigation-cache loads on unchanged repositories.
+- Narrowed the exact-symbol search fast path to identifier-shaped BM25 queries
+  and stopped scanning every indexed file for filler literal matches, keeping
+  large-repo exact searches on cached symbol data before falling back to normal
+  BM25 retrieval.
+- Added a local single-file outline path so explicit `sifs outline <file>`
+  requests can inspect that file directly instead of reconstructing repo-wide
+  navigation data when no cached outline shard is usable.
+- Made local `outline --no-chunks` use the lightweight line-pattern symbol
+  extractor directly, avoiding tree-sitter parser startup when chunk content is
+  not requested.
+- Memoized Git source fingerprints within each SIFS process so short one-shot
+  commands do not run duplicate Git status/rev-parse probes while validating
+  manifest and shard caches.
+- Prefer direct local file inspection before cache lookup for explicit
+  `outline --no-chunks` requests, making the current file the fast source of
+  truth for one-shot outlines.
+- Added a lightweight one-token literal BM25 search path for local code
+  searches, using SIFS ignore rules and definition/test-aware scoring before
+  falling back to the full sparse index.
+- Added a lightweight local symbol scan for one-shot symbol lookups where
+  source files can be inspected faster than validating and loading navigation
+  symbol shards.
 
 ### Fixed
 
@@ -47,8 +85,12 @@ versioning where practical.
   lookup metadata and truncation context.
 - Fixed MCP structural tools so per-call document and extension indexing
   options can be supplied without relying on a saved profile.
+- Fixed daemon-backed `outline` so CLI and MCP callers do not serialize chunks
+  or symbols beyond the requested limits before applying output truncation.
 - Fixed `sifs status` so cache, document, and extension scope flags are accepted
   consistently with other indexing commands.
+- Fixed the codedb comparison benchmark so codedb `find` output contributes
+  symbol hit paths and ranks instead of being counted as an empty result.
 - Fixed Clippy warnings for stable Rust: type complexity, boolean expression
   simplification, manual div_ceil usage, and redundant conditional branches.
 

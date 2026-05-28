@@ -120,7 +120,7 @@ fn chunk_code_fallback(
         .collect()
 }
 
-fn extract_symbols(content: &str, start_line: usize, language: Option<&str>) -> Vec<Symbol> {
+pub fn extract_symbols(content: &str, start_line: usize, language: Option<&str>) -> Vec<Symbol> {
     content
         .lines()
         .enumerate()
