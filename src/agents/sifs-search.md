@@ -48,7 +48,7 @@ If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 - Record local feedback with `sifs feedback create`.
 - Inspect index status, indexed files, and chunk coverage when using the MCP server.
 - Refresh the MCP index after files change in a long-running agent session.
-- Install this generated agent file through `sifs init` or the MCP `init_agent` tool.
+- Install this agent file with `sifs agent install --target claude-code --artifact skill` or the MCP `init_agent` compatibility tool.
 - Run benchmarks and embedding diagnostics through the CLI when shell access is available.
 
 ## Workflow
