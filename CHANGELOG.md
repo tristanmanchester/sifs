@@ -72,6 +72,13 @@ versioning where practical.
 - Added a lightweight local symbol scan for one-shot symbol lookups where
   source files can be inspected faster than validating and loading navigation
   symbol shards.
+- Edited README, AGENTS.md, and every file in `docs/` to remove defensive
+  hedging and pedantic exclusions, and documented previously undocumented
+  flags including `search --explain`, `search --context-lines`, `mcp install
+  --name`, `update --update-timeout`, `profile save --ref`, `agent uninstall`,
+  the `capabilities` command, and `sifs-benchmark` flags
+  (`--candidate-diagnostics`, `--candidate-diagnostics-depth`,
+  `--hybrid-timing`, `--no-cache`, `--alpha`).
 
 ### Fixed
 

@@ -19,26 +19,26 @@
 </p>
 
 SIFS (SIFS Is Fast Search) is a local code-search engine for AI coding agents
-and developers who work through agents. Point it at a repository and ask
+and the developers who work through them. Point it at a repository and ask
 questions like "where is authentication handled?", "what validates session
 tokens?", or "which code builds the MCP handshake?". SIFS returns ranked file
-paths, line ranges, and code chunks fast enough for an agent to search before it
-reads half the tree.
+paths, line ranges, and code chunks fast enough for an agent to search before
+reading half the tree.
 
-It runs as a CLI, a Rust crate, or a local MCP server. No GPU, no API keys, no
-hosted search service. BM25 mode is model-free and can run fully offline; hybrid
-and semantic modes also run locally once the embedding model is cached.
+It runs as a CLI, a Rust crate, or a local MCP server. BM25 mode runs offline
+with no model files; hybrid and semantic modes run locally once the embedding
+model is cached.
 
-SIFS builds a cold sparse index in **167.0 ms**, answers warm queries in **2.7
-ms**, and hits **NDCG@10 = 0.8471** across the full benchmark.
+Across 63 repositories and 1,251 annotated tasks, SIFS builds a cold sparse
+index in 167 ms, answers warm queries in 2.7 ms, and scores NDCG@10 = 0.8471.
 
-Use SIFS when you want to:
+Use SIFS to:
 
-- Find the implementation behind a natural-language question.
-- Search exact symbols and identifiers without warming an IDE.
+- Find the code behind a natural-language question.
+- Look up exact symbols and identifiers without warming an IDE.
 - Hand an LLM a compact context pack instead of a whole repository.
-- Give Codex, Claude Code, Cursor, OpenClaw, Hermes, or another agent a local
-  search tool it can call before broad file reads.
+- Give Codex, Claude Code, Cursor, OpenClaw, Hermes, or another agent a search
+  tool it can call before broad file reads.
 
 ## Quickstart
 
@@ -61,12 +61,10 @@ cd /path/to/project
 sifs search "where is authentication handled" --mode bm25 --offline --limit 5
 ```
 
-That first command uses model-free BM25, so it does not download anything or
-touch the network. Results include the matching file, line range, score, ranking
-mode, and code chunk.
+BM25 mode runs offline with no model download. Results include the matching
+file, line range, score, ranking mode, and code chunk.
 
-Once you want semantic search, cache the local model and use the default hybrid
-mode:
+For semantic search, cache the local model and use the default hybrid mode:
 
 ```bash
 sifs model pull
@@ -86,22 +84,22 @@ sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
 sifs search "stream upload backpressure" --source https://github.com/owner/project --limit 5
 ```
 
-If you are deciding what to run next:
+Common entry points:
 
 | Goal | Command |
 | --- | --- |
 | Search without downloads | `sifs search "query" --mode bm25 --offline` |
 | Use semantic + lexical ranking | `sifs model pull`, then `sifs search "query"` |
-| Give an agent offline context | `sifs pack "query" --mode bm25 --offline --budget-tokens 6000 --json` |
-| Give an agent hybrid context | `sifs model pull`, then `sifs pack "query" --budget-tokens 6000 --json` |
-| Inspect what was indexed | `sifs status --json`, `sifs list-files --json`, `sifs symbol <name> --json`, and bounded `sifs outline <file> --json` |
+| Build an offline context pack | `sifs pack "query" --mode bm25 --offline --budget-tokens 6000 --json` |
+| Build a hybrid context pack | `sifs model pull`, then `sifs pack "query" --budget-tokens 6000 --json` |
+| Inspect what was indexed | `sifs status --json`, `sifs list-files --json`, `sifs symbol <name> --json`, `sifs outline <file> --json` |
 | Teach an agent to use SIFS | `sifs agent install --target codex --artifact snippet --file AGENTS.md` |
 
-## Agent Integration
+## Agent integration
 
 SIFS is most useful when agents know they can search first. Install a project
-instruction snippet or local skill so Codex, Claude Code, OpenClaw, Hermes, and
-generic skill-aware agents use SIFS before broad file reads:
+instruction snippet or local skill so Codex, Claude Code, OpenClaw, Hermes, or
+any skill-aware agent uses SIFS before broad file reads:
 
 ```bash
 sifs agent print --target codex --artifact snippet
@@ -110,31 +108,26 @@ sifs agent install --target codex --artifact snippet --file AGENTS.md
 sifs agent doctor --target codex --json
 ```
 
-The generated guidance is CLI-first and MCP-optional. It tells agents to use MCP
-tools only when they are visible in the current session, and to fall back to
-shell commands such as `sifs search`, `sifs pack`, `sifs list-files`,
-`sifs get`, and `sifs agent-context --json` otherwise.
+Generated guidance is CLI-first. Agents use MCP tools when they're visible in
+the current session and otherwise fall back to shell commands like `sifs
+search`, `sifs pack`, `sifs list-files`, `sifs get`, and `sifs agent-context
+--json`.
 
 Full integration reference: [docs/agent-integration.md](docs/agent-integration.md).
 
 ## Features
 
-- **Fast local search.** 167.0 ms cold sparse index, 2.7 ms warm query, 0.0049 ms for cached repeats. Pure Rust, all on CPU.
+- **Fast local search.** 167 ms cold sparse index, 2.7 ms warm query, 4.9 µs cached repeat. Rust, CPU-only.
 - **Strong cross-language quality.** NDCG@10 of 0.8471 across 63 repositories, 19 languages, and 1,251 annotated tasks.
 - **Three search modes.** `hybrid` for most queries, `semantic` for natural language, `bm25` for symbols and identifiers. Switch per query.
-- **Fully offline.** BM25 mode loads nothing — no tokenizers, no model files, no network. Hybrid and semantic modes work offline once the model is cached locally.
-- **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand and can be refreshed explicitly after files change.
-- **Structural tools.** Inspect indexed paths, symbols, bounded outlines,
-  chunks, related code, and context packs without turning SIFS into an editor
-  or hosted server.
-- **Agent skills and snippets.** Print, install, inspect, and remove CLI-first
-  SIFS guidance with `sifs agent`.
-- **Local and remote.** Pass a local path or a Git URL with `--source`.
-- Discover the machine-readable command contract with `sifs agent-context --json`.
-- Save source/search defaults in profiles and record local feedback when agents
-  hit friction.
-- Generate agent skills/snippets and run benchmark diagnostics for quality and
-  latency checks.
+- **Offline-capable.** BM25 needs no model. Hybrid and semantic work offline once the model is cached.
+- **MCP server.** Stdio server for Claude Code, Codex, Cursor, and any MCP-compatible agent. Sources index on demand and refresh on request.
+- **Structural inspection.** Browse indexed paths, symbols, file outlines, chunks, related code, and context packs.
+- **Agent skills and snippets.** Render, install, inspect, and remove SIFS guidance with `sifs agent`.
+- **Local and remote sources.** Pass a local path or Git URL with `--source`.
+- **Machine-readable contract.** `sifs agent-context --json` describes every command, flag, and tool.
+- **Profiles and feedback.** Save defaults for repeated sessions and log friction with `sifs feedback`.
+- **Benchmark diagnostics.** Run quality and latency benchmarks with the `diagnostics` feature.
 
 ## Install
 
@@ -158,10 +151,9 @@ sifs update --dry-run
 sifs update
 ```
 
-`sifs update` delegates to Cargo or Homebrew only when the current executable is
-recognized as being owned by that package manager. For copied, development, or
-ambiguous binaries, it prints manual next actions instead of mutating an
-unrelated install.
+`sifs update` delegates to Cargo or Homebrew only when the current binary is
+owned by that package manager. For copied, development, or ambiguous binaries,
+it prints manual next actions rather than touching an unrelated install.
 
 The `sifs-benchmark` and `sifs-embed` diagnostic binaries require the `diagnostics` feature:
 
@@ -175,18 +167,17 @@ Run the test suite after changing indexing, chunking, ranking, model loading, or
 cargo test
 ```
 
-## MCP Server
+## MCP server
 
-SIFS installs itself as a local stdio MCP server in two commands:
+Install SIFS as a local stdio MCP server in two commands:
 
 ```bash
 sifs daemon install-agent
 sifs mcp install --client all
 ```
 
-This installs a reusable MCP server instead of pinning the config to one
-repository. Agent clients can ask SIFS to search the current project, and tool
-calls can pass `source` when they need a specific local checkout or Git URL.
+This registers a reusable server. Tool calls pass `source` to target a specific
+local checkout or Git URL.
 
 To pin the server to a single source:
 
@@ -196,10 +187,10 @@ sifs mcp install --client codex --source /path/to/project
 sifs mcp install --client claude --scope local --source /path/to/project
 ```
 
-You can also start the server directly. Without `--source` it uses the server
-process working directory as the default source. Passing `--source` pins the
-server to that source, so MCP clients can call `search` and `find_related`
-without sending a source on every tool call.
+You can also start the server directly. Without `--source`, the server uses
+its working directory as the default. Passing `--source` pins the server to
+that source, so MCP clients can call `search` and `find_related` without
+sending a source on every tool call.
 
 ```bash
 sifs mcp
@@ -241,11 +232,11 @@ tool_timeout_sec = 60
 }
 ```
 
-Only check a project-scoped `.mcp.json` into repositories you trust — it grants read access to local paths passed in tool calls.
+Only commit a project-scoped `.mcp.json` to repositories you trust. It grants read access to whatever local paths tool calls pass in.
 
 </details>
 
-To debug the daemon directly:
+To run the daemon directly:
 
 ```bash
 sifs daemon run --replace-existing-socket
@@ -287,15 +278,14 @@ Index caches live in platform cache directories by default (`~/Library/Caches/si
 
 Full CLI reference: [docs/cli.md](docs/cli.md).
 
-## Platform Support
+## Platform support
 
-Direct CLI search, library use, and MCP stdio are intended to work on macOS and
-Linux. The shared `sifs daemon` currently uses same-user Unix sockets, so daemon
-mode is supported on Unix platforms only. On Windows, use direct CLI or MCP stdio
-until a named-pipe or TCP-loopback daemon transport is added. `sifs doctor
---json` reports this daemon platform status explicitly.
+Direct CLI search, library use, and MCP stdio work on macOS and Linux. The
+shared `sifs daemon` uses same-user Unix sockets, so daemon mode runs on Unix
+only. On Windows, use direct CLI or MCP stdio. `sifs doctor --json` reports
+daemon platform status.
 
-## Rust Library
+## Rust library
 
 ```rust
 use sifs::{SearchMode, SearchOptions, SifsIndex};
@@ -315,17 +305,17 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-For BM25-only indexes that never touch semantic state, use `SifsIndex::from_path_sparse`. For remote repos, use `SifsIndex::from_git`. Full API docs, model policy, filters, and chunk-level construction: [docs/library.md](docs/library.md).
+Use `SifsIndex::from_path_sparse` for a BM25-only index that never touches semantic state. Use `SifsIndex::from_git` for remote repositories. Full API docs, model policy, filters, and chunk-level construction: [docs/library.md](docs/library.md).
 
-## How It Works
+## How it works
 
-SIFS walks a repo using `.gitignore`-aware file selection, splits files into code chunks, builds a sparse BM25 index, and keeps semantic state lazy until a semantic or hybrid query actually needs it.
+SIFS walks a repo with `.gitignore`-aware file selection, splits files into code chunks, builds a sparse BM25 index, and loads semantic state lazily when a semantic or hybrid query needs it.
 
 **`bm25`** — sparse lexical search. Good for identifiers, symbols, and exact terms. No model files required.
 
-**`semantic`** — embedding similarity using `minishlab/potion-code-16M` through a local Model2Vec loader. The model tensors and tokenizer files are read directly into the Rust process; nothing leaves the machine after the initial download.
+**`semantic`** — embedding similarity using `minishlab/potion-code-16M` through a local Model2Vec loader. Tensors and tokenizer files load directly into the Rust process and stay on the machine.
 
-**`hybrid`** — the default. Semantic and BM25 rankings are fused with reciprocal rank fusion, then reranked. Symbol-like queries lean on BM25; natural-language questions keep more semantic weight.
+**`hybrid`** — the default. Semantic and BM25 rankings fuse with reciprocal rank fusion, then rerank. Symbol-like queries lean on BM25; natural-language questions keep more semantic weight.
 
 <details>
 <summary><b>Ranking signals</b></summary>
@@ -333,12 +323,12 @@ SIFS walks a repo using `.gitignore`-aware file selection, splits files into cod
 - **Query-aware mode weighting.** Symbol queries (`Foo::bar`, `getUserById`) get more BM25 weight. Natural-language queries stay balanced.
 - **Definition boosts.** A chunk that defines the queried symbol (`class`, `fn`, `def`) ranks above chunks that only reference it.
 - **Identifier stemming.** Query tokens are stemmed and matched against identifier stems, so `parse config` boosts chunks containing `parseConfig`, `ConfigParser`, or `config_parser`.
-- **File coherence.** When multiple chunks from the same file match, the file is boosted so results reflect file-level relevance rather than a single out-of-context snippet.
+- **File coherence.** When multiple chunks from the same file match, the file is boosted so results reflect file-level relevance.
 - **Noise penalties.** Test files, `compat/`/`legacy/` shims, example code, and `.d.ts` stubs are down-ranked so canonical implementations surface first.
 
 </details>
 
-Use `sifs model pull` or `sifs model fetch` to pre-download the default model. Use `sifs doctor` to confirm semantic search is ready for offline use.
+Use `sifs model pull` (or its alias `sifs model fetch`) to pre-download the default model. Use `sifs doctor` to confirm semantic search is ready for offline use.
 
 ## Benchmarks
 
@@ -357,12 +347,12 @@ Benchmarks run across 63 pinned open-source repositories, 19 languages, and 1,25
 | probe | 0.3872 | — | 207.1 ms | n/a |
 | ripgrep | 0.1257 | — | 8.8 ms | n/a |
 
-SIFS reports three timing fields to avoid mixing up caching effects:
+SIFS reports separate timing fields so caching effects stay legible:
 
 - `cold_index_ms` — fresh sparse/chunk index, no persistent cache
-- `cold_semantic_build_or_load_ms` — first semantic embedding build/load cost
-- `cold_first_search_ms` — first search including semantic first-use cost when applicable
-- `warm_uncached_query_ms` — normal query after index exists (use this for comparisons)
+- `cold_semantic_build_or_load_ms` — first semantic embedding build or load
+- `cold_first_search_ms` — first search, including semantic first-use cost
+- `warm_uncached_query_ms` — normal query after the index exists (use this for comparisons)
 - `warm_cached_repeat_query_ms` — repeated identical query in the same process
 
 ### Quality by query type
@@ -385,14 +375,13 @@ The chart below tracks how quickly annotated relevant files enter an agent's con
 
 Full methodology, per-language breakdown, ablations, and benchmark artifacts: [docs/benchmark-report.md](docs/benchmark-report.md).
 
-## File Coverage
+## File coverage
 
-SIFS indexes code files by default, skipping generated files, dependency directories, and caches. It uses the `ignore` crate, so `.gitignore` files, Git excludes, global ignores, and hidden files behave exactly like familiar developer search tools.
+SIFS indexes code files by default and skips generated files, dependency directories, and caches. It uses the `ignore` crate, so `.gitignore` files, Git excludes, global ignores, and hidden files behave the same as in ripgrep or fd.
 
 Recognized extensions: Python, JavaScript, TypeScript, Go, Rust, Java, Kotlin, Ruby, PHP, C, C++, C#, Swift, Scala, Elixir, Dart, Lua, SQL, Bash, Zig, Haskell, Markdown, YAML, TOML, JSON.
 
-Text-like documents (Markdown, YAML, TOML, JSON, and plain text) are available
-with `--include-docs`, repeatable `--extension`, and matching library options.
+Pass `--include-docs` to add Markdown, YAML, TOML, JSON, and plain text. Use `--extension` (repeatable) to add custom file types.
 
 ## Documentation
 

@@ -1,24 +1,24 @@
 # Architecture
 
 SIFS is a Rust search engine for code repositories with two execution shapes:
-direct in-process indexing for library and one-shot use, and a shared local
-daemon for agent clients that benefit from warm indexes across repeated tool
-calls. The pipeline walks supported files, builds syntax-aware chunks when
-possible, builds a BM25 index, and lazily attaches semantic model state only
-when dense or hybrid search needs it.
+direct in-process indexing for library and one-shot CLI use, and a shared local
+daemon for agent clients that reuse warm indexes across calls. The pipeline
+walks supported files, builds syntax-aware chunks when possible, builds a BM25
+index, and loads semantic model state only when dense or hybrid search needs
+it.
 
 ## Pipeline overview
 
-The index pipeline is small. `SifsIndex` owns all data needed for BM25 search
-after construction, so CLI commands and MCP tools can run model-free lexical
-searches without reading files again.
+After construction, `SifsIndex` owns everything BM25 search needs, so CLI
+commands and MCP tools can run lexical searches without rereading files.
 
 The pipeline stages are:
 
 1. Walk supported files under a local root or temporary Git checkout.
 2. Read each file as UTF-8 text.
 3. Chunk source with a Tree-sitter parser when one is available.
-4. Fall back to character-based chunks with symbol breadcrumbs when syntax-aware chunking fails.
+4. Fall back to character-based chunks with symbol breadcrumbs when
+   syntax-aware chunking fails.
 5. Build enriched BM25 documents from chunks.
 6. Store file and language mappings for filters and chunk lookup.
 7. For semantic-capable indexes, lazily load the configured encoder and embed
@@ -27,22 +27,21 @@ The pipeline stages are:
 
 ## File walking
 
-The file walker selects files by extension, skips common generated directories,
-and uses the `ignore` crate for nested `.gitignore`, Git excludes, global Git
-ignores, and hidden-file behavior. It sorts paths before returning them so index
-construction is deterministic for the same filesystem state.
+The walker selects files by extension, skips common generated directories, and
+uses the `ignore` crate for nested `.gitignore`, Git excludes, global Git
+ignores, and hidden-file behavior. It sorts paths before returning them, so
+index construction is deterministic for the same filesystem state.
 
-Default ignored directories are:
+Default ignored directories:
 
-- `.git`, `.hg`, and `.svn`
-- `__pycache__`, `.mypy_cache`, `.pytest_cache`, and `.ruff_cache`
-- `node_modules`, `.venv`, `venv`, `.tox`, and `.eggs`
-- `.cache`, `.sifs`, `dist`, and `build`
+- `.git`, `.hg`, `.svn`
+- `__pycache__`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`
+- `node_modules`, `.venv`, `venv`, `.tox`, `.eggs`
+- `.cache`, `.sifs`, `dist`, `build`
 
-By default, the public `from_path` constructor indexes code extensions only and
-returns a semantic-capable index. Use `from_path_sparse` for an explicitly
-BM25-only index, or `from_path_with_options` with `include_text_files=true` to
-include default document extensions such as Markdown, YAML, TOML, and JSON.
+`from_path` indexes code extensions and returns a semantic-capable index. Use
+`from_path_sparse` for a BM25-only index, or `from_path_with_options` with
+`include_text_files=true` to include Markdown, YAML, TOML, and JSON.
 
 ## Chunking
 
@@ -60,7 +59,7 @@ Syntax-aware chunks store:
 When parsing isn't available or returns no useful chunks, SIFS falls back to
 character-based chunks of up to 1500 characters each. The fallback still
 extracts symbol names and breadcrumbs from the chunk content, so symbol
-metadata is preserved even without a tree-sitter parser.
+metadata survives without a tree-sitter parser.
 
 ## Embedding model
 
@@ -77,70 +76,69 @@ normalization metadata. Query and chunk embeddings stay in process after the
 model loads.
 
 Model loading is lazy for semantic-capable indexes. Explicit sparse-only
-construction and BM25-only search do not load tokenizers, read safetensors, or
-call Hugging Face. `--no-download` prevents model downloads while allowing local
-indexing. `--offline` also rejects remote Git sources.
+construction and BM25-only search never load tokenizers, read safetensors, or
+contact Hugging Face. `--no-download` blocks model downloads while allowing
+local indexing. `--offline` also rejects remote Git sources.
 
 ## Sparse index
 
-The BM25 index stores tokenized, enriched chunk documents. Enrichment adds code
-metadata and symbol-like text around the raw chunk content so lexical search can
-rank identifiers, file paths, and definitions effectively.
+The BM25 index stores tokenized, enriched chunk documents. Enrichment adds
+code metadata and symbol-like text around the raw chunk content so lexical
+search ranks identifiers, file paths, and definitions effectively.
 
-BM25 mode is useful when the query contains exact names, acronyms, function
+BM25 mode shines when the query contains exact names, acronyms, function
 names, file-local terms, or error strings.
 
 ## Dense index
 
-The dense index stores normalized embedding vectors for every chunk. It is built
-on first semantic, hybrid, or related-code use. Semantic mode embeds the query,
-normalizes it, and ranks chunks by vector similarity.
+The dense index stores normalized embedding vectors for every chunk. It builds
+on first semantic, hybrid, or related-code use. Semantic mode embeds the
+query, normalizes it, and ranks chunks by vector similarity.
 
-Semantic mode is useful when the query describes behavior rather than exact
+Semantic mode shines when the query describes behavior rather than exact
 symbols, such as "where user sessions expire" or "how upload retries work."
 
 ## Hybrid ranking
 
-Hybrid search runs both dense and sparse retrieval, over-fetches candidates,
-normalizes candidate ranks with reciprocal rank fusion, and combines the scores.
-It then applies query-aware boosts and reranks the top candidates.
+Hybrid search runs dense and sparse retrieval, over-fetches candidates,
+normalizes candidate ranks with reciprocal rank fusion, and combines the
+scores. It then applies query-aware boosts and reranks the top candidates.
 
-The hybrid alpha value controls semantic weight. When callers don't provide an
-alpha, SIFS resolves one from the query:
+The hybrid alpha controls semantic weight. When callers don't provide one,
+SIFS picks an alpha from the query shape:
 
 - Symbol-like queries use more BM25 weight.
 - Mixed code phrases use a balanced hybrid weight.
 - Natural-language and architecture questions keep more semantic weight.
 - Explicit alpha values override the automatic selection.
 
-Hybrid mode is the default because most developer queries contain both semantic
-intent and exact code terms.
+Hybrid is the default because most developer queries mix semantic intent with
+exact code terms.
 
 ## Related-code lookup
 
-Related-code lookup starts from a known chunk. SIFS semantically searches using
-the chunk content as the query, filters to the same language when possible, and
-removes the source chunk from the result set.
+Related-code lookup starts from a known chunk. SIFS embeds the chunk content
+as the query, filters to the same language when possible, and removes the
+source chunk from the result set.
 
-This makes `find_related` useful for finding alternate implementations, call
-site patterns, duplicated logic, or similar modules.
+`find_related` works well for finding alternate implementations, call site
+patterns, duplicated logic, or similar modules.
 
 ## Daemon and MCP caching
 
-The shared daemon stores `SifsIndex` instances in an in-memory cache for the
-life of the daemon process. Local indexes are keyed by canonical path plus index
-options. Git indexes are keyed by URL, optional ref, and index options. CLI
-commands opportunistically use the daemon when its socket is available and fall
-back to direct indexing when it is not.
+The shared daemon holds `SifsIndex` instances in an in-memory cache for the
+life of the daemon process. Local indexes are keyed by canonical path plus
+index options. Git indexes are keyed by URL, optional ref, and index options.
+CLI commands use the daemon when its socket is available and fall back to
+direct indexing when it isn't.
 
-The cache includes chunks, sparse data, optional semantic state, and lookup
-maps. Restarting the daemon clears the live cache; persistent sparse and dense
-caches still survive according to the selected cache mode.
+The cache holds chunks, sparse data, optional semantic state, and lookup maps.
+Restarting the daemon clears the live cache; persistent sparse and dense
+caches survive according to the selected cache mode.
 
-The stdio MCP server can be installed without a pinned source. In that mode it
-defaults to the server process working directory and still accepts explicit
-`source` arguments for local paths or Git URLs. The recommended long-lived setup
-on macOS is:
+The stdio MCP server can run without a pinned source. In that mode it defaults
+to the server's working directory and still accepts explicit `source`
+arguments. The standard long-lived setup on macOS is:
 
 ```bash
 sifs daemon install-agent
@@ -151,30 +149,29 @@ sifs mcp install --client all
 
 The `sifs agent` command renders and manages target-specific integration
 artifacts on top of the same search contract. Rendering lives in
-`src/agent_artifacts.rs`, mutation safety lives in `src/agent_installer.rs`, and
-readiness checks live in `src/agent_doctor.rs`.
+`src/agent_artifacts.rs`, mutation safety in `src/agent_installer.rs`, and
+readiness checks in `src/agent_doctor.rs`.
 
-The canonical artifact is a CLI-first `sifs-search` skill package under
+The canonical artifact is the `sifs-search` skill package under
 `skills/sifs-search/`. Target mirrors under `extras/` are local package shapes
-for agent-skill consumers such as OpenClaw and Hermes; they do not imply public
-marketplace discovery.
+for agent-skill consumers like OpenClaw and Hermes.
 
 Instruction snippets are inserted into `AGENTS.md` or `CLAUDE.md` with stable
-managed markers and checksums. The installer preserves surrounding user content,
-is idempotent on repeated runs, and requires `--force` before replacing a
-user-modified managed block.
+managed markers and checksums. The installer preserves surrounding user
+content, runs idempotently, and requires `--force` to replace a user-modified
+managed block.
 
-MCP remains optional for these artifacts. Generated instructions tell agents to
-use MCP tools only when visible in the current session and to fall back to shell
-commands such as `sifs search`, `sifs pack`, `sifs list-files`, `sifs get`, and
-`sifs agent-context --json`.
+Generated instructions tell agents to call MCP tools when visible in the
+current session and otherwise fall back to shell commands like `sifs search`,
+`sifs pack`, `sifs list-files`, `sifs get`, and `sifs agent-context --json`.
 
 ## Persistent local indexes
 
 Default local path indexing writes persistent cache entries under the platform
-cache directory, such as `~/Library/Caches/sifs` on macOS. The CLI can opt into
-a repository-local `.sifs/` cache with `--project-cache`. SIFS validates each
-cache entry against the current sorted file signature list before loading it.
+cache directory (`~/Library/Caches/sifs` on macOS,
+`${XDG_CACHE_HOME:-~/.cache}/sifs` on Linux). The CLI can switch to a
+repo-local `.sifs/` cache with `--project-cache`. SIFS validates each cache
+entry against the current sorted file signature list before loading.
 
 The sparse persistent cache stores:
 
@@ -185,20 +182,20 @@ The sparse persistent cache stores:
 Semantic-capable local indexes also write a separate dense cache keyed by the
 encoder configuration. Sparse-only indexes never write dense cache files.
 
-SIFS doesn't use the persistent sparse cache for custom extension sets, custom
-ignore sets, document-file inclusion, or Git temporary checkouts. Those cases
-build an index from source so option-specific behavior stays correct.
+Custom extension sets, custom ignore sets, document-file inclusion, and Git
+temporary checkouts skip the persistent sparse cache. Those cases build an
+index from source so option-specific behavior stays correct.
 
 ## Limitations
 
-SIFS keeps live indexes in memory after construction. Persistent caches are best
+Live indexes stay in memory after construction. Persistent caches are best
 effort: if a cache entry is missing or invalid, SIFS rebuilds from source and
 writes a fresh entry when persistent caching is enabled.
 
-Other current limits are:
+Other current limits:
 
 - Files must be readable as UTF-8 text.
 - Git indexing uses shallow clones.
-- Direct CLI commands use platform caches by default and only write `.sifs/`
-  when `--project-cache` is set.
-- Document-like files require explicit library options.
+- CLI commands use platform caches by default; `--project-cache` opts into
+  `.sifs/`.
+- Document-like files need `--include-docs` or explicit `--extension` flags.

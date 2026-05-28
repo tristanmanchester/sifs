@@ -1,11 +1,11 @@
 # Benchmarking
 
-SIFS includes benchmark utilities for search quality, indexing speed, query
-latency, and embedding parity checks. Use them when changing file walking,
-chunking, model loading, sparse search, dense search, or reranking.
+SIFS ships benchmark utilities for search quality, indexing speed, query
+latency, and embedding parity. Run them when changing file walking, chunking,
+model loading, sparse search, dense search, or reranking.
 
-The `sifs-benchmark` and `sifs-embed` binaries are diagnostics. Build them with
-the explicit `diagnostics` feature.
+The `sifs-benchmark` and `sifs-embed` binaries are diagnostics. Build them
+with the `diagnostics` feature:
 
 ```bash
 cargo build --release --features diagnostics --bins
@@ -13,9 +13,9 @@ cargo build --release --features diagnostics --bins
 
 ## Quality and latency benchmark
 
-The `sifs-benchmark` binary runs annotated search tasks over one or more pinned
-repositories. It reports NDCG quality metrics, query latency percentiles, index
-time, indexed files, chunks, and category scores.
+`sifs-benchmark` runs annotated search tasks over one or more pinned
+repositories. It reports NDCG quality metrics, query latency percentiles,
+index time, indexed files, chunks, and category scores.
 
 ```bash
 target/release/sifs-benchmark \
@@ -81,16 +81,27 @@ target/release/sifs-benchmark \
   --latency-runs 20
 ```
 
-Available filters and controls are:
+Available filters and controls:
 
-- `--repo <name>` can be repeated to include specific repositories.
-- `--language <language>` can be repeated to include specific languages.
+- `--repo <name>` (repeatable) includes specific repositories.
+- `--language <language>` (repeatable) includes specific languages.
 - `--mode <hybrid|semantic|bm25>` selects the search mode for the run.
-- `--top-k <count>` controls search depth for each task.
-- `--latency-runs <count>` controls repeated query timing per task.
-- `--include-tasks` includes per-task ranks and result metadata for analysis
-  plots such as context-efficiency curves.
+- `--alpha <0..1>` overrides the hybrid semantic weight.
+- `--top-k <count>` sets the search depth for each task. Default: 10.
+- `--latency-runs <count>` sets the repeated query timing count per task.
+  Default: 5.
+- `--include-tasks` includes per-task ranks and result metadata. Use this for
+  context-efficiency curves and similar analyses.
+- `--candidate-diagnostics` adds candidate-union presence, BM25 rank, semantic
+  rank, and failure-stage fields. Combine with `--include-tasks` for failure
+  analysis. `--candidate-diagnostics-depth` controls the candidate sweep depth
+  (default: 200).
+- `--hybrid-timing` reports a hybrid timing breakdown for each task.
 - `--output <path>` writes the JSON payload to a file.
+- `--no-cache` disables persistent index caches so cold-index timing measures
+  fresh construction.
+- `--no-download` blocks embedding model downloads.
+- `--offline` blocks downloads and remote Git sources.
 
 ## Output payload
 
@@ -133,9 +144,9 @@ results, and a weighted summary.
 
 Use `ndcg10` to compare ranking quality. Use `warm_uncached_query_ms` for
 normal searches after an index exists, and `warm_cached_repeat_query_ms` only
-for identical repeated queries inside the same process. Use `cold_index_ms`,
-`peak_rss_mb`, `files`, and `chunks` when investigating indexing, memory, file
-selection, or chunking changes.
+for identical repeated queries in the same process. Use `cold_index_ms`,
+`peak_rss_mb`, `files`, and `chunks` when investigating indexing, memory,
+file selection, or chunking changes.
 
 ## Local smoke benchmark
 
@@ -153,8 +164,8 @@ resident memory on Unix platforms.
 
 ## Embedding helper
 
-The `sifs-embed` binary encodes one text string with the SIFS embedding model
-and prints the vector as JSON. Use it for model-loader checks and parity tests.
+`sifs-embed` encodes one text string with the SIFS embedding model and prints
+the vector as JSON. Use it for model-loader checks and parity tests.
 
 ```bash
 target/release/sifs-embed "parse oauth callback"
@@ -162,15 +173,15 @@ target/release/sifs-embed "parse oauth callback" --model /path/to/model
 target/release/sifs-embed "parse oauth callback" --no-download
 ```
 
-The `--model` value can point to a local Model2Vec model path. Without it, SIFS
+The `--model` flag accepts a local Model2Vec model path. Without it, SIFS
 uses `SIFS_MODEL` or the default code-search model. Use `--no-download` or
 `--offline` to require an already-local model.
 
 ## Recent local measurements
 
-These measurements were collected on May 7, 2026, on this development machine.
-They are useful as a reference point, but they aren't a hardware-independent
-performance contract.
+These measurements were collected on May 7, 2026, on the development machine.
+Results vary by hardware, so use them as a relative reference rather than an
+absolute contract.
 
 Full annotated corpus comparison:
 

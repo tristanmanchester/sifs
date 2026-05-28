@@ -1,15 +1,15 @@
 # SIFS benchmark report
 
-These measurements were collected on May 7, 2026, on this development machine.
-They are intended to make local tradeoffs visible, not to define a
-hardware-independent performance contract.
+These measurements were collected on May 7, 2026, on the development machine.
+Results vary by hardware, so use them as a relative reference rather than an
+absolute performance contract.
 
 ## Summary
 
-SIFS was evaluated against 63 pinned open-source repositories, 19 languages, and
-1,251 annotated search tasks. The benchmark reports NDCG@10 for ranking quality
-and separate timing fields for cold indexing, semantic first use, warm queries,
-and cached repeats:
+SIFS was evaluated against 63 pinned open-source repositories, 19 languages,
+and 1,251 annotated search tasks. The benchmark reports NDCG@10 for ranking
+quality and separate timing fields for cold indexing, semantic first use,
+warm queries, and cached repeats:
 
 ```text
 cold_index_ms
@@ -19,12 +19,12 @@ warm_uncached_query_ms
 warm_cached_repeat_query_ms
 ```
 
-The uncached warm query number bypasses SIFS's in-process query-result cache and
-is the honest value to compare for normal searches after an index exists. The
-cached repeat number measures identical repeated queries after one warm-up.
-`cold_index_ms` is sparse/chunk index construction only; semantic/hybrid
-first-use cost is reported separately as `cold_semantic_build_or_load_ms` and
-included in `cold_first_search_ms`.
+`warm_uncached_query_ms` bypasses the in-process query-result cache and is the
+right field to compare for normal searches after an index exists.
+`warm_cached_repeat_query_ms` measures identical repeated queries after one
+warm-up. `cold_index_ms` covers sparse and chunk index construction only;
+semantic and hybrid first-use cost is reported separately as
+`cold_semantic_build_or_load_ms` and included in `cold_first_search_ms`.
 
 | Method | NDCG@10 | Cold index | Warm uncached query | Cached repeat query |
 |---|---:|---:|---:|---:|
@@ -37,10 +37,10 @@ included in `cold_first_search_ms`.
 | probe | 0.3872 | 0.0000 ms | 207.1 ms | n/a |
 | ripgrep | 0.1257 | 0.0000 ms | 8.8 ms | n/a |
 
-SIFS remains substantially faster to build and query than the neural embedding
-baselines while landing behind CodeRankEmbed Hybrid and Semble on raw NDCG@10
-in this regenerated run. The speed story also stays explicit: the meaningful
-warm-query figure is `2.7ms`, not the `0.0049ms` cached repeat path.
+SIFS builds and queries faster than the neural embedding baselines and lands
+just behind CodeRankEmbed Hybrid and Semble on NDCG@10 in this run. The
+warm-query figure to compare against other tools is `2.7 ms`, not the
+`0.0049 ms` cached-repeat figure.
 
 ## Figures
 
@@ -73,15 +73,15 @@ target/release/sifs-benchmark \
   --no-cache
 ```
 
-For failure analysis, add `--include-tasks --candidate-diagnostics`. This emits
-per-target final rank, BM25 rank, semantic rank, candidate-union presence, and a
-coarse failure stage so candidate-generation misses can be separated from
-reranking misses. It also includes a repo-level `candidate_diagnostic_summary`
-with aggregated counts for top-10, reranking, depth, and candidate-generation
-failure stages.
+For failure analysis, add `--include-tasks --candidate-diagnostics`. This
+emits per-target final rank, BM25 rank, semantic rank, candidate-union
+presence, and a coarse failure stage, so candidate-generation misses can be
+separated from reranking misses. The output also includes a repo-level
+`candidate_diagnostic_summary` with aggregated counts for top-10, reranking,
+depth, and candidate-generation failure stages.
 
-The comparison baselines are existing result JSON files from the adjacent Python
-tool checkout. The Semble row is included as a direct comparison to that tool.
+Comparison baselines come from result JSON files in the adjacent Python tool
+checkout. The Semble row is included as a direct comparison to that tool.
 
 | Method | Source result file |
 |---|---|
@@ -95,18 +95,17 @@ tool checkout. The Semble row is included as a direct comparison to that tool.
 
 Cold latency in the figures is cold index time plus warm uncached query p50.
 Warm latency is warm uncached query p50 with an existing index. Some baseline
-files only carry precomputed summary timing fields; those values are preserved
-rather than recomputed.
+files only carry precomputed summary timing fields, which are kept as-is.
 
 The full SIFS payload is checked in at
 [benchmarks/results/sifs-full.json](../benchmarks/results/sifs-full.json). It
 contains per-repository NDCG, latency, index time, memory, file count, chunk
 count, and category-level scores.
 
-The checked-in result JSON includes per-repository `reproducibility`,
-`cold_semantic_build_or_load_ms`, and `cold_first_search_ms` fields. Fresh
-release claims should be regenerated with the command above on the target
-machine.
+The checked-in result JSON also includes per-repository `reproducibility`,
+`cold_semantic_build_or_load_ms`, and `cold_first_search_ms` fields.
+Regenerate with the command above on the target machine before quoting fresh
+release claims.
 
 ## SIFS by language
 
@@ -140,28 +139,28 @@ machine.
 | semantic | 0.8412 |
 | symbol | 0.9711 |
 
-Symbol lookup is the strongest category. BM25 and query-aware boosts help exact
-identifiers while semantic retrieval handles natural-language discovery.
+Symbol lookup is the strongest category: BM25 and query-aware boosts handle
+exact identifiers while semantic retrieval covers natural-language discovery.
 
 ## Language relevance work
 
-C is now the weakest language slice in the full benchmark:
-`NDCG@10=0.7370` across 60 tasks. TypeScript is `NDCG@10=0.7397`. A checked-in mini
+C is the weakest language slice in the full benchmark at `NDCG@10=0.7370`
+across 60 tasks. TypeScript is next at `NDCG@10=0.7397`. A checked-in mini
 corpus covers React components, hooks, type definitions, barrel exports,
 `.d.ts` declarations, route files, and test/spec files:
 
 - [tests/fixtures/ts-mini-corpus](../tests/fixtures/ts-mini-corpus)
 - [tests/typescript_relevance.rs](../tests/typescript_relevance.rs)
 
-The suite intentionally keeps the test/spec-file query at a looser rank
-threshold because current ranking penalizes test files. That makes the weakness
-visible before changing global ranking.
+The test/spec-file query uses a looser rank threshold because the current
+ranking penalizes test files. That keeps the weakness visible before any
+global ranking change.
 
 ## Large repository smoke test
 
-A separate smoke benchmark can be run against a shallow clone of
-`https://github.com/facebook/react`. This is not an annotated relevance test; it
-is a scale and latency check on a larger real-world repository.
+A separate smoke benchmark runs against a shallow clone of
+`https://github.com/facebook/react`. It's a scale and latency check, not an
+annotated relevance test.
 
 ```bash
 cargo build --release --example bench
@@ -196,10 +195,10 @@ The generated PNGs are written into [assets/images](../assets/images), and a
 compact generated table is written to
 [benchmarks/README.generated.md](../benchmarks/README.generated.md).
 
-The query-type figure uses the current `--sifs-result` payload only. Historical
-mode-ablation JSON files under `benchmarks/results/sifs-mode-*.json` should be
-regenerated with the current benchmark binary and `--no-cache` before they are
-used for fresh comparison claims.
+The query-type figure uses the current `--sifs-result` payload only.
+Regenerate historical mode-ablation JSON files under
+`benchmarks/results/sifs-mode-*.json` with the current benchmark binary and
+`--no-cache` before using them for fresh comparison claims.
 
 The context-efficiency figure is generated from
 [benchmarks/results/sifs-context-curves.json](../benchmarks/results/sifs-context-curves.json),

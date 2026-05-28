@@ -1,13 +1,13 @@
 # Rust library usage
 
-The `sifs` crate exposes the indexing and search engine used by the CLI and MCP
-server. Use the library when you want structured results, long-lived indexes,
+The `sifs` crate exposes the indexing and search engine used by the CLI and
+MCP server. Use the library for structured results, long-lived indexes,
 custom filters, or direct integration inside a Rust application.
 
 ## Public API
 
 The crate re-exports the main index and result types from `src/lib.rs`. These
-types are the stable surface to use from downstream Rust code.
+types are the stable surface for downstream Rust code.
 
 ```rust
 use sifs::{Chunk, EncoderSpec, IndexStats, SearchMode, SearchOptions, SearchResult, SifsIndex};
@@ -46,14 +46,14 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-`from_path` returns an error when the path doesn't exist, isn't a directory, or
-contains no supported non-empty files. Model-loading errors are returned later
-from semantic or hybrid search.
+`from_path` returns an error when the path doesn't exist, isn't a directory,
+or contains no supported non-empty files. Model-loading errors surface later
+from semantic or hybrid search calls.
 
-Use `SifsIndex::from_path_sparse` when you want an explicitly sparse-only index
-that can never initialize semantic state. BM25 search works normally; semantic,
-hybrid, and related-code search return an error telling callers to build a
-hybrid index or use `SearchMode::Bm25`.
+Use `SifsIndex::from_path_sparse` for a sparse-only index that never
+initializes semantic state. BM25 search works normally; semantic, hybrid, and
+related-code search return an error directing callers to build a hybrid index
+or switch to `SearchMode::Bm25`.
 
 ```rust
 use sifs::{SearchMode, SearchOptions, SifsIndex};
@@ -79,11 +79,10 @@ let index = SifsIndex::from_path_hybrid(
 
 ## Customize indexing
 
-Use `SifsIndex::from_path_with_options` when you need a custom model path,
-extension set, ignored directory names, or document file inclusion. Use
-`SifsIndex::from_path_with_model_options` when you also need explicit model
-download policy. The extension set must use leading-dot values such as `.rs` or
-`.ts`.
+Use `SifsIndex::from_path_with_options` for a custom model path, extension
+set, ignored directory names, or document file inclusion. Use
+`SifsIndex::from_path_with_model_options` when you also need an explicit model
+download policy. Extensions must use leading-dot values like `.rs` or `.ts`.
 
 ```rust
 use sifs::SifsIndex;
@@ -133,14 +132,14 @@ let index = SifsIndex::from_path_with_encoder_spec(
 )?;
 ```
 
-The `include_text_files` flag controls whether default document-like extensions
-such as Markdown, YAML, TOML, and JSON are included when you don't pass an
-explicit extension set.
+`include_text_files` controls whether document extensions like Markdown,
+YAML, TOML, and JSON are included when you don't pass an explicit extension
+set.
 
 ## Index a Git repository
 
-Use `SifsIndex::from_git` to clone and index a remote repository. SIFS performs
-a shallow clone into a temporary directory and can check out a branch or tag.
+Use `SifsIndex::from_git` to clone and index a remote repository. SIFS does a
+shallow clone into a temporary directory and can check out a branch or tag.
 
 ```rust
 use sifs::SifsIndex;
@@ -152,13 +151,14 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-The Git command must be available on `PATH`. Clone failures return an error
-that includes the Git stderr output.
+`git` must be on `PATH`. Clone failures return an error that includes the
+Git stderr output.
 
 ## Build from existing chunks
 
-Use `SifsIndex::from_chunks` when your application owns file discovery or
-chunking. You must provide a loaded encoder and a non-empty list of chunks.
+Use `SifsIndex::from_chunks` when your application handles file discovery or
+chunking itself. You must provide a loaded encoder and a non-empty list of
+chunks.
 
 ```rust
 use sifs::{Chunk, SifsIndex};
@@ -180,19 +180,20 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-`from_chunks` preserves compatibility for callers that already have an encoder:
-it builds BM25 data and preloads semantic state. Use `from_chunks_sparse` for a
-sparse-only chunk index, `from_chunks_hybrid` for a lazy Model2Vec-backed
-semantic-capable index, or `from_chunks_with_encoder_spec` for hashing.
+`from_chunks` keeps compatibility for callers that already have an encoder:
+it builds BM25 data and preloads semantic state. Use `from_chunks_sparse` for
+a sparse-only chunk index, `from_chunks_hybrid` for a lazy Model2Vec-backed
+semantic-capable index, or `from_chunks_with_encoder_spec` for the hashing
+encoder.
 
 ## Search an index
 
-Use `SifsIndex::search_with` for all ranking modes. It returns
-`Result<Vec<SearchResult>>` because semantic and hybrid search may need to load
-or download a model. BM25 mode does not touch the model path. `SearchOptions`
-keeps ranking, result count, hybrid alpha, and filters self-describing. The
-`alpha` field is only used by hybrid search. When `alpha` is `None`, SIFS
-selects a weight from the query shape.
+`SifsIndex::search_with` runs every ranking mode. It returns
+`Result<Vec<SearchResult>>` because semantic and hybrid search may need to
+load or download a model. BM25 mode never touches the model path.
+`SearchOptions` carries ranking, result count, hybrid alpha, and filters.
+The `alpha` field applies only to hybrid search; when it's `None`, SIFS picks
+a weight from the query shape.
 
 ```rust
 let results = index.search_with(
@@ -215,11 +216,11 @@ let results = index.search_with(
 )?;
 ```
 
-If both filters are present, SIFS searches chunks that match both filter sets.
-If no filter matches any chunk, SIFS falls back to searching the full index.
+When both filters are present, SIFS searches chunks that match both sets.
+When no chunk matches the filters, SIFS falls back to the full index.
 
-Disable the in-process query-result cache when measuring uncached warm query
-latency or when a caller wants every request to execute ranking work.
+Disable the in-process query-result cache to measure uncached warm-query
+latency or to force every request to run ranking work.
 
 ```rust
 let results = index.search_with(
@@ -232,20 +233,20 @@ let results = index.search_with(
 
 ## Find related chunks
 
-Use `find_related` when you already have a `Chunk` and want nearby concepts or
-similar implementations. The method performs semantic search with a same
-language filter when the source chunk has language metadata.
+Use `find_related` when you have a `Chunk` and want nearby concepts or similar
+implementations. The method runs semantic search and adds a same-language
+filter when the source chunk has language metadata.
 
 ```rust
 let source = &index.chunks[0];
 let related = index.find_related(source, 5)?;
 ```
 
-The source chunk itself is removed from the returned results.
+The source chunk is removed from the returned results.
 
 ## Get index statistics
 
-Use `stats` to inspect index size and language coverage. This is useful for
+Use `stats` to inspect index size and language coverage. It's useful for
 debugging file selection and benchmark output.
 
 ```rust

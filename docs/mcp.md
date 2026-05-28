@@ -1,13 +1,12 @@
 # MCP server usage
 
-SIFS can run as a local Model Context Protocol server over stdio. The MCP
-surface mirrors the agent-native CLI vocabulary: use `source` for local paths or
-Git URLs, `limit` for bounded result counts, and `list_files` for indexed file
-inventory.
+SIFS runs as a local Model Context Protocol server over stdio. The MCP surface
+mirrors the CLI vocabulary: `source` for local paths or Git URLs, `limit` for
+bounded result counts, and `list_files` for indexed file inventory.
 
-MCP is optional for agent integration. The `sifs agent` command can install
-CLI-first skills and snippets that tell agents to fall back to shell commands
-when MCP tools are not visible in the current session.
+MCP is optional for agent integration. The `sifs agent` command installs
+CLI-first skills and snippets that fall back to shell commands when MCP tools
+aren't visible in the current session.
 
 ## Start the server
 
@@ -18,7 +17,7 @@ target/release/sifs mcp --source https://github.com/owner/project --ref main
 ```
 
 When a default source is configured, tools can omit `source`. Calls can still
-pass another `source` when an agent needs a different local checkout or Git URL.
+pass another `source` to target a different local checkout or Git URL.
 `--offline` rejects Git URL sources and disables model downloads.
 
 ## Install into Codex or Claude Code
@@ -31,15 +30,15 @@ sifs mcp install --client codex --source /path/to/project
 sifs mcp install --client claude --scope local --source /path/to/project
 ```
 
-Use `--dry-run --json` when an agent needs the exact command arrays and fallback
-config without mutating client state.
+Use `--dry-run --json` to get the exact command arrays and fallback config
+without changing client state.
 
 ```bash
 sifs mcp install --dry-run --json --client all
 ```
 
 Use `sifs mcp doctor --json` for machine-readable readiness checks. The doctor
-keeps MCP startup handshakes separate from BM25 search smoke.
+reports MCP startup handshake state and BM25 search smoke as separate signals.
 
 ```bash
 sifs mcp doctor --source /path/to/project --offline --no-cache --json
@@ -47,8 +46,8 @@ sifs mcp doctor --source /path/to/project --offline --no-cache --json
 
 ## Protocol surface
 
-`initialize` is lightweight and does not build an index. Index work happens
-during tool calls such as `search`, `index_status`, and `refresh_index`.
+`initialize` is lightweight; it doesn't build an index. Index work happens
+inside tool calls such as `search`, `index_status`, and `refresh_index`.
 
 Supported methods:
 
@@ -74,8 +73,8 @@ Core tools:
 - `agent_context`: return the versioned CLI/MCP contract.
 - `agent_print`: render a SIFS skill, snippet, or MCP guidance artifact without
   writing files.
-- `agent_doctor`: inspect agent artifact readiness; reports `unknown` when
-  current-session visibility cannot be proven.
+- `agent_doctor`: inspect agent artifact readiness. Reports `unknown` for
+  signals that depend on current-session visibility.
 - `search`: search chunks by natural language, code, or symbol query.
 - `find_related`: find chunks related to a known file and line.
 - `index_status`: inspect the selected source.
@@ -87,9 +86,9 @@ Core tools:
 - `outline`: inspect symbols, breadcrumbs, and chunk line spans for one indexed
   file.
 - `pack`: build a bounded context pack for a task query.
-- `init_agent`: compatibility helper for writing the Claude Code SIFS agent
-  file. Prefer `agent_print` plus CLI `sifs agent install` for new
-  target-aware workflows.
+- `init_agent`: compatibility helper that writes the Claude Code SIFS agent
+  file. For new target-aware workflows, use `agent_print` plus CLI `sifs
+  agent install`.
 
 Profile and feedback tools:
 
@@ -125,9 +124,9 @@ Fields:
 - `alpha` optionally controls hybrid semantic weight.
 - `filter_languages` and `filter_paths` narrow the indexed chunks searched.
 
-Invalid modes and invalid limits are rejected instead of silently defaulting.
-Structured search results include `limit`, `truncated`, warnings, index stats,
-and result rows.
+Invalid modes and invalid limits are rejected with a structured error rather
+than silently defaulting. Search results include `limit`, `truncated`,
+warnings, index stats, and result rows.
 
 ## Index inspection
 
@@ -166,9 +165,8 @@ Use `outline` to inspect one indexed file before reading raw chunks:
 ```
 
 Use `no_chunks: true` for a symbol-only outline. Missing indexed paths return a
-structured `found: false` response instead of a prose-only failure. `symbol` and
-`outline` accept `kind` as a string or array, and `kinds` as an array, to filter
-the returned symbol kinds.
+structured `found: false` response. `symbol` and `outline` accept `kind` as a
+string or array, and `kinds` as an array, to filter the returned symbol kinds.
 
 Use `pack` to retrieve task-shaped context through MCP:
 
@@ -184,13 +182,13 @@ Use `pack` to retrieve task-shaped context through MCP:
 ```
 
 `include_symbol_definitions` expands only identifier-like query terms such as
-`SessionToken`, `auth_flow`, or `token2`; plain lowercase prose terms are left as
+`SessionToken`, `auth_flow`, or `token2`. Lowercase prose terms stay as
 ordinary search context.
 
 When the SIFS daemon is running, MCP `search`, `list_files`, `symbol`,
 `outline`, and `pack` reuse its warm index and fall back to the embedded MCP
 index when the daemon is unavailable. Filtered `symbol` and `outline` calls use
-the embedded index so filtering happens before result limiting.
+the embedded index so filtering applies before result limiting.
 
 ## Profiles and feedback
 
@@ -211,8 +209,8 @@ Feedback is local-first:
 Call `feedback_create` to append a local feedback entry and `feedback_list` to
 inspect bounded recent entries.
 
-## Breaking vocabulary
+## Vocabulary
 
-The agent-native surface intentionally uses `source` instead of `repo`, `limit`
-instead of `top_k`, and `list_files` instead of `list_indexed_files`. Old names
-are rejected so agents learn one contract instead of carrying ambiguous aliases.
+The MCP surface uses `source` (not `repo`), `limit` (not `top_k`), and
+`list_files` (not `list_indexed_files`). The older names are rejected, so
+agents always see one canonical contract.

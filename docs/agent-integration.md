@@ -1,8 +1,10 @@
 # Agent Integration
 
-SIFS is CLI-first for agents. The MCP server is useful when a client exposes it, but generated SIFS skills and snippets always include shell fallbacks so agents can continue when MCP is not visible in the current session.
+SIFS is CLI-first for agents. The MCP server adds value when a client exposes
+it, and generated skills and snippets always include shell fallbacks so agents
+keep working when MCP isn't visible in the current session.
 
-## Recommended Path
+## Recommended path
 
 Install an instruction snippet into a project:
 
@@ -32,13 +34,14 @@ sifs mcp doctor --source /path/to/project --offline --no-cache --json
 
 | Target | Artifacts | Notes |
 | --- | --- | --- |
-| `codex` | `skill`, `snippet`, `mcp` | Skill default is `~/.codex/skills/sifs-search`; snippet default is `AGENTS.md`. |
-| `claude-code` | `skill`, `snippet`, `mcp` | Skill default preserves `.claude/agents/sifs-search.md`; snippet default is `CLAUDE.md`. |
-| `openclaw` | `skill`, `snippet` | Local artifact support only; public discovery is not claimed. |
-| `hermes` | `skill`, `snippet` | Local artifact support only; public discovery is not claimed. |
-| `generic` | `skill`, `snippet` | Portable agent-skill package and generic `AGENTS.md` snippet. |
+| `codex` | `skill`, `snippet`, `mcp` | Skill default: `~/.codex/skills/sifs-search`. Snippet default: `AGENTS.md`. |
+| `claude-code` | `skill`, `snippet`, `mcp` | Skill default: `.claude/agents/sifs-search.md`. Snippet default: `CLAUDE.md`. |
+| `openclaw` | `skill`, `snippet` | Local artifact files only. |
+| `hermes` | `skill`, `snippet` | Local artifact files only. |
+| `generic` | `skill`, `snippet` | Portable skill package and generic `AGENTS.md` snippet. |
 
-Use `--target all` for best-effort multi-target checks or dry-runs. Results are reported per target; the operation is not transactional.
+Use `--target all` for best-effort multi-target checks or dry-runs. Each
+target is processed independently; the operation isn't transactional.
 
 ## Artifacts
 
@@ -52,9 +55,10 @@ Use `--target all` for best-effort multi-target checks or dry-runs. Results are 
 
 `snippet` inserts a short managed block into `AGENTS.md` or `CLAUDE.md`.
 
-`mcp` prints guidance and redirects mutation to `sifs mcp install`; broad MCP config mutation stays with the existing MCP command family.
+`mcp` prints guidance and redirects mutation to `sifs mcp install`. MCP config
+changes happen through that command family, not `sifs agent`.
 
-## Managed Snippets
+## Managed snippets
 
 Snippet installs use stable markers:
 
@@ -72,23 +76,28 @@ Rules:
 - User-modified managed blocks and skill directories missing `SKILL.md` require `--force`.
 - Uninstall removes only the managed block.
 
-## Doctor States
+## Doctor states
 
-`sifs agent doctor --target <target> --json` reports a readiness matrix using:
+`sifs agent doctor --target <target> --json` reports a readiness matrix with
+three states:
 
 - `pass`
 - `fail`
 - `unknown`
 
-Checks include binary availability, skill/snippet presence, MCP config, MCP handshake guidance, search smoke guidance, current-session visibility, and CLI fallback readiness.
+Checks cover binary availability, skill and snippet presence, MCP config, MCP
+handshake guidance, search smoke guidance, current-session visibility, and CLI
+fallback readiness.
 
-`unknown` is deliberate. A config file can exist even when the active agent session has no visible MCP tools, so doctor does not overclaim runtime visibility.
+`unknown` covers signals doctor can't verify from outside the agent session.
+A configured MCP server doesn't guarantee that the running agent sees the
+tools, so doctor reports `unknown` rather than `pass` for runtime visibility.
 
-## Skill Package Publishing
+## Skill package publishing
 
 The canonical portable skill lives at `skills/sifs-search/`. The ClawHub-ready
-OpenClaw package lives at `extras/openclaw/sifs-search/` so it can be published
-as a self-contained folder with:
+OpenClaw package at `extras/openclaw/sifs-search/` is a self-contained folder
+with:
 
 - `SKILL.md`
 - `references/commands.md`
@@ -103,17 +112,18 @@ cargo test --locked --test skill_parity
 python3 scripts/clawhub_skill_sync.py check
 ```
 
-The check command validates OpenClaw metadata, confirms the package files are
-present, runs the bundled setup script, inspects the remote ClawHub slug when
-`clawhub` is installed, and prints a changelog preview. It does not publish.
+The `check` command validates OpenClaw metadata, confirms the package files
+are present, runs the bundled setup script, inspects the remote ClawHub slug
+when `clawhub` is installed, and prints a changelog preview. It doesn't
+publish.
 
-Publishing is intentionally manual:
+Publishing is a manual step:
 
 ```bash
 clawhub auth login --token "$CLAWHUB_TOKEN" --no-browser
 python3 scripts/clawhub_skill_sync.py publish
 ```
 
-The GitHub Actions workflow `.github/workflows/clawhub-skill.yml` runs checks on
-skill-package changes. It only publishes when manually dispatched with
-`mode=publish` and a `CLAWHUB_TOKEN` secret is available.
+The GitHub Actions workflow `.github/workflows/clawhub-skill.yml` runs checks
+on skill-package changes. It publishes only when manually dispatched with
+`mode=publish` and a `CLAWHUB_TOKEN` secret available.
