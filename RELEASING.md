@@ -56,7 +56,7 @@ Homebrew releases are published from the tap repository at
 8. Compute the crates.io tarball checksum:
 
    ```bash
-   curl -L https://crates.io/api/v1/crates/sifs/X.Y.Z/download | shasum -a 256
+   curl -L https://static.crates.io/crates/sifs/sifs-X.Y.Z.crate | shasum -a 256
    ```
 
 9. Update `tristanmanchester/homebrew-tap`:
@@ -66,8 +66,9 @@ Homebrew releases are published from the tap repository at
    cp packaging/homebrew/sifs.rb /tmp/homebrew-tap/Formula/sifs.rb
    ```
 
-   Update the copied formula so `url` points at the crates.io download URL for
-   the new version and `sha256` is the checksum from the previous step.
+   Update the copied formula so `url` points at the immutable static crates.io
+   artifact (`https://static.crates.io/crates/sifs/sifs-X.Y.Z.crate`) for the
+   new version and `sha256` is the checksum from the previous step.
 
 10. Validate the tap formula:
 
