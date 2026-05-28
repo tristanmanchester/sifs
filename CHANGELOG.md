@@ -9,6 +9,8 @@ versioning where practical.
 
 ## Unreleased
 
+## 0.4.0 - 2026-05-28
+
 ### Added
 
 - Added indexed structural inspection with `sifs symbol`, `sifs outline`,
@@ -96,6 +98,7 @@ versioning where practical.
   or symbols beyond the requested limits before applying output truncation.
 - Fixed `sifs status` so cache, document, and extension scope flags are accepted
   consistently with other indexing commands.
+- Fixed the bundled Homebrew formula metadata so it points at the 0.4.0 crate.
 - Fixed the codedb comparison benchmark so codedb `find` output contributes
   symbol hit paths and ranks instead of being counted as an empty result.
 - Fixed Clippy warnings for stable Rust: type complexity, boolean expression

@@ -1,9 +1,9 @@
 class Sifs < Formula
   desc "SIFS Is Fast Search: instant local code search for agents"
   homepage "https://github.com/tristanmanchester/sifs"
-  url "https://crates.io/api/v1/crates/sifs/0.3.3/download"
-  sha256 "a6040292d9326d80364ea4678e756b8463fc285136445a7557520a1dfd4210a7"
-  version "0.3.3"
+  url "https://crates.io/api/v1/crates/sifs/0.4.0/download"
+  sha256 "2022785cec52c019d4fd8590cd3cb94e42f2e3b6631a1355fbd1e9c71d4a9af6"
+  version "0.4.0"
   license "MIT"
   head "https://github.com/tristanmanchester/sifs.git", branch: "main"
 
