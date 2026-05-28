@@ -9,6 +9,11 @@ versioning where practical.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed the bundled Homebrew formula download URL so Homebrew fetches the
+  immutable crates.io artifact instead of the API download endpoint.
+
 ## 0.4.0 - 2026-05-28
 
 ### Added
