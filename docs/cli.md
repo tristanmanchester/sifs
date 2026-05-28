@@ -135,22 +135,36 @@ line number, then finds similar chunks in the same source.
 target/release/sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8 --json
 ```
 
-## Index inspection
+## Structural inspection
 
-Use `list-files`, `status`, and `get` to inspect what SIFS indexed.
+Use `list-files`, `symbol`, `outline`, `status`, and `get` to inspect what
+SIFS indexed before reading broad files. These commands operate over indexed
+data and can run model-free with `--offline --no-cache`.
 
 ```bash
 target/release/sifs list-files --source /path/to/project --limit 200 --json
+target/release/sifs list-files --source /path/to/project --prefix src/auth/ --json
+target/release/sifs symbol SessionToken --source /path/to/project --json
+target/release/sifs outline src/auth/session.rs --source /path/to/project \
+  --symbols-limit 200 --chunks-limit 100 --json
 target/release/sifs status --source /path/to/project --json
 target/release/sifs get src/auth/session.rs 42 --source /path/to/project --json
 ```
 
 `list-files --json` includes `total`, `limit`, `truncated`, and a hint when the
-file list is incomplete.
+file list is incomplete. `symbol --json` returns symbol postings with
+repository-relative path, line, kind, chunk line range, language, and
+breadcrumbs. `symbol --jsonl` emits one envelope per posting with the lookup
+metadata and truncation state. `outline --json` returns `found`, total symbol
+and chunk counts, truncation metadata, file language, line span, bounded
+symbols, breadcrumbs, and bounded chunk boundaries for one indexed file. Use
+`--no-chunks` when an agent only needs the symbol outline.
 
 When the shared daemon is running, `search`, `find-related`, `list-files`,
-`status`, and `get` opportunistically reuse warm indexes. If the daemon socket is
-not available, commands fall back to direct one-shot indexing.
+`symbol`, `outline`, `status`, and `get` opportunistically reuse warm indexes.
+If the daemon socket is not available, commands fall back to direct one-shot
+indexing. `outline --json` reports a structured `found: false` payload for
+non-indexed paths before exiting non-zero.
 
 ## Profiles
 

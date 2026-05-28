@@ -1,9 +1,11 @@
 use crate::index::CacheConfig;
 use crate::model2vec::{EncoderSpec, ModelLoadPolicy, ModelOptions};
+use crate::symbol_index::{FileOutline, SymbolPosting};
 use crate::types::{Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult};
 use crate::utils::is_git_url;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -347,6 +349,27 @@ pub enum DaemonRequest {
         source: SourceSpec,
         options: IndexRuntimeOptions,
         limit: usize,
+        prefix: Option<String>,
+    },
+    Symbol {
+        source: SourceSpec,
+        options: IndexRuntimeOptions,
+        name: String,
+        limit: usize,
+    },
+    Outline {
+        source: SourceSpec,
+        options: IndexRuntimeOptions,
+        file_path: String,
+    },
+    Pack {
+        source: SourceSpec,
+        options: IndexRuntimeOptions,
+        query: String,
+        search: SearchOptionsWire,
+        budget_tokens: usize,
+        include_neighbors: usize,
+        include_symbol_definitions: bool,
     },
     GetChunk {
         source: SourceSpec,
@@ -452,6 +475,22 @@ pub enum DaemonResult {
         source: SourceSpec,
         total: usize,
         files: Vec<String>,
+        prefix: Option<String>,
+    },
+    Symbol {
+        source: SourceSpec,
+        name: String,
+        total: usize,
+        postings: Vec<SymbolPosting>,
+    },
+    Outline {
+        source: SourceSpec,
+        file_path: String,
+        outline: FileOutline,
+    },
+    Pack {
+        source: SourceSpec,
+        payload: Value,
     },
     GetChunk {
         source: SourceSpec,

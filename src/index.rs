@@ -4,6 +4,7 @@ use crate::file_walker::{filter_extensions, language_for_path, walk_files};
 use crate::model2vec::{Encoder, EncoderSpec, ModelOptions, encoder_fingerprint, load_encoder};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::sparse::Bm25Index;
+use crate::symbol_index::{self, FileOutline, SymbolIndex, SymbolPosting};
 use crate::types::{
     Chunk, IndexStats, IndexWarning, SearchHit, SearchMode, SearchOptions, SearchResult,
 };
@@ -26,7 +27,7 @@ pub struct SifsIndex {
     pub chunks: Vec<Chunk>,
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
-    symbol_mapping: HashMap<String, Vec<usize>>,
+    symbol_index: SymbolIndex,
     search_cache: Mutex<HashMap<SearchCacheKey, Vec<SearchHit>>>,
     cache_entry: Option<CacheEntry>,
     signatures: Option<Vec<FileSignature>>,
@@ -48,11 +49,7 @@ const SPARSE_CACHE_FILE: &str = "index-v6-sparse.bin";
 const SEMANTIC_CACHE_PREFIX: &str = "semantic-v6";
 const DEFAULT_QUERY_CACHE_ENTRIES: usize = 256;
 
-type IndexMappings = (
-    HashMap<String, Vec<usize>>,
-    HashMap<String, Vec<usize>>,
-    HashMap<String, Vec<usize>>,
-);
+type IndexMappings = (HashMap<String, Vec<usize>>, HashMap<String, Vec<usize>>);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum CacheConfig {
@@ -425,7 +422,8 @@ impl SifsIndex {
             bail!("No supported files found.");
         }
         let bm25_index = Bm25Index::build_from_chunks(&chunks);
-        let (file_mapping, language_mapping, symbol_mapping) = populate_mapping(&chunks);
+        let (file_mapping, language_mapping) = populate_mapping(&chunks);
+        let symbol_index = SymbolIndex::from_chunks(&chunks);
         Ok(Self {
             bm25_index,
             semantic_state: Mutex::new(None),
@@ -433,7 +431,7 @@ impl SifsIndex {
             chunks,
             file_mapping,
             language_mapping,
-            symbol_mapping,
+            symbol_index,
             search_cache: Mutex::new(HashMap::new()),
             cache_entry: None,
             signatures: None,
@@ -471,7 +469,8 @@ impl SifsIndex {
             bail!("No supported files found.");
         }
         let signatures = payload.signatures.clone();
-        let (file_mapping, language_mapping, symbol_mapping) = populate_mapping(&payload.chunks);
+        let (file_mapping, language_mapping) = populate_mapping(&payload.chunks);
+        let symbol_index = SymbolIndex::from_chunks(&payload.chunks);
         Ok(Self {
             bm25_index: payload.bm25_index,
             semantic_state: Mutex::new(None),
@@ -479,7 +478,7 @@ impl SifsIndex {
             chunks: payload.chunks,
             file_mapping,
             language_mapping,
-            symbol_mapping,
+            symbol_index,
             search_cache: Mutex::new(HashMap::new()),
             cache_entry,
             signatures: Some(signatures),
@@ -507,6 +506,39 @@ impl SifsIndex {
         let mut files: Vec<_> = self.file_mapping.keys().cloned().collect();
         files.sort();
         files
+    }
+
+    pub fn indexed_files_with_prefix(&self, prefix: Option<&str>, limit: usize) -> Vec<String> {
+        let normalized_prefix = prefix
+            .map(normalize_filter_path)
+            .filter(|prefix| !prefix.is_empty());
+        let mut files: Vec<_> = self
+            .file_mapping
+            .keys()
+            .filter(|file| {
+                normalized_prefix
+                    .as_ref()
+                    .is_none_or(|prefix| file.starts_with(prefix))
+            })
+            .cloned()
+            .collect();
+        files.sort();
+        files.truncate(limit);
+        files
+    }
+
+    pub fn symbol_lookup(&self, name: &str, limit: usize) -> Vec<SymbolPosting> {
+        self.symbol_index.lookup(name, limit)
+    }
+
+    pub fn symbol_lookup_total(&self, name: &str) -> usize {
+        self.symbol_index.lookup_total(name)
+    }
+
+    pub fn file_outline(&self, file_path: &str) -> Option<FileOutline> {
+        let normalized = normalize_filter_path(file_path);
+        let chunk_ids = self.file_mapping.get(&normalized)?;
+        symbol_index::file_outline(&normalized, chunk_ids, &self.chunks)
     }
 
     pub fn warnings(&self) -> &[IndexWarning] {
@@ -611,7 +643,7 @@ impl SifsIndex {
                     &self.bm25_index,
                     &self.chunks,
                     Some(&self.file_mapping),
-                    Some(&self.symbol_mapping),
+                    Some(self.symbol_index.chunk_mapping()),
                     options.top_k,
                     options.alpha,
                     selector_ref,
@@ -1143,7 +1175,6 @@ fn normalize_filter_path(path: &str) -> String {
 fn populate_mapping(chunks: &[Chunk]) -> IndexMappings {
     let mut file_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     let mut language_mapping: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut symbol_mapping: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, chunk) in chunks.iter().enumerate() {
         file_mapping
             .entry(chunk.file_path.clone())
@@ -1155,15 +1186,8 @@ fn populate_mapping(chunks: &[Chunk]) -> IndexMappings {
                 .or_default()
                 .push(idx);
         }
-        for symbol in &chunk.symbols {
-            let key = symbol.name.to_ascii_lowercase();
-            let postings = symbol_mapping.entry(key).or_default();
-            if postings.last().copied() != Some(idx) {
-                postings.push(idx);
-            }
-        }
     }
-    (file_mapping, language_mapping, symbol_mapping)
+    (file_mapping, language_mapping)
 }
 
 #[cfg(test)]

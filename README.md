@@ -79,6 +79,9 @@ the current directory, or pass a local path or Git URL explicitly:
 
 ```bash
 sifs search "parse JWT claims" --source /path/to/project --mode bm25 --offline --limit 10
+sifs symbol SessionToken --source /path/to/project --offline --json
+sifs outline src/auth/session.rs --source /path/to/project --offline \
+  --symbols-limit 200 --chunks-limit 100 --json
 sifs find-related src/auth/session.rs 42 --source /path/to/project --limit 8
 sifs search "stream upload backpressure" --source https://github.com/owner/project --limit 5
 ```
@@ -91,7 +94,7 @@ If you are deciding what to run next:
 | Use semantic + lexical ranking | `sifs model pull`, then `sifs search "query"` |
 | Give an agent offline context | `sifs pack "query" --mode bm25 --offline --budget-tokens 6000 --json` |
 | Give an agent hybrid context | `sifs model pull`, then `sifs pack "query" --budget-tokens 6000 --json` |
-| Inspect what was indexed | `sifs status --json` and `sifs list-files --json` |
+| Inspect what was indexed | `sifs status --json`, `sifs list-files --json`, `sifs symbol <name> --json`, and bounded `sifs outline <file> --json` |
 | Teach an agent to use SIFS | `sifs agent install --target codex --artifact snippet --file AGENTS.md` |
 
 ## Agent Integration
@@ -121,6 +124,9 @@ Full integration reference: [docs/agent-integration.md](docs/agent-integration.m
 - **Three search modes.** `hybrid` for most queries, `semantic` for natural language, `bm25` for symbols and identifiers. Switch per query.
 - **Fully offline.** BM25 mode loads nothing — no tokenizers, no model files, no network. Hybrid and semantic modes work offline once the model is cached locally.
 - **MCP server.** Drop-in tool for Claude Code, Codex, Cursor, and any other MCP-compatible agent. Sources are indexed on demand and can be refreshed explicitly after files change.
+- **Structural tools.** Inspect indexed paths, symbols, bounded outlines,
+  chunks, related code, and context packs without turning SIFS into an editor
+  or hosted server.
 - **Agent skills and snippets.** Print, install, inspect, and remove CLI-first
   SIFS guidance with `sifs agent`.
 - **Local and remote.** Pass a local path or a Git URL with `--source`.

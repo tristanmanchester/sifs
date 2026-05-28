@@ -83,6 +83,10 @@ Core tools:
 - `clear_index`: remove the selected source from the in-memory MCP cache.
 - `list_files`: list repository-relative indexed file paths.
 - `get_chunk`: read the indexed chunk containing a file and line.
+- `symbol`: look up indexed symbols by exact or folded name.
+- `outline`: inspect symbols, breadcrumbs, and chunk line spans for one indexed
+  file.
+- `pack`: build a bounded context pack for a task query.
 - `init_agent`: compatibility helper for writing the Claude Code SIFS agent
   file. Prefer `agent_print` plus CLI `sifs agent install` for new
   target-aware workflows.
@@ -136,14 +140,50 @@ Use that shape with `index_status`, `refresh_index`, and `clear_index`.
 Use `list_files` with a bounded limit:
 
 ```json
-{"source": "/path/to/project", "limit": 200}
+{"source": "/path/to/project", "prefix": "src/auth/", "limit": 200}
 ```
+
+Pass `include_docs: true` and `extensions: ["md", "json"]` on `list_files`,
+`symbol`, `outline`, or `pack` when the agent needs a one-off document or
+custom-extension index scope without saving a profile.
 
 Use `get_chunk` with a file and one-based line:
 
 ```json
 {"source": "/path/to/project", "file_path": "src/auth.rs", "line": 42}
 ```
+
+Use `symbol` when an agent already knows the symbol name:
+
+```json
+{"source": "/path/to/project", "name": "SessionToken", "limit": 20}
+```
+
+Use `outline` to inspect one indexed file before reading raw chunks:
+
+```json
+{"source": "/path/to/project", "file_path": "src/auth/session.rs", "symbols_limit": 200, "chunks_limit": 100}
+```
+
+Use `no_chunks: true` for a symbol-only outline. Missing indexed paths return a
+structured `found: false` response instead of a prose-only failure.
+
+Use `pack` to retrieve task-shaped context through MCP:
+
+```json
+{
+  "source": "/path/to/project",
+  "query": "how session validation works",
+  "mode": "hybrid",
+  "budget_tokens": 6000,
+  "include_neighbors": 1,
+  "include_symbol_definitions": true
+}
+```
+
+When the SIFS daemon is running, MCP `search`, `list_files`, `symbol`,
+`outline`, and `pack` reuse its warm index and fall back to the embedded MCP
+index when the daemon is unavailable.
 
 ## Profiles and feedback
 

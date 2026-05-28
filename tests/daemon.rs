@@ -75,6 +75,23 @@ fn request_envelopes_round_trip_as_tagged_json() {
     assert_eq!(decoded.protocol_version, DAEMON_PROTOCOL_VERSION);
     assert_eq!(decoded.request_id, "r1");
     assert_eq!(decoded, request);
+
+    let pack = DaemonRequestEnvelope::new(
+        "r2",
+        DaemonRequest::Pack {
+            source: SourceSpec::resolve(dir.path().to_string_lossy(), None, false).unwrap(),
+            options: IndexRuntimeOptions::sparse(CacheConfig::Platform),
+            query: "login screen".to_owned(),
+            search: SearchOptions::new(3).with_mode(SearchMode::Bm25).into(),
+            budget_tokens: 400,
+            include_neighbors: 1,
+            include_symbol_definitions: true,
+        },
+    );
+    let json = serde_json::to_string(&pack).unwrap();
+    assert!(json.contains("\"type\":\"pack\""));
+    let decoded: DaemonRequestEnvelope = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, pack);
 }
 
 #[test]

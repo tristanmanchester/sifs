@@ -24,6 +24,12 @@ fn fixture() -> tempfile::TempDir {
         "pub fn auth_flow() {\n    let token = token_validation();\n}\n",
     )
     .unwrap();
+    fs::create_dir_all(dir.path().join("tests")).unwrap();
+    fs::write(
+        dir.path().join("tests/auth_test.rs"),
+        "#[test]\nfn auth_test() {\n    assert!(true);\n}\n",
+    )
+    .unwrap();
     fs::write(dir.path().join("README.md"), "# Auth flow\n").unwrap();
     dir
 }
@@ -260,6 +266,197 @@ fn mcp_help_documents_server_options() {
 }
 
 #[test]
+fn symbol_command_returns_indexed_symbol_json_without_semantic_model() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "symbol",
+            "token_validation",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["name"], "token_validation");
+    assert!(
+        value["symbols"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|symbol| symbol["file_path"] == "src/lib.rs" && symbol["kind"] == "function")
+    );
+}
+
+#[test]
+fn symbol_jsonl_keeps_lookup_envelope() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "symbol",
+            "token_validation",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--jsonl",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let values = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        values
+            .iter()
+            .all(|value| value["name"] == "token_validation")
+    );
+    assert!(values.iter().all(|value| value["truncated"].is_boolean()));
+    assert!(
+        values
+            .iter()
+            .any(|value| value["symbol"]["file_path"] == "src/lib.rs")
+    );
+}
+
+#[test]
+fn outline_command_returns_indexed_file_structure_json() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "outline",
+            "src/lib.rs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["outline"]["file_path"], "src/lib.rs");
+    assert_eq!(value["outline"]["symbols"][0]["name"], "token_validation");
+    assert_eq!(value["outline"]["chunk_count"], 1);
+}
+
+#[test]
+fn outline_json_bounds_symbols_and_chunks() {
+    let repo = fixture();
+    fs::write(
+        repo.path().join("src/large.rs"),
+        "pub fn first() {}\n\npub fn second() {}\n",
+    )
+    .unwrap();
+    let output = sifs()
+        .args([
+            "outline",
+            "src/large.rs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--symbols-limit",
+            "1",
+            "--no-chunks",
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["found"], true);
+    assert_eq!(value["total_symbols"], 2);
+    assert_eq!(value["symbols_limit"], 1);
+    assert_eq!(value["chunks_limit"], 0);
+    assert_eq!(value["truncated"], true);
+    assert_eq!(value["outline"]["symbols"].as_array().unwrap().len(), 1);
+    assert!(value["outline"]["chunks"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn outline_json_reports_not_indexed_as_structured_error() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "outline",
+            "src/missing.rs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["found"], false);
+    assert_eq!(value["file_path"], "src/missing.rs");
+    assert_eq!(value["error"]["code"], "not_indexed");
+}
+
+#[test]
+fn list_files_accepts_repository_relative_prefix() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "list-files",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--prefix",
+            "src/auth.rs",
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let files = value["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0], "src/auth.rs");
+    assert_eq!(value["total"], 1);
+    assert_eq!(value["truncated"], false);
+    assert_eq!(value["prefix"], "src/auth.rs");
+}
+
+#[test]
 fn daemon_run_ping_and_status_work_over_socket() {
     if !unix_sockets_available() {
         return;
@@ -432,6 +629,93 @@ fn daemon_search_honors_explain_flag() {
     assert!(!results.is_empty());
     assert!(results[0]["explanation"]["bm25_rank"].is_number());
     assert!(results[0]["explanation"]["final_score"].is_number());
+}
+
+#[test]
+fn structural_commands_use_running_daemon() {
+    if !unix_sockets_available() {
+        return;
+    }
+    let repo = fixture();
+    let runtime = short_socket_tempdir();
+    let socket = socket_path(&runtime);
+    let child = sifs()
+        .args(["daemon", "run", "--replace-existing-socket"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .spawn()
+        .unwrap();
+    let _guard = ChildGuard(child);
+    wait_for_daemon(&socket);
+
+    let files = sifs()
+        .args([
+            "list-files",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--prefix",
+            "src/auth.rs",
+            "--json",
+        ])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    assert!(
+        files.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&files.stderr)
+    );
+    let files_value: Value = serde_json::from_slice(&files.stdout).unwrap();
+    assert_eq!(files_value["files"][0], "src/auth.rs");
+
+    let symbol = sifs()
+        .args([
+            "symbol",
+            "token_validation",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--json",
+        ])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    assert!(
+        symbol.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&symbol.stderr)
+    );
+    let symbol_value: Value = serde_json::from_slice(&symbol.stdout).unwrap();
+    assert_eq!(symbol_value["symbols"][0]["name"], "token_validation");
+
+    let outline = sifs()
+        .args([
+            "outline",
+            "src/lib.rs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--symbols-limit",
+            "1",
+            "--no-chunks",
+            "--json",
+        ])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    assert!(
+        outline.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&outline.stderr)
+    );
+    let outline_value: Value = serde_json::from_slice(&outline.stdout).unwrap();
+    assert_eq!(outline_value["outline"]["file_path"], "src/lib.rs");
+    assert_eq!(outline_value["chunks_limit"], 0);
+
+    let status = sifs()
+        .args(["daemon", "status", "--json"])
+        .env("SIFS_DAEMON_SOCKET", &socket)
+        .output()
+        .unwrap();
+    let status_value: Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_value["indexes"].as_array().unwrap().len(), 1);
 }
 
 #[test]
@@ -726,7 +1010,7 @@ fn agent_context_json_describes_agent_native_contract() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["schema_version"], "1");
+    assert_eq!(value["schema_version"], "2");
     assert_eq!(value["cli"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(value["commands"]["search"]["flags"]["--source"].is_object());
     assert!(value["commands"]["search"]["flags"]["--limit"].is_object());
@@ -758,6 +1042,11 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["list-files"]["flags"]["--model"].is_object());
     assert!(value["commands"]["list-files"]["flags"]["--offline"].is_object());
     assert!(value["commands"]["list-files"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["list-files"]["flags"]["--prefix"].is_object());
+    assert!(value["commands"]["symbol"].is_object());
+    assert_eq!(value["commands"]["symbol"]["output"], "symbol_postings");
+    assert!(value["commands"]["outline"].is_object());
+    assert_eq!(value["commands"]["outline"]["output"], "file_outline");
     assert!(value["commands"]["find-related"]["flags"]["--model"].is_object());
     assert!(value["commands"]["find-related"]["flags"]["--encoder"].is_object());
     assert!(value["commands"]["find-related"]["flags"]["--offline"].is_object());
@@ -788,6 +1077,20 @@ fn agent_context_json_describes_agent_native_contract() {
             .unwrap()
             .iter()
             .any(|tool| tool == "list_files")
+    );
+    assert!(
+        value["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "symbol")
+    );
+    assert!(
+        value["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "pack")
     );
     assert!(value["integrations"]["targets"].is_array());
     assert_eq!(
@@ -832,6 +1135,8 @@ fn agent_print_snippet_json_is_cli_first_and_mcp_optional() {
     let content = value["content"].as_str().unwrap();
     assert!(content.contains("sifs agent-context --json"));
     assert!(content.contains("sifs search"));
+    assert!(content.contains("sifs symbol"));
+    assert!(content.contains("sifs outline"));
     assert!(content.contains("fall back to the CLI"));
 }
 

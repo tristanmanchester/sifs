@@ -8,6 +8,9 @@ Use MCP tools when available:
 - `find_related`
 - `list_files`
 - `get_chunk`
+- `symbol`
+- `outline`
+- `pack`
 - `index_status`
 - `agent_context`
 
@@ -18,6 +21,8 @@ Fallback immediately to shell commands:
 ```bash
 sifs search "query" --source <project>
 sifs pack "query" --source <project> --budget-tokens 6000 --json
+sifs symbol <symbol_name> --source <project> --json
+sifs outline <file_path> --source <project> --symbols-limit 200 --chunks-limit 100 --json
 sifs list-files --source <project> --json
 sifs get <file_path> <line> --source <project>
 ```

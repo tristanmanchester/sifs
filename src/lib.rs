@@ -3,6 +3,7 @@ pub mod agent_context;
 pub mod agent_doctor;
 pub mod agent_installer;
 pub mod chunker;
+pub mod context_pack;
 pub mod daemon;
 pub mod dense;
 pub mod feedback;
@@ -15,6 +16,7 @@ pub mod profiles;
 pub mod ranking;
 pub mod search;
 pub mod sparse;
+pub mod symbol_index;
 pub mod tokens;
 pub mod types;
 pub mod update;
@@ -28,7 +30,8 @@ pub use model2vec::{
     encoder_fingerprint, load_encoder, load_model, load_model_with_options, model_fingerprint,
     model_status,
 };
+pub use symbol_index::{FileChunkOutline, FileOutline, SymbolIndex, SymbolPosting};
 pub use types::{
-    CacheMode, Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult,
+    CacheMode, Chunk, IndexStats, IndexWarning, SearchMode, SearchOptions, SearchResult, Symbol,
 };
 pub use utils::{fenced_code_block, format_results, is_git_url, resolve_chunk};

@@ -1,7 +1,7 @@
 use ndarray::Array2;
 use sifs::{
     CacheConfig, Chunk, Encoder, EncoderSpec, HashingEncoder, IndexOptions, ModelLoadPolicy,
-    ModelOptions, SearchMode, SearchOptions, SearchResult, SifsIndex, format_results,
+    ModelOptions, SearchMode, SearchOptions, SearchResult, SifsIndex, Symbol, format_results,
 };
 use std::fs;
 use std::process::Command;
@@ -245,6 +245,85 @@ fn bm25_path_search_is_model_free_with_no_download() {
 
     assert!(!results.is_empty());
     assert!(!index.semantic_loaded());
+}
+
+#[test]
+fn symbol_lookup_uses_indexed_symbols_with_folded_matching() {
+    let chunks = vec![
+        Chunk {
+            content: "pub struct TokenManager;".to_owned(),
+            file_path: "src/token.rs".to_owned(),
+            start_line: 1,
+            end_line: 3,
+            language: Some("rust".to_owned()),
+            symbols: vec![Symbol {
+                name: "TokenManager".to_owned(),
+                kind: "struct".to_owned(),
+                line: 1,
+            }],
+            breadcrumbs: vec!["token".to_owned()],
+        },
+        Chunk {
+            content: "impl TokenManager {}".to_owned(),
+            file_path: "src/token.rs".to_owned(),
+            start_line: 5,
+            end_line: 8,
+            language: Some("rust".to_owned()),
+            symbols: vec![Symbol {
+                name: "TokenManager".to_owned(),
+                kind: "impl".to_owned(),
+                line: 5,
+            }],
+            breadcrumbs: vec!["token".to_owned()],
+        },
+    ];
+    let index = SifsIndex::from_chunks_sparse(chunks).unwrap();
+
+    let postings = index.symbol_lookup("tokenmanager", 10);
+
+    assert_eq!(postings.len(), 2);
+    assert_eq!(postings[0].name, "TokenManager");
+    assert_eq!(postings[0].file_path, "src/token.rs");
+    assert_eq!(postings[0].line, 1);
+    assert!(!index.semantic_loaded());
+}
+
+#[test]
+fn file_outline_summarizes_indexed_chunks_even_without_symbols() {
+    let chunks = vec![
+        Chunk {
+            content: "pub fn parse_token() {}".to_owned(),
+            file_path: "src/token.rs".to_owned(),
+            start_line: 1,
+            end_line: 4,
+            language: Some("rust".to_owned()),
+            symbols: vec![Symbol {
+                name: "parse_token".to_owned(),
+                kind: "fn".to_owned(),
+                line: 1,
+            }],
+            breadcrumbs: vec!["token".to_owned()],
+        },
+        Chunk {
+            content: "// helper notes".to_owned(),
+            file_path: "src/token.rs".to_owned(),
+            start_line: 5,
+            end_line: 6,
+            language: Some("rust".to_owned()),
+            symbols: Vec::new(),
+            breadcrumbs: Vec::new(),
+        },
+    ];
+    let index = SifsIndex::from_chunks_sparse(chunks).unwrap();
+
+    let outline = index.file_outline("./src/token.rs").unwrap();
+
+    assert_eq!(outline.file_path, "src/token.rs");
+    assert_eq!(outline.chunk_count, 2);
+    assert_eq!(outline.symbol_count, 1);
+    assert_eq!(outline.start_line, 1);
+    assert_eq!(outline.end_line, 6);
+    assert_eq!(outline.chunks.len(), 2);
 }
 
 #[test]
