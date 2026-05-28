@@ -15,7 +15,7 @@ sit below this contract and aren't part of the agent surface.
 | 3. Errors that teach and enumerate | Complete | CLI enum parsing comes from Clap. MCP search mode and limit parsing rejects invalid values with a structured error. |
 | 4. Safe retries and mutation boundaries | Complete | Cache and project clean, profile delete, init/install replacement, snippet insertion, and daemon install flows use explicit `--dry-run` and `--force` contracts. |
 | 5. Bounded responses | Complete | Search and file-list payloads include `limit`, `truncated`, warnings, and narrowing hints. |
-| 6. Cross-CLI vocabulary consistency | Complete | The canonical vocabulary is `source`, `filter-path`, `limit`, `list-files`, `get`, `status`, `--json`, `--force`, and `--dry-run`. |
+| 6. Cross-CLI vocabulary consistency | Complete | The canonical vocabulary is `source`, `filter-path`, `limit`, `list-files`, `symbol`, `outline`, `pack`, `get`, `status`, `--json`, `--force`, and `--dry-run`. |
 | 7. Three-layer introspection | Complete | Human help, `sifs agent-context --json`, `sifs agent doctor`, MCP `agent_context`, MCP resources, and generated agent guidance cover all three layers. |
 | 8. Async-aware execution | Partial | SIFS is synchronous. `--timeout` and `--no-input` cover the bounded-execution checks. A durable jobs ledger isn't shipped because SIFS has no long-running mutations yet. |
 | 9. Persistent identity through profiles | Complete | `sifs profile` saves reusable source, search, model, and cache defaults and exposes them through `agent-context` and MCP profile tools. |

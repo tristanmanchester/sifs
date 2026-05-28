@@ -163,7 +163,8 @@ managed block.
 
 Generated instructions tell agents to call MCP tools when visible in the
 current session and otherwise fall back to shell commands like `sifs search`,
-`sifs pack`, `sifs list-files`, `sifs get`, and `sifs agent-context --json`.
+`sifs symbol`, `sifs outline`, `sifs pack`, `sifs list-files`, `sifs get`, and
+`sifs agent-context --json`.
 
 ## Persistent local indexes
 
