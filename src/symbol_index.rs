@@ -10,6 +10,9 @@ pub struct SymbolPosting {
     pub file_path: String,
     #[serde(skip)]
     pub chunk_id: usize,
+    pub role: String,
+    pub confidence: String,
+    pub origin: String,
     pub start_line: usize,
     pub end_line: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -192,6 +195,9 @@ fn posting_for(chunk_id: usize, chunk: &Chunk, symbol: &Symbol) -> Option<Symbol
         line: symbol.line,
         file_path: chunk.file_path.clone(),
         chunk_id,
+        role: symbol.role.clone(),
+        confidence: symbol.confidence.clone(),
+        origin: symbol.origin.clone(),
         start_line: chunk.start_line,
         end_line: chunk.end_line,
         language: chunk.language.clone(),
@@ -231,11 +237,7 @@ mod tests {
         let index = SymbolIndex::from_chunks(&[chunk(
             "src/lib.rs",
             1,
-            vec![Symbol {
-                name: "TokenManager".to_owned(),
-                kind: "struct".to_owned(),
-                line: 3,
-            }],
+            vec![Symbol::definition("TokenManager", "struct", 3)],
         )]);
 
         assert_eq!(index.lookup("TokenManager", 10)[0].name, "TokenManager");
@@ -248,16 +250,8 @@ mod tests {
             "src/lib.rs",
             1,
             vec![
-                Symbol {
-                    name: "TokenManager".to_owned(),
-                    kind: "struct".to_owned(),
-                    line: 3,
-                },
-                Symbol {
-                    name: "TokenManager".to_owned(),
-                    kind: "impl".to_owned(),
-                    line: 9,
-                },
+                Symbol::definition("TokenManager", "struct", 3),
+                Symbol::definition("TokenManager", "impl", 9),
             ],
         )]);
 

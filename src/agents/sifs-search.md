@@ -13,8 +13,8 @@ sifs search "authentication flow" --source ./my-project
 sifs search "save_pretrained" --source ./my-project
 sifs search "save model to disk" --source ./my-project --limit 10
 sifs search "auth flow" --source ./my-project --mode semantic --encoder hashing
-sifs symbol SessionToken --source ./my-project --json
-sifs outline src/auth.py --source ./my-project --symbols-limit 200 --chunks-limit 100 --json
+sifs symbol SessionToken --source ./my-project --kind class --json
+sifs outline src/auth.py --source ./my-project --kind function --symbols-limit 200 --chunks-limit 100 --json
 sifs pack "how auth flow works" --source ./my-project --budget-tokens 6000 --json
 ```
 
@@ -54,7 +54,7 @@ If `sifs` is not on `$PATH`, build this Rust binary and use its absolute path.
 ## Workflow
 
 1. Start with `sifs search` to find relevant chunks.
-2. Use `sifs symbol`, `sifs outline`, `sifs get`, or `sifs pack` to narrow context before reading full files.
+2. Use `sifs symbol`, `sifs outline`, `sifs get`, or `sifs pack` to narrow context before reading full files; add `--kind` when only a specific symbol kind matters.
 3. Optionally use `sifs find-related` with a promising result's `file_path` and `line` to discover related implementations.
 4. Use grep only when you need exhaustive literal matches or quick confirmation of an exact string.
 

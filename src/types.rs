@@ -32,6 +32,37 @@ pub struct Symbol {
     pub name: String,
     pub kind: String,
     pub line: usize,
+    #[serde(default = "default_symbol_role")]
+    pub role: String,
+    #[serde(default = "default_symbol_confidence")]
+    pub confidence: String,
+    #[serde(default = "default_symbol_origin")]
+    pub origin: String,
+}
+
+impl Symbol {
+    pub fn definition(name: impl Into<String>, kind: impl Into<String>, line: usize) -> Self {
+        Self {
+            name: name.into(),
+            kind: kind.into(),
+            line,
+            role: "definition".to_owned(),
+            confidence: "high".to_owned(),
+            origin: "line_pattern".to_owned(),
+        }
+    }
+}
+
+fn default_symbol_role() -> String {
+    "definition".to_owned()
+}
+
+fn default_symbol_confidence() -> String {
+    "medium".to_owned()
+}
+
+fn default_symbol_origin() -> String {
+    "unknown".to_owned()
 }
 
 impl Chunk {

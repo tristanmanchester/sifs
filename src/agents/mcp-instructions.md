@@ -8,9 +8,12 @@ coverage and retrieve focused context before or after searching. Use
 `refresh_index` after files change in a long-lived MCP session.
 
 Tool calls use `source` for local paths or Git URLs and `limit` for result
-bounds. Use `symbols_limit`, `chunks_limit`, or `no_chunks` to keep outlines
-compact, and pass `include_docs` or `extensions` for one-off document/custom
-extension scopes. Do not use the old `repo` or `top_k` names.
+bounds. Use `kind` or `kinds` to filter `symbol` and `outline` results to
+specific symbol kinds. Use `symbols_limit`, `chunks_limit`, or `no_chunks` to
+keep outlines compact, and pass `include_docs` or `extensions` for one-off
+document/custom extension scopes. Do not use the old `repo` or `top_k` names.
+Enable pack symbol definitions for concrete identifiers, not plain lowercase
+prose queries.
 
 Search mode guidance:
 - `hybrid`: default for most questions.

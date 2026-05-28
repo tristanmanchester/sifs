@@ -282,6 +282,8 @@ enum Command {
         profile: Option<String>,
         #[arg(long, help = "Maximum number of symbol postings to print.")]
         limit: Option<usize>,
+        #[arg(long = "kind", help = "Only return this symbol kind. Repeatable.")]
+        kinds: Vec<String>,
         #[command(flatten)]
         output: OutputArgs,
         #[arg(long, help = "Model path or Hugging Face model id.")]
@@ -325,6 +327,11 @@ enum Command {
         chunks_limit: usize,
         #[arg(long, help = "Omit chunk outlines from structured output.")]
         no_chunks: bool,
+        #[arg(
+            long = "kind",
+            help = "Only include this symbol kind in the outline. Repeatable."
+        )]
+        kinds: Vec<String>,
         #[arg(long, help = "Local directory or Git URL to index and inspect.")]
         source: Option<String>,
         #[arg(long, help = "Saved profile to use for source defaults.")]
@@ -368,6 +375,22 @@ enum Command {
         offline: bool,
         #[arg(long = "no-download", help = "Disable model downloads.")]
         no_download: bool,
+        #[arg(long, help = "Use a custom persistent index cache directory.")]
+        cache_dir: Option<PathBuf>,
+        #[arg(long, help = "Disable persistent index caches.")]
+        no_cache: bool,
+        #[arg(long, help = "Use a project-local .sifs cache.")]
+        project_cache: bool,
+        #[arg(
+            long,
+            help = "Include Markdown, JSON, YAML, TOML, and text-like files."
+        )]
+        include_docs: bool,
+        #[arg(
+            long = "extension",
+            help = "Only index this file extension. Repeatable."
+        )]
+        extensions: Vec<String>,
     },
     #[command(about = "Print the indexed chunk containing a file and one-based line number.")]
     Get {
@@ -1214,6 +1237,7 @@ fn main() -> Result<()> {
             source,
             profile,
             limit,
+            kinds,
             output,
             model,
             offline,
@@ -1237,13 +1261,14 @@ fn main() -> Result<()> {
                 include_docs,
                 extensions,
             )?;
-            run_symbol(&name, &resolved, output)?
+            run_symbol(&name, &resolved, kinds, output)?
         }
         Some(Command::Outline {
             file_path,
             symbols_limit,
             chunks_limit,
             no_chunks,
+            kinds,
             source,
             profile,
             output,
@@ -1276,6 +1301,7 @@ fn main() -> Result<()> {
                     symbols_limit,
                     chunks_limit,
                     include_chunks: !no_chunks,
+                    kinds,
                 },
                 output,
             )?
@@ -1287,6 +1313,11 @@ fn main() -> Result<()> {
             model,
             offline,
             no_download,
+            cache_dir,
+            no_cache,
+            project_cache,
+            include_docs,
+            extensions,
         }) => {
             let resolved = resolve_invocation(
                 profile.as_deref(),
@@ -1297,9 +1328,9 @@ fn main() -> Result<()> {
                 None,
                 offline,
                 no_download,
-                CacheConfig::Platform,
-                false,
-                Vec::new(),
+                cache_config(cache_dir, no_cache, project_cache),
+                include_docs,
+                extensions,
             )?;
             run_status(&resolved, json)?
         }
@@ -2118,22 +2149,30 @@ fn try_daemon_list_files(
     }
 }
 
-fn run_symbol(name: &str, resolved: &ResolvedInvocation, output: OutputArgs) -> Result<()> {
+fn run_symbol(
+    name: &str,
+    resolved: &ResolvedInvocation,
+    kinds: Vec<String>,
+    output: OutputArgs,
+) -> Result<()> {
     if name.trim().is_empty() {
         bail!("symbol name must not be empty");
     }
+    let kinds = normalize_kind_filters(&kinds);
     if let Some(DaemonResult::Symbol {
         source,
         name,
         total,
         postings,
-    }) = try_daemon_symbol(name, resolved)?
+    }) = try_daemon_symbol(name, resolved, kinds.is_empty())?
     {
+        let (total, postings) = filter_symbol_postings(total, postings, &kinds, resolved.limit);
         print_symbol_output(
             &source.source,
             &name,
             total,
             resolved.limit,
+            &kinds,
             postings,
             output,
         )?;
@@ -2148,15 +2187,19 @@ fn run_symbol(name: &str, resolved: &ResolvedInvocation, output: OutputArgs) -> 
         resolved.include_docs,
         extension_set(&resolved.extensions),
     )?;
-    let total = index.symbol_lookup_total(name);
-    let postings = index.symbol_lookup(name, resolved.limit);
+    let all_postings = index.symbol_lookup(name, usize::MAX);
+    let (total, postings) =
+        filter_symbol_postings(all_postings.len(), all_postings, &kinds, resolved.limit);
     let elapsed_ms = started.elapsed().as_millis();
     print_symbol_output_with_elapsed(
-        &resolved.source,
-        name,
-        total,
-        resolved.limit,
-        elapsed_ms,
+        SymbolOutputOptions {
+            source: &resolved.source,
+            name,
+            total,
+            limit: resolved.limit,
+            elapsed_ms,
+            kinds: &kinds,
+        },
         postings,
         output,
     )
@@ -2167,28 +2210,84 @@ fn print_symbol_output(
     name: &str,
     total: usize,
     limit: usize,
+    kinds: &[String],
     postings: Vec<sifs::SymbolPosting>,
     output: OutputArgs,
 ) -> Result<()> {
-    print_symbol_output_with_elapsed(source, name, total, limit, 0, postings, output)
+    print_symbol_output_with_elapsed(
+        SymbolOutputOptions {
+            source,
+            name,
+            total,
+            limit,
+            elapsed_ms: 0,
+            kinds,
+        },
+        postings,
+        output,
+    )
 }
 
-fn print_symbol_output_with_elapsed(
-    source: &str,
-    name: &str,
+fn normalize_kind_filters(kinds: &[String]) -> Vec<String> {
+    let mut filters = kinds
+        .iter()
+        .filter_map(|kind| {
+            let kind = kind.trim().to_ascii_lowercase();
+            (!kind.is_empty()).then_some(kind)
+        })
+        .collect::<Vec<_>>();
+    filters.sort();
+    filters.dedup();
+    filters
+}
+
+fn filter_symbol_postings(
+    original_total: usize,
+    postings: Vec<sifs::SymbolPosting>,
+    kinds: &[String],
+    limit: usize,
+) -> (usize, Vec<sifs::SymbolPosting>) {
+    if kinds.is_empty() {
+        let mut postings = postings;
+        postings.truncate(limit);
+        return (original_total, postings);
+    }
+    let mut filtered = postings
+        .into_iter()
+        .filter(|posting| symbol_kind_matches(&posting.kind, kinds))
+        .collect::<Vec<_>>();
+    let total = filtered.len();
+    filtered.truncate(limit);
+    (total, filtered)
+}
+
+fn symbol_kind_matches(kind: &str, filters: &[String]) -> bool {
+    let kind = kind.to_ascii_lowercase();
+    filters.iter().any(|filter| filter == &kind)
+}
+
+struct SymbolOutputOptions<'a> {
+    source: &'a str,
+    name: &'a str,
     total: usize,
     limit: usize,
     elapsed_ms: u128,
+    kinds: &'a [String],
+}
+
+fn print_symbol_output_with_elapsed(
+    options: SymbolOutputOptions<'_>,
     postings: Vec<sifs::SymbolPosting>,
     output: OutputArgs,
 ) -> Result<()> {
     let payload = json!({
-        "source": source,
-        "name": name,
-        "total": total,
-        "limit": limit,
-        "truncated": total > postings.len(),
-        "elapsed_ms": elapsed_ms,
+        "source": options.source,
+        "name": options.name,
+        "total": options.total,
+        "limit": options.limit,
+        "kinds": options.kinds,
+        "truncated": options.total > postings.len(),
+        "elapsed_ms": options.elapsed_ms,
         "symbols": &postings,
     });
     if output.json {
@@ -2198,21 +2297,25 @@ fn print_symbol_output_with_elapsed(
             println!(
                 "{}",
                 serde_json::to_string(&json!({
-                    "source": source,
-                    "name": name,
-                    "total": total,
-                    "limit": limit,
-                    "truncated": total > postings.len(),
+                    "source": options.source,
+                    "name": options.name,
+                    "total": options.total,
+                    "limit": options.limit,
+                    "kinds": options.kinds,
+                    "truncated": options.total > postings.len(),
                     "symbol": posting,
                 }))?
             );
         }
     } else if postings.is_empty() {
-        println!("No indexed symbols found for {name:?}.");
+        println!("No indexed symbols found for {:?}.", options.name);
     } else {
         match output.format {
             TextFormat::Human => {
-                println!("Indexed symbols for {name:?} in {source:?}:");
+                println!(
+                    "Indexed symbols for {:?} in {:?}:",
+                    options.name, options.source
+                );
                 for posting in postings {
                     println!(
                         "{}:{} {} {}",
@@ -2236,7 +2339,11 @@ fn print_symbol_output_with_elapsed(
 fn try_daemon_symbol(
     name: &str,
     resolved: &ResolvedInvocation,
+    allow_daemon: bool,
 ) -> Result<Option<sifs::daemon::protocol::DaemonResult>> {
+    if !allow_daemon {
+        return Ok(None);
+    }
     let Some(client) = daemon_client_if_running()? else {
         return Ok(None);
     };
@@ -2261,21 +2368,23 @@ fn try_daemon_symbol(
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct OutlineOutputOptions {
     symbols_limit: usize,
     chunks_limit: usize,
     include_chunks: bool,
+    kinds: Vec<String>,
 }
 
 impl OutlineOutputOptions {
-    fn validate(self) -> Result<Self> {
+    fn validate(mut self) -> Result<Self> {
         if self.symbols_limit == 0 {
             bail!("--symbols-limit must be at least 1");
         }
         if self.include_chunks && self.chunks_limit == 0 {
             bail!("--chunks-limit must be at least 1 unless --no-chunks is set");
         }
+        self.kinds = normalize_kind_filters(&self.kinds);
         Ok(self)
     }
 }
@@ -2290,11 +2399,12 @@ fn run_outline(
     if file_path.trim().is_empty() {
         bail!("file_path must not be empty");
     }
-    if let Some(DaemonResult::Outline {
-        source,
-        file_path: _,
-        outline,
-    }) = try_daemon_outline(file_path, resolved)?
+    if outline_options.kinds.is_empty()
+        && let Some(DaemonResult::Outline {
+            source,
+            file_path: _,
+            outline,
+        }) = try_daemon_outline(file_path, resolved)?
     {
         print_outline_output(&source.source, outline, 0, outline_options, output)?;
         return Ok(());
@@ -2327,11 +2437,12 @@ fn run_outline(
 
 fn print_outline_output(
     source: &str,
-    outline: sifs::FileOutline,
+    mut outline: sifs::FileOutline,
     elapsed_ms: u128,
     outline_options: OutlineOutputOptions,
     output: OutputArgs,
 ) -> Result<()> {
+    filter_outline_symbols(&mut outline, &outline_options.kinds);
     let total_symbols = outline.symbols.len();
     let total_chunks = outline.chunks.len();
     let symbols: Vec<_> = outline
@@ -2358,6 +2469,7 @@ fn print_outline_output(
         "total_chunks": total_chunks,
         "symbols_limit": outline_options.symbols_limit,
         "chunks_limit": chunks_limit,
+        "kinds": outline_options.kinds,
         "truncated": truncated_symbols || truncated_chunks,
         "outline": outline_value,
     });
@@ -2406,6 +2518,20 @@ fn print_outline_output(
         }
     }
     Ok(())
+}
+
+fn filter_outline_symbols(outline: &mut sifs::FileOutline, kinds: &[String]) {
+    if kinds.is_empty() {
+        return;
+    }
+    outline
+        .symbols
+        .retain(|symbol| symbol_kind_matches(&symbol.kind, kinds));
+    for chunk in &mut outline.chunks {
+        chunk
+            .symbols
+            .retain(|symbol| symbol_kind_matches(&symbol.kind, kinds));
+    }
 }
 
 fn print_outline_not_found(

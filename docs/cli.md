@@ -99,8 +99,9 @@ content. Use `--jsonl` when one JSON record per result is easier to stream.
 source/profile/mode/model/cache/document/extension resolution as `search`, then
 deduplicates primary ranked chunks by file. Use `--include-neighbors` to include
 adjacent chunks around selected results, and `--include-symbol-definitions` to
-add chunks that define symbols named in the query when they fit the remaining
-budget.
+add chunks that define identifier-like symbols named in the query when they fit
+the remaining budget. Plain lowercase prose terms do not trigger symbol
+definition expansion.
 
 ```bash
 target/release/sifs pack "how request auth works" \
@@ -144,21 +145,25 @@ data and can run model-free with `--offline --no-cache`.
 ```bash
 target/release/sifs list-files --source /path/to/project --limit 200 --json
 target/release/sifs list-files --source /path/to/project --prefix src/auth/ --json
-target/release/sifs symbol SessionToken --source /path/to/project --json
+target/release/sifs symbol SessionToken --source /path/to/project --kind struct --json
 target/release/sifs outline src/auth/session.rs --source /path/to/project \
-  --symbols-limit 200 --chunks-limit 100 --json
-target/release/sifs status --source /path/to/project --json
+  --kind function --symbols-limit 200 --chunks-limit 100 --json
+target/release/sifs status --source /path/to/project --no-cache --json
 target/release/sifs get src/auth/session.rs 42 --source /path/to/project --json
 ```
 
 `list-files --json` includes `total`, `limit`, `truncated`, and a hint when the
 file list is incomplete. `symbol --json` returns symbol postings with
-repository-relative path, line, kind, chunk line range, language, and
-breadcrumbs. `symbol --jsonl` emits one envelope per posting with the lookup
+repository-relative path, line, kind, role, confidence, origin, chunk line
+range, language, and breadcrumbs. Repeat `symbol --kind` or `outline --kind` to
+restrict results to specific symbol kinds such as `function`, `struct`, `class`,
+or `case`. `symbol --jsonl` emits one envelope per posting with the lookup
 metadata and truncation state. `outline --json` returns `found`, total symbol
-and chunk counts, truncation metadata, file language, line span, bounded
-symbols, breadcrumbs, and bounded chunk boundaries for one indexed file. Use
-`--no-chunks` when an agent only needs the symbol outline.
+and chunk counts after kind filtering, truncation metadata, file language, line
+span, bounded symbols, breadcrumbs, and bounded chunk boundaries for one indexed
+file. Use `--no-chunks` when an agent only needs the symbol outline. `status`
+accepts the same cache, document, and extension scope flags used by the other
+inspection commands.
 
 When the shared daemon is running, `search`, `find-related`, `list-files`,
 `symbol`, `outline`, `status`, and `get` opportunistically reuse warm indexes.

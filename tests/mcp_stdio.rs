@@ -402,6 +402,43 @@ fn symbol_tool_returns_structured_symbol_postings() {
 }
 
 #[test]
+fn symbol_tool_filters_structured_postings_by_kind() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src")).unwrap();
+    fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub struct TokenManager;\n\nimpl TokenManager {\n    pub fn new() -> Self { Self }\n}\n",
+    )
+    .unwrap();
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 15,
+        "method": "tools/call",
+        "params": {
+            "name": "symbol",
+            "arguments": {"name": "TokenManager", "kind": "struct"}
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp_for_source(input.as_bytes(), repo.path(), &[]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    let structured = &response["result"]["structuredContent"];
+    assert_eq!(structured["kinds"][0], "struct");
+    let symbols = structured["symbols"].as_array().unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0]["kind"], "struct");
+}
+
+#[test]
 fn outline_tool_returns_indexed_file_outline() {
     let input = json!({
         "jsonrpc": "2.0",
@@ -428,6 +465,44 @@ fn outline_tool_returns_indexed_file_outline() {
     let outline = &response["result"]["structuredContent"]["outline"];
     assert_eq!(outline["file_path"], "src/lib.rs");
     assert_eq!(outline["symbols"][0]["name"], "token_validation");
+}
+
+#[test]
+fn outline_tool_filters_symbols_by_kind() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src")).unwrap();
+    fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub struct TokenManager;\n\npub fn token_validation() -> bool {\n    true\n}\n",
+    )
+    .unwrap();
+    let input = json!({
+        "jsonrpc": "2.0",
+        "id": 16,
+        "method": "tools/call",
+        "params": {
+            "name": "outline",
+            "arguments": {"file_path": "src/lib.rs", "kinds": ["function"]}
+        }
+    })
+    .to_string()
+        + "\n";
+
+    let output = run_mcp_for_source(input.as_bytes(), repo.path(), &[]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+    let structured = &response["result"]["structuredContent"];
+    assert_eq!(structured["kinds"][0], "function");
+    let symbols = structured["outline"]["symbols"].as_array().unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0]["name"], "token_validation");
+    assert_eq!(symbols[0]["kind"], "function");
 }
 
 #[test]

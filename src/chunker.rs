@@ -66,7 +66,7 @@ fn chunk_code_aware(source: &str, file_path: &str, language: Option<String>) -> 
                 .max(range.start);
             let start_line = line_number_at_byte(source, range.start);
             let end_line = line_number_at_byte(source, end_index);
-            let symbols = extract_symbols(&content, start_line);
+            let symbols = extract_symbols(&content, start_line, Some(&language));
             let breadcrumbs = symbols
                 .iter()
                 .map(|symbol| format!("{} {}", symbol.kind, symbol.name))
@@ -102,7 +102,7 @@ fn chunk_code_fallback(
             let end_index = range.end.saturating_sub(1).max(range.start);
             let start_line = line_number_at_byte(source, range.start);
             let end_line = line_number_at_byte(source, end_index);
-            let symbols = extract_symbols(&content, start_line);
+            let symbols = extract_symbols(&content, start_line, language.as_deref());
             let breadcrumbs = symbols
                 .iter()
                 .map(|symbol| format!("{} {}", symbol.kind, symbol.name))
@@ -120,22 +120,23 @@ fn chunk_code_fallback(
         .collect()
 }
 
-fn extract_symbols(content: &str, start_line: usize) -> Vec<Symbol> {
+fn extract_symbols(content: &str, start_line: usize, language: Option<&str>) -> Vec<Symbol> {
     content
         .lines()
         .enumerate()
-        .filter_map(|(offset, line)| extract_symbol(line, start_line + offset))
+        .filter_map(|(offset, line)| extract_symbol(line, start_line + offset, language))
         .collect()
 }
 
-fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
+fn extract_symbol(line: &str, line_number: usize, language: Option<&str>) -> Option<Symbol> {
     let trimmed = line.trim_start();
     if let Some(rest) = trimmed.strip_prefix("#define ") {
-        return Some(Symbol {
-            name: symbol_name(rest)?,
-            kind: "macro".to_owned(),
-            line: line_number,
-        });
+        return Some(Symbol::definition(symbol_name(rest)?, "macro", line_number));
+    }
+    match language {
+        Some("python") => return extract_python_symbol(trimmed, line_number),
+        Some("swift") => return extract_swift_symbol(trimmed, line_number),
+        _ => {}
     }
     let trimmed = trimmed
         .strip_prefix("export default ")
@@ -192,11 +193,46 @@ fn extract_symbol(line: &str, line_number: usize) -> Option<Symbol> {
         return None;
     };
     let name = symbol_name(rest)?;
-    Some(Symbol {
-        name,
-        kind: kind.to_owned(),
-        line: line_number,
-    })
+    Some(Symbol::definition(name, kind, line_number))
+}
+
+fn extract_python_symbol(trimmed: &str, line_number: usize) -> Option<Symbol> {
+    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("async def ") {
+        ("def", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("def ") {
+        ("def", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("class ") {
+        ("class", rest)
+    } else {
+        return None;
+    };
+    Some(Symbol::definition(symbol_name(rest)?, kind, line_number))
+}
+
+fn extract_swift_symbol(trimmed: &str, line_number: usize) -> Option<Symbol> {
+    let trimmed = strip_declaration_modifiers(trimmed);
+    let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("struct ") {
+        ("struct", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("class ") {
+        ("class", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("enum ") {
+        ("enum", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("protocol ") {
+        ("protocol", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("extension ") {
+        ("extension", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("func ") {
+        ("function", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("var ") {
+        ("var", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("let ") {
+        ("let", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("case ") {
+        ("case", rest)
+    } else {
+        return None;
+    };
+    Some(Symbol::definition(symbol_name(rest)?, kind, line_number))
 }
 
 fn strip_declaration_modifiers(mut trimmed: &str) -> &str {
@@ -247,7 +283,11 @@ fn symbol_name(rest: &str) -> Option<String> {
             .trim_matches('{')
             .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
             .next()
-            .filter(|name| !name.is_empty())?
+            .filter(|name| {
+                name.chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+            })?
             .to_owned(),
     )
 }

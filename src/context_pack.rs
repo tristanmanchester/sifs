@@ -26,10 +26,14 @@ pub fn context_pack_payload(
     };
     let chunks = &index.chunks;
     let symbol_definition_chunks = if include_symbol_definitions {
-        query_symbol_definition_chunks(query, chunks)
+        query_symbol_definition_chunks(query, chunks, results)
     } else {
         Vec::new()
     };
+    let mut symbol_definition_terms = symbol_definition_terms(query, results)
+        .into_iter()
+        .collect::<Vec<_>>();
+    symbol_definition_terms.sort();
 
     for result in results {
         if *state.remaining_chars == 0 || !seen_files.insert(result.chunk.file_path.clone()) {
@@ -96,6 +100,7 @@ pub fn context_pack_payload(
         "budget_tokens": budget_tokens,
         "include_neighbors": include_neighbors,
         "include_symbol_definitions": include_symbol_definitions,
+        "symbol_definition_terms": symbol_definition_terms,
         "estimated_tokens_used": budget_tokens.saturating_mul(4).saturating_sub(remaining_chars).div_ceil(4),
         "stats": index.stats(),
         "warnings": index.warnings(),
@@ -187,12 +192,12 @@ fn adjacent_chunks<'a>(
         .collect()
 }
 
-fn query_symbol_definition_chunks<'a>(query: &str, chunks: &'a [Chunk]) -> Vec<&'a Chunk> {
-    let terms: HashSet<String> = query
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
-        .filter(|term| term.len() >= 3)
-        .map(|term| term.to_ascii_lowercase())
-        .collect();
+fn query_symbol_definition_chunks<'a>(
+    query: &str,
+    chunks: &'a [Chunk],
+    results: &[SearchResult],
+) -> Vec<&'a Chunk> {
+    let terms = symbol_definition_terms(query, results);
     if terms.is_empty() {
         return Vec::new();
     }
@@ -218,4 +223,34 @@ fn query_symbol_definition_chunks<'a>(query: &str, chunks: &'a [Chunk]) -> Vec<&
             })
         })
         .collect()
+}
+
+fn symbol_definition_terms(query: &str, results: &[SearchResult]) -> HashSet<String> {
+    let mut terms = query
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+        .filter(|term| is_identifier_like_query_term(term))
+        .map(|term| term.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    if terms.is_empty() {
+        return terms;
+    }
+    let explicit_terms = terms.clone();
+    for result in results.iter().take(5) {
+        for symbol in &result.chunk.symbols {
+            let folded = symbol.name.to_ascii_lowercase();
+            if explicit_terms.iter().any(|term| folded.contains(term)) {
+                terms.insert(folded);
+            }
+        }
+    }
+    terms
+}
+
+fn is_identifier_like_query_term(term: &str) -> bool {
+    let term = term.trim();
+    term.len() >= 3
+        && (term.contains('_')
+            || term.contains('$')
+            || term.chars().any(|c| c.is_ascii_uppercase())
+            || term.chars().any(|c| c.is_ascii_digit()))
 }

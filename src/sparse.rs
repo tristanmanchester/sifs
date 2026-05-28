@@ -170,11 +170,9 @@ mod tests {
     #[test]
     fn bm25_metadata_tokens_are_counted_once_per_source() {
         let mut symbol_chunk = chunk("fn unrelated() {}", "src/other.rs");
-        symbol_chunk.symbols.push(Symbol {
-            name: "ParseSession".to_owned(),
-            kind: "function".to_owned(),
-            line: 1,
-        });
+        symbol_chunk
+            .symbols
+            .push(Symbol::definition("ParseSession", "function", 1));
         let stem_chunk = chunk("fn unrelated() {}", "src/parse_session.rs");
         let index = Bm25Index::build_from_chunks(&[symbol_chunk, stem_chunk]);
 

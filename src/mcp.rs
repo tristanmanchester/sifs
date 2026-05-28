@@ -1045,21 +1045,27 @@ fn tool_symbol(
         Ok(limit) => limit,
         Err(message) => return ToolText::error(message),
     };
+    let kinds = match parse_mcp_kind_filters(&args) {
+        Ok(kinds) => kinds,
+        Err(message) => return ToolText::error(message),
+    };
     let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
         Ok(options) => options,
         Err(message) => return ToolText::error(message),
     };
-    if let Some(DaemonResult::Symbol {
-        source,
-        name,
-        total,
-        postings,
-    }) = cache.daemon_symbol(&source, ref_name, name, limit, &index_options)
+    if kinds.is_empty()
+        && let Some(DaemonResult::Symbol {
+            source,
+            name,
+            total,
+            postings,
+        }) = cache.daemon_symbol(&source, ref_name, name, limit, &index_options)
     {
         let structured = json!({
             "source": source.source,
             "name": &name,
             "limit": limit,
+            "kinds": &kinds,
             "total": total,
             "truncated": total > postings.len(),
             "symbols": &postings,
@@ -1078,12 +1084,13 @@ fn tool_symbol(
     }
     match cache.get(&source, ref_name, &index_options) {
         Ok(index) => {
-            let total = index.symbol_lookup_total(name);
-            let postings = index.symbol_lookup(name, limit);
+            let all_postings = index.symbol_lookup(name, usize::MAX);
+            let (total, postings) = filter_mcp_symbol_postings(all_postings, &kinds, limit);
             let structured = json!({
                 "source": source,
                 "name": name,
                 "limit": limit,
+                "kinds": &kinds,
                 "total": total,
                 "truncated": total > postings.len(),
                 "warnings": index_warnings(index),
@@ -1139,15 +1146,20 @@ fn tool_outline(
         .get("no_chunks")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let kinds = match parse_mcp_kind_filters(&args) {
+        Ok(kinds) => kinds,
+        Err(message) => return ToolText::error(message),
+    };
     let index_options = match mcp_index_options(&args, cache, profile.as_ref()) {
         Ok(options) => options,
         Err(message) => return ToolText::error(message),
     };
-    if let Some(DaemonResult::Outline {
-        source,
-        file_path: _,
-        outline,
-    }) = cache.daemon_outline(&source, ref_name, file_path, &index_options)
+    if kinds.is_empty()
+        && let Some(DaemonResult::Outline {
+            source,
+            file_path: _,
+            outline,
+        }) = cache.daemon_outline(&source, ref_name, file_path, &index_options)
     {
         let text = format!(
             "{}:{}-{} ({} chunks, {} symbols)",
@@ -1163,10 +1175,13 @@ fn tool_outline(
                 &source.source,
                 file_path,
                 outline,
-                json!([]),
-                symbols_limit,
-                chunks_limit,
-                include_chunks,
+                McpOutlineOptions {
+                    warnings: json!([]),
+                    symbols_limit,
+                    chunks_limit,
+                    include_chunks,
+                    kinds: &kinds,
+                },
             ),
         );
     }
@@ -1194,10 +1209,13 @@ fn tool_outline(
                     &source,
                     file_path,
                     outline,
-                    index_warnings(index),
-                    symbols_limit,
-                    chunks_limit,
-                    include_chunks,
+                    McpOutlineOptions {
+                        warnings: index_warnings(index),
+                        symbols_limit,
+                        chunks_limit,
+                        include_chunks,
+                        kinds: &kinds,
+                    },
                 ),
             )
         }
@@ -1205,19 +1223,29 @@ fn tool_outline(
     }
 }
 
-fn mcp_outline_payload(
-    source: &str,
-    file_path: &str,
-    outline: crate::symbol_index::FileOutline,
+struct McpOutlineOptions<'a> {
     warnings: Value,
     symbols_limit: usize,
     chunks_limit: usize,
     include_chunks: bool,
+    kinds: &'a [String],
+}
+
+fn mcp_outline_payload(
+    source: &str,
+    file_path: &str,
+    mut outline: crate::symbol_index::FileOutline,
+    options: McpOutlineOptions<'_>,
 ) -> Value {
+    filter_mcp_outline_symbols(&mut outline, options.kinds);
     let total_symbols = outline.symbols.len();
     let total_chunks = outline.chunks.len();
-    let chunks_limit = if include_chunks { chunks_limit } else { 0 };
-    let symbols: Vec<_> = outline.symbols.iter().take(symbols_limit).collect();
+    let chunks_limit = if options.include_chunks {
+        options.chunks_limit
+    } else {
+        0
+    };
+    let symbols: Vec<_> = outline.symbols.iter().take(options.symbols_limit).collect();
     let chunks: Vec<_> = outline.chunks.iter().take(chunks_limit).collect();
     let mut outline_value = serde_json::to_value(&outline).unwrap_or_else(|_| json!({}));
     outline_value["symbols"] = json!(symbols);
@@ -1226,14 +1254,95 @@ fn mcp_outline_payload(
         "source": source,
         "file_path": file_path,
         "found": true,
-        "warnings": warnings,
+        "warnings": options.warnings,
         "total_symbols": total_symbols,
         "total_chunks": total_chunks,
-        "symbols_limit": symbols_limit,
+        "symbols_limit": options.symbols_limit,
         "chunks_limit": chunks_limit,
-        "truncated": total_symbols > symbols_limit || total_chunks > chunks_limit,
+        "kinds": options.kinds,
+        "truncated": total_symbols > options.symbols_limit || total_chunks > chunks_limit,
         "outline": outline_value,
     })
+}
+
+fn parse_mcp_kind_filters(args: &Value) -> std::result::Result<Vec<String>, String> {
+    let mut values = Vec::new();
+    if let Some(value) = args.get("kind") {
+        match value {
+            Value::String(value) => values.push(value.clone()),
+            Value::Array(items) => {
+                for item in items {
+                    values.push(
+                        item.as_str()
+                            .ok_or_else(|| "kind must contain only strings".to_owned())?
+                            .to_owned(),
+                    );
+                }
+            }
+            _ => return Err("kind must be a string or array of strings".to_owned()),
+        }
+    }
+    if let Some(value) = args.get("kinds") {
+        let Some(items) = value.as_array() else {
+            return Err("kinds must be an array of strings".to_owned());
+        };
+        for item in items {
+            values.push(
+                item.as_str()
+                    .ok_or_else(|| "kinds must contain only strings".to_owned())?
+                    .to_owned(),
+            );
+        }
+    }
+    Ok(normalize_kind_filters(&values))
+}
+
+fn normalize_kind_filters(kinds: &[String]) -> Vec<String> {
+    let mut filters = kinds
+        .iter()
+        .filter_map(|kind| {
+            let kind = kind.trim().to_ascii_lowercase();
+            (!kind.is_empty()).then_some(kind)
+        })
+        .collect::<Vec<_>>();
+    filters.sort();
+    filters.dedup();
+    filters
+}
+
+fn filter_mcp_symbol_postings(
+    postings: Vec<crate::SymbolPosting>,
+    kinds: &[String],
+    limit: usize,
+) -> (usize, Vec<crate::SymbolPosting>) {
+    let mut filtered = postings
+        .into_iter()
+        .filter(|posting| symbol_kind_matches(&posting.kind, kinds))
+        .collect::<Vec<_>>();
+    let total = filtered.len();
+    filtered.truncate(limit);
+    (total, filtered)
+}
+
+fn filter_mcp_outline_symbols(outline: &mut crate::symbol_index::FileOutline, kinds: &[String]) {
+    if kinds.is_empty() {
+        return;
+    }
+    outline
+        .symbols
+        .retain(|symbol| symbol_kind_matches(&symbol.kind, kinds));
+    for chunk in &mut outline.chunks {
+        chunk
+            .symbols
+            .retain(|symbol| symbol_kind_matches(&symbol.kind, kinds));
+    }
+}
+
+fn symbol_kind_matches(kind: &str, filters: &[String]) -> bool {
+    filters.is_empty()
+        || filters
+            .iter()
+            .any(|filter| filter == &kind.to_ascii_lowercase())
 }
 
 fn tool_pack(
@@ -2085,6 +2194,8 @@ fn tool_schemas() -> Vec<Value> {
                     "source": {"type": ["string", "null"], "description": "Git URL or local path. Omit only when the server has a default source."},
                     "profile": {"type": ["string", "null"], "description": "Saved profile to use for source defaults."},
                     "limit": {"type": "integer", "minimum": 1, "default": 20, "description": "Maximum number of symbol postings to return."},
+                    "kind": {"type": ["string", "array"], "items": {"type": "string"}, "description": "Optional symbol kind filter. May be a string or array; examples: function, struct, class, case."},
+                    "kinds": {"type": "array", "items": {"type": "string"}, "description": "Optional symbol kind filters. Equivalent to kind as an array."},
                     "include_docs": {"type": "boolean", "default": false, "description": "Include Markdown, JSON, YAML, TOML, and text-like files for this call."},
                     "extensions": {"type": "array", "items": {"type": "string"}, "description": "Optional file extensions to index for this call."}
                 },
@@ -2103,6 +2214,8 @@ fn tool_schemas() -> Vec<Value> {
                     "symbols_limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
                     "chunks_limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
                     "no_chunks": {"type": "boolean", "default": false},
+                    "kind": {"type": ["string", "array"], "items": {"type": "string"}, "description": "Optional symbol kind filter. May be a string or array; examples: function, struct, class, case."},
+                    "kinds": {"type": "array", "items": {"type": "string"}, "description": "Optional symbol kind filters. Equivalent to kind as an array."},
                     "include_docs": {"type": "boolean", "default": false, "description": "Include Markdown, JSON, YAML, TOML, and text-like files for this call."},
                     "extensions": {"type": "array", "items": {"type": "string"}, "description": "Optional file extensions to index for this call."}
                 },

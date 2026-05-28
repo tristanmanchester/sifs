@@ -14,6 +14,11 @@ versioning where practical.
 - Added indexed structural inspection with `sifs symbol`, `sifs outline`,
   `list-files --prefix`, and matching MCP `symbol`, `outline`, and `pack`
   tools over existing SIFS index data.
+- Added repeatable `--kind` filters for `sifs symbol` and `sifs outline`,
+  matching MCP `kind`/`kinds` filters, and symbol role/confidence/origin
+  metadata in structured symbol postings.
+- Added `scripts/field-test-structural-tools.sh` for deterministic real-repo
+  smoke testing of status, file listing, symbols, outlines, and context packs.
 
 ### Changed
 
@@ -24,6 +29,11 @@ versioning where practical.
   tool contract expansion.
 - Bounded `outline` output by default with symbol and chunk limits so large
   files remain agent-safe.
+- Tightened Python and Swift symbol extraction so outlines emphasize
+  declarations instead of common call-like tokens.
+- Limited `pack --include-symbol-definitions` expansion to identifier-like
+  query terms so broad lowercase prose queries do not pull unrelated definition
+  chunks.
 
 ### Fixed
 
@@ -37,6 +47,8 @@ versioning where practical.
   lookup metadata and truncation context.
 - Fixed MCP structural tools so per-call document and extension indexing
   options can be supplied without relying on a saved profile.
+- Fixed `sifs status` so cache, document, and extension scope flags are accepted
+  consistently with other indexing commands.
 - Fixed Clippy warnings for stable Rust: type complexity, boolean expression
   simplification, manual div_ceil usage, and redundant conditional branches.
 

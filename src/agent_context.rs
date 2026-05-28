@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-pub const AGENT_CONTEXT_SCHEMA_VERSION: &str = "2";
+pub const AGENT_CONTEXT_SCHEMA_VERSION: &str = "3";
 
 pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Value {
     json!({
@@ -161,6 +161,7 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--source": {"type": "string", "default": "."},
                     "--profile": {"type": "string", "required": false},
                     "--limit": {"type": "integer", "default": 5, "minimum": 1},
+                    "--kind": {"type": "string", "repeatable": true, "required": false},
                     "--include-docs": {"type": "boolean", "default": false},
                     "--extension": {"type": "string", "repeatable": true},
                     "--cache-dir": {"type": "path", "required": false},
@@ -183,6 +184,7 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--symbols-limit": {"type": "integer", "default": 200, "minimum": 1},
                     "--chunks-limit": {"type": "integer", "default": 100, "minimum": 1},
                     "--no-chunks": {"type": "boolean", "default": false},
+                    "--kind": {"type": "string", "repeatable": true, "required": false},
                     "--include-docs": {"type": "boolean", "default": false},
                     "--extension": {"type": "string", "repeatable": true},
                     "--cache-dir": {"type": "path", "required": false},
@@ -221,6 +223,11 @@ pub fn agent_context(profile_names: Vec<String>, feedback_enabled: bool) -> Valu
                     "--model": {"type": "string", "required": false},
                     "--offline": {"type": "boolean", "default": false},
                     "--no-download": {"type": "boolean", "default": false},
+                    "--include-docs": {"type": "boolean", "default": false},
+                    "--extension": {"type": "string", "repeatable": true},
+                    "--cache-dir": {"type": "path", "required": false},
+                    "--no-cache": {"type": "boolean", "default": false},
+                    "--project-cache": {"type": "boolean", "default": false},
                     "--json": {"type": "boolean"}
                 },
                 "mutates": false,

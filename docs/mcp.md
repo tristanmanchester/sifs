@@ -156,17 +156,19 @@ Use `get_chunk` with a file and one-based line:
 Use `symbol` when an agent already knows the symbol name:
 
 ```json
-{"source": "/path/to/project", "name": "SessionToken", "limit": 20}
+{"source": "/path/to/project", "name": "SessionToken", "kind": "struct", "limit": 20}
 ```
 
 Use `outline` to inspect one indexed file before reading raw chunks:
 
 ```json
-{"source": "/path/to/project", "file_path": "src/auth/session.rs", "symbols_limit": 200, "chunks_limit": 100}
+{"source": "/path/to/project", "file_path": "src/auth/session.rs", "kinds": ["function"], "symbols_limit": 200, "chunks_limit": 100}
 ```
 
 Use `no_chunks: true` for a symbol-only outline. Missing indexed paths return a
-structured `found: false` response instead of a prose-only failure.
+structured `found: false` response instead of a prose-only failure. `symbol` and
+`outline` accept `kind` as a string or array, and `kinds` as an array, to filter
+the returned symbol kinds.
 
 Use `pack` to retrieve task-shaped context through MCP:
 
@@ -181,9 +183,14 @@ Use `pack` to retrieve task-shaped context through MCP:
 }
 ```
 
+`include_symbol_definitions` expands only identifier-like query terms such as
+`SessionToken`, `auth_flow`, or `token2`; plain lowercase prose terms are left as
+ordinary search context.
+
 When the SIFS daemon is running, MCP `search`, `list_files`, `symbol`,
 `outline`, and `pack` reuse its warm index and fall back to the embedded MCP
-index when the daemon is unavailable.
+index when the daemon is unavailable. Filtered `symbol` and `outline` calls use
+the embedded index so filtering happens before result limiting.
 
 ## Profiles and feedback
 

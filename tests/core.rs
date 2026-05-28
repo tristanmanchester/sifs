@@ -256,11 +256,7 @@ fn symbol_lookup_uses_indexed_symbols_with_folded_matching() {
             start_line: 1,
             end_line: 3,
             language: Some("rust".to_owned()),
-            symbols: vec![Symbol {
-                name: "TokenManager".to_owned(),
-                kind: "struct".to_owned(),
-                line: 1,
-            }],
+            symbols: vec![Symbol::definition("TokenManager", "struct", 1)],
             breadcrumbs: vec!["token".to_owned()],
         },
         Chunk {
@@ -269,11 +265,7 @@ fn symbol_lookup_uses_indexed_symbols_with_folded_matching() {
             start_line: 5,
             end_line: 8,
             language: Some("rust".to_owned()),
-            symbols: vec![Symbol {
-                name: "TokenManager".to_owned(),
-                kind: "impl".to_owned(),
-                line: 5,
-            }],
+            symbols: vec![Symbol::definition("TokenManager", "impl", 5)],
             breadcrumbs: vec!["token".to_owned()],
         },
     ];
@@ -297,11 +289,7 @@ fn file_outline_summarizes_indexed_chunks_even_without_symbols() {
             start_line: 1,
             end_line: 4,
             language: Some("rust".to_owned()),
-            symbols: vec![Symbol {
-                name: "parse_token".to_owned(),
-                kind: "fn".to_owned(),
-                line: 1,
-            }],
+            symbols: vec![Symbol::definition("parse_token", "fn", 1)],
             breadcrumbs: vec!["token".to_owned()],
         },
         Chunk {

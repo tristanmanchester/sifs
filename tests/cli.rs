@@ -298,6 +298,44 @@ fn symbol_command_returns_indexed_symbol_json_without_semantic_model() {
 }
 
 #[test]
+fn symbol_command_filters_by_kind() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src")).unwrap();
+    fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub struct TokenManager;\n\nimpl TokenManager {\n    pub fn new() -> Self { Self }\n}\n",
+    )
+    .unwrap();
+    let output = sifs()
+        .args([
+            "symbol",
+            "TokenManager",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--kind",
+            "struct",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["kinds"][0], "struct");
+    assert_eq!(value["total"], 1);
+    assert_eq!(value["symbols"][0]["kind"], "struct");
+    assert_eq!(value["symbols"][0]["role"], "definition");
+    assert_eq!(value["symbols"][0]["confidence"], "high");
+    assert_eq!(value["symbols"][0]["origin"], "line_pattern");
+}
+
+#[test]
 fn symbol_jsonl_keeps_lookup_envelope() {
     let repo = fixture();
     let output = sifs()
@@ -361,6 +399,153 @@ fn outline_command_returns_indexed_file_structure_json() {
     assert_eq!(value["outline"]["file_path"], "src/lib.rs");
     assert_eq!(value["outline"]["symbols"][0]["name"], "token_validation");
     assert_eq!(value["outline"]["chunk_count"], 1);
+}
+
+#[test]
+fn outline_command_filters_by_kind() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src")).unwrap();
+    fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub struct TokenManager;\n\npub fn token_validation() -> bool {\n    true\n}\n",
+    )
+    .unwrap();
+    let output = sifs()
+        .args([
+            "outline",
+            "src/lib.rs",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--kind",
+            "function",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["kinds"][0], "function");
+    let symbols = value["outline"]["symbols"].as_array().unwrap();
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0]["name"], "token_validation");
+    assert_eq!(symbols[0]["kind"], "function");
+}
+
+#[test]
+fn status_accepts_cache_and_scope_flags() {
+    let repo = fixture();
+    let output = sifs()
+        .args([
+            "status",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--include-docs",
+            "--extension",
+            "md",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["index_stats"]["indexed_files"], 1);
+}
+
+#[test]
+fn python_and_swift_outlines_avoid_call_like_symbols() {
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join("src")).unwrap();
+    fs::write(
+        repo.path().join("src/align.py"),
+        "class PoseLoop:\n    pass\n\nasync def solve_pose(items: list[int]) -> dict[str, bool]:\n    for index, item in enumerate(items):\n        score = int(float(index))\n    return {\"ok\": bool(items)}\n",
+    )
+    .unwrap();
+    fs::write(
+        repo.path().join("src/App.swift"),
+        "struct AppView: View {\n    var body: some View {\n        Text(UUID().uuidString)\n    }\n}\n\nenum ClientError: Error {\n    case network\n    case invalidToken\n}\n\nfunc loadValue() async -> Int {\n    switch max(1, 2) {\n    case 2:\n        return 2\n    default:\n        break\n    }\n    await Task.yield()\n    return max(1, 2)\n}\n",
+    )
+    .unwrap();
+
+    let python = sifs()
+        .args([
+            "outline",
+            "src/align.py",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        python.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&python.stderr)
+    );
+    let value: Value = serde_json::from_slice(&python.stdout).unwrap();
+    let python_symbols = value["outline"]["symbols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|symbol| symbol["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(python_symbols, vec!["PoseLoop", "solve_pose"]);
+
+    let swift = sifs()
+        .args([
+            "outline",
+            "src/App.swift",
+            "--source",
+            repo.path().to_str().unwrap(),
+            "--offline",
+            "--no-cache",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        swift.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&swift.stderr)
+    );
+    let value: Value = serde_json::from_slice(&swift.stdout).unwrap();
+    let swift_symbols = value["outline"]["symbols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|symbol| {
+            (
+                symbol["name"].as_str().unwrap(),
+                symbol["kind"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(swift_symbols.contains(&("AppView", "struct")));
+    assert!(swift_symbols.contains(&("body", "var")));
+    assert!(swift_symbols.contains(&("ClientError", "enum")));
+    assert!(swift_symbols.contains(&("network", "case")));
+    assert!(swift_symbols.contains(&("invalidToken", "case")));
+    assert!(swift_symbols.contains(&("loadValue", "function")));
+    assert!(
+        !swift_symbols
+            .iter()
+            .any(|(name, _)| ["await", "max", "UUID", "2"].contains(name))
+    );
 }
 
 #[test]
@@ -1010,7 +1195,7 @@ fn agent_context_json_describes_agent_native_contract() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["schema_version"], "2");
+    assert_eq!(value["schema_version"], "3");
     assert_eq!(value["cli"]["version"], env!("CARGO_PKG_VERSION"));
     assert!(value["commands"]["search"]["flags"]["--source"].is_object());
     assert!(value["commands"]["search"]["flags"]["--limit"].is_object());
@@ -1044,8 +1229,10 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["list-files"]["flags"]["--no-download"].is_object());
     assert!(value["commands"]["list-files"]["flags"]["--prefix"].is_object());
     assert!(value["commands"]["symbol"].is_object());
+    assert!(value["commands"]["symbol"]["flags"]["--kind"].is_object());
     assert_eq!(value["commands"]["symbol"]["output"], "symbol_postings");
     assert!(value["commands"]["outline"].is_object());
+    assert!(value["commands"]["outline"]["flags"]["--kind"].is_object());
     assert_eq!(value["commands"]["outline"]["output"], "file_outline");
     assert!(value["commands"]["find-related"]["flags"]["--model"].is_object());
     assert!(value["commands"]["find-related"]["flags"]["--encoder"].is_object());
@@ -1057,6 +1244,11 @@ fn agent_context_json_describes_agent_native_contract() {
     assert!(value["commands"]["status"]["flags"]["--model"].is_object());
     assert!(value["commands"]["status"]["flags"]["--offline"].is_object());
     assert!(value["commands"]["status"]["flags"]["--no-download"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--cache-dir"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--no-cache"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--project-cache"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--include-docs"].is_object());
+    assert!(value["commands"]["status"]["flags"]["--extension"].is_object());
     assert!(value["commands"]["get"]["flags"]["--model"].is_object());
     assert!(value["commands"]["get"]["flags"]["--offline"].is_object());
     assert!(value["commands"]["get"]["flags"]["--no-download"].is_object());
@@ -1894,6 +2086,12 @@ fn pack_can_include_symbol_definitions_and_neighbor_context() {
     let packed: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(packed["include_neighbors"], 1);
     assert_eq!(packed["include_symbol_definitions"], true);
+    assert!(
+        packed["symbol_definition_terms"]
+            .as_array()
+            .unwrap()
+            .contains(&Value::String("tokenmanager".to_owned()))
+    );
     let items = packed["items"].as_array().unwrap();
     assert!(items.iter().any(|item| item["kind"] == "primary"));
     assert!(items.iter().any(|item| item["kind"] == "symbol_definition"
@@ -1927,6 +2125,56 @@ fn pack_can_include_symbol_definitions_and_neighbor_context() {
     assert!(items.iter().any(|item| item["kind"] == "neighbor"));
     assert!(items.iter().any(|item| item["kind"] == "file_header"
         && item["file_path"].as_str().unwrap().ends_with("guide.md")));
+}
+
+#[test]
+fn pack_symbol_definitions_ignore_plain_lowercase_terms() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("src/defs.rs"),
+        "pub fn route() {}\npub fn token() {}\npub fn roles() {}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("src/entry.rs"),
+        "pub fn presentation() {\n    route();\n    token();\n    roles();\n}\n",
+    )
+    .unwrap();
+
+    let output = sifs()
+        .args([
+            "pack",
+            "entity link route capability density presentation token roles",
+            "--source",
+            dir.path().to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--offline",
+            "--limit",
+            "1",
+            "--include-symbol-definitions",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let packed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        packed["symbol_definition_terms"].as_array().unwrap().len(),
+        0
+    );
+    assert!(
+        !packed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "symbol_definition")
+    );
 }
 
 #[test]
